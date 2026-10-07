@@ -94,9 +94,17 @@ class Grant::Query::Builder(Model)
   # Yields one builder per chunk: a dup of this query with the oversized IN
   # array replaced by the chunk slice. The dup drops limit/offset (the caller
   # re-imposes limit across chunks) and any per-chunk overrides as needed.
+  #
+  # The chunks are built by `in_chunk_queries`, so only this loop is inlined at
+  # each of the terminals that yield through it.
   protected def each_in_chunk(&)
+    in_chunk_queries.each { |chunk_query| yield chunk_query }
+  end
+
+  protected def in_chunk_queries : Array(self)
+    chunk_queries = [] of self
     idx = oversized_in_index
-    return unless idx
+    return chunk_queries unless idx
 
     base_field = @where_fields[idx].as(NamedTuple(join: Symbol, field: String, operator: Symbol, value: Grant::Columns::Type))
     full_values = base_field[:value].as(Array)
@@ -119,8 +127,9 @@ class Grant::Query::Builder(Model)
       end
       chunk_query.clear_where_fields
       new_fields.each { |f| chunk_query.own_where_fields << f }
-      yield chunk_query
+      chunk_queries << chunk_query
     end
+    chunk_queries
   end
 
   # ---- Chunked read terminals ------------------------------------------------
