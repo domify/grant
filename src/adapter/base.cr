@@ -321,23 +321,109 @@ abstract class Grant::Adapter::Base
   # statement is timed and published once the block ends (also when it raised).
   # *name* labels the event, usually with the model that issued the statement.
   def open(sql : String? = nil, binds = nil, name : String? = nil, &)
-    if sql && Grant::Notifications.subscribed?(Grant::Events::SQL)
-      started = Time.instant # ameba:disable Lint/UselessAssign (read in the ensure below)
-      begin
-        return open_routed(sql, binds) { |conn| yield conn }
-      ensure
-        Grant::Notifications.publish_sql(self, sql, binds, Time.instant - started, name)
-        Grant::QueryCache.invalidate! unless Grant::Adapter::PoolSupport.idempotent_read?(sql)
-      end
+    # Only this skeleton is inlined at each caller: routing, the pool checkout,
+    # retries and error translation run in the `__open_*` methods, compiled
+    # once. The steps are those of `open_routed` and `open_pool_connection`.
+    started = sql && Grant::Notifications.subscribed?(Grant::Events::SQL) ? Time.instant : nil
+    lease = nil
+    lease = __open_lease(sql, binds)
+    loop do
+      return yield lease.connection
+    rescue ex
+      # Raises, or checks out again when a lost connection may be retried.
+      __open_failed(lease, ex, sql, binds)
     end
+  ensure
+    # Also when the block returned or broke out of `open`.
+    __open_release(lease) if lease
+    __open_finished(sql, binds, name, started)
+  end
 
-    begin
-      open_routed(sql, binds) { |conn| yield conn }
-    ensure
-      # Anything but a plain read may have changed data, so query caches drop
-      # their entries (also for a write made on another connection).
-      Grant::QueryCache.invalidate! unless Grant::Adapter::PoolSupport.idempotent_read?(sql)
+  # The connection `open` runs its block on. Owned (by a schema-tenant block,
+  # a transaction or `with_connection`) or checked out of the pool.
+  #
+  # :nodoc:
+  class OpenLease
+    property connection : DB::Connection
+    getter? pooled : Bool
+    property lost_retries : Int32
+    property attempt : Int32 = 0
+    property? released : Bool = false
+
+    def initialize(@connection : DB::Connection, @pooled : Bool, @lost_retries : Int32 = 0)
     end
+  end
+
+  # :nodoc:
+  def __open_lease(sql : String?, binds) : OpenLease
+    # A schema-tenant block owns one pool connection for its lifetime. Check it
+    # before transaction routing so a model on another adapter cannot bypass
+    # the tenant context merely because that adapter already has a transaction.
+    if owned = Grant::SchemaTenant.current_connection?(self) || Grant::Transaction.current_connection?(self) || pinned_connection?
+      return OpenLease.new(owned, false)
+    end
+    lost_retries = Grant::Adapter::PoolSupport.idempotent_read?(sql) ? Math.min(@retry_attempts, 1) : 0
+    __open_checkout(lost_retries, 0, sql, binds)
+  end
+
+  private def __open_checkout(lost_retries : Int32, attempt : Int32, sql : String?, binds) : OpenLease
+    loop do
+      lease = OpenLease.new(__transaction_checkout, true, lost_retries)
+      lease.attempt = attempt
+      return lease
+    rescue ex : ::DB::ConnectionLost
+      raise translate_exception(ex, sql, binds) if lost_retries == 0
+      lost_retries -= 1
+      sleep Grant::Adapter::PoolSupport.backoff(@retry_delay, attempt)
+      attempt += 1
+    end
+  rescue ex : ::Exception
+    raise translate_exception(ex, sql, binds)
+  end
+
+  # :nodoc:
+  def __open_failed(lease : OpenLease, ex : ::Exception, sql : String?, binds) : Nil
+    connection = lease.connection
+    raise translate_exception(ex, sql || connection.grant_last_sql, binds) unless lease.pooled?
+
+    failure = if ex.is_a?(IO::Error) || ex.message =~ /client was disconnected/
+                ::DB::ConnectionLost.new(connection)
+              elsif sql.nil?
+                # A caller that passed no SQL still gets the statement that failed.
+                translate_exception(ex, connection.grant_last_sql, binds)
+              else
+                ex
+              end
+    __open_release(lease)
+    if failure.is_a?(::DB::ConnectionLost) && lease.lost_retries > 0
+      sleep Grant::Adapter::PoolSupport.backoff(@retry_delay, lease.attempt)
+      retried = __open_checkout(lease.lost_retries - 1, lease.attempt + 1, sql, binds)
+      lease.connection = retried.connection
+      lease.lost_retries = retried.lost_retries
+      lease.attempt = retried.attempt
+      lease.released = false
+      return
+    end
+    raise translate_exception(failure, sql, binds)
+  end
+
+  # Returns a pooled connection to the pool, once.
+  #
+  # :nodoc:
+  def __open_release(lease : OpenLease) : Nil
+    return if !lease.pooled? || lease.released?
+    lease.released = true
+    __transaction_checkin(lease.connection)
+  end
+
+  # :nodoc:
+  def __open_finished(sql : String?, binds, name : String?, started : Time::Instant?) : Nil
+    if started && sql
+      Grant::Notifications.publish_sql(self, sql, binds, Time.instant - started, name)
+    end
+    # Anything but a plain read may have changed data, so query caches drop
+    # their entries (also for a write made on another connection).
+    Grant::QueryCache.invalidate! unless Grant::Adapter::PoolSupport.idempotent_read?(sql)
   end
 
   private def open_routed(sql : String?, binds, &)
@@ -454,6 +540,37 @@ abstract class Grant::Adapter::Base
       connection.close if aged?(connection)
       connection.grant_last_used_ticks = Grant::Adapter::PoolSupport.ticks
       connection.release
+    end
+  end
+
+  # A pool checkout held by a transaction from BEGIN to COMMIT, which
+  # `Grant::Transaction` opens and closes around its block instead of yielding
+  # through `open_pool_connection`. These are that method's steps.
+  #
+  # :nodoc:
+  def __transaction_checkout : DB::Connection
+    connection = checkout_connection
+    @active_checkouts.add(1)
+    @last_used_ticks.set(Grant::Adapter::PoolSupport.ticks)
+    connection
+  end
+
+  # :ditto:
+  def __transaction_checkin(connection : DB::Connection) : Nil
+    @active_checkouts.sub(1)
+    connection.close if aged?(connection)
+    connection.grant_last_used_ticks = Grant::Adapter::PoolSupport.ticks
+    connection.release
+  end
+
+  # :ditto:
+  # The exception `checked_out` raises for *ex*, raised while *connection* was
+  # checked out with no SQL.
+  def __checked_out_failure(ex : ::Exception, connection : DB::Connection) : ::Exception
+    if ex.is_a?(IO::Error) || ex.message =~ /client was disconnected/
+      ::DB::ConnectionLost.new(connection)
+    else
+      translate_exception(ex, connection.grant_last_sql, nil)
     end
   end
 
