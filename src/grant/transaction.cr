@@ -459,53 +459,272 @@ module Grant::Transaction
   #   SAVEPOINT, rolled back independently and along with the outer transaction.
   # - Otherwise the block joins the enclosing transaction (a `Rollback` is
   #   swallowed without undoing anything, as in ActiveRecord).
+  #
+  # Only a small skeleton is inlined at each caller: what opening and closing
+  # the level involves (a pool checkout, BEGIN or SAVEPOINT, COMMIT, rollback
+  # and their error handling) runs in `enter_level` and `leave_level`, which
+  # are compiled once. The block is still yielded to, so it may `return`,
+  # `break` and assign the caller's variables as with any block.
   def self.run(adapter : Grant::Adapter::Base, options : Options, & : -> T) : T? forall T
+    level = enter_level(adapter, options)
+    begin
+      begin
+        value = yield
+      rescue ex
+        level.left = true
+        leave_level(level, ex)
+        return
+      end
+      level.left = true
+      leave_level(level, nil)
+      value
+    ensure
+      # The block returned or broke out of `run`: what the yielding form's
+      # ensure clauses did then (the pool checkout released, the savepoint's
+      # joinable flag and a pushed level restored), and no more.
+      abandon_level(level) unless level.left?
+    end
+  end
+
+  # What one `run` opened: a joined block, a savepoint or a real transaction.
+  #
+  # :nodoc:
+  class Level
+    enum Kind
+      Joined
+      Savepoint
+      Real
+    end
+
+    getter kind : Kind
+    getter adapter : Grant::Adapter::Base
+    getter options : Options
+    # The state a cross-database `run` pushed, popped when the level closes.
+    getter pushed : TransactionState?
+    property state : TransactionState? = nil
+    # A real transaction's pool checkout; nil on a connection the fiber owns.
+    property checkout : DB::Connection? = nil
+    property savepoint_name : String = ""
+    property marks : NamedTuple(callbacks: Int32, records: Int32, after_all: Int32) = {callbacks: 0, records: 0, after_all: 0}
+    property? previous_joinable : Bool = true
+    property started_at : Time::Instant = Time.instant
+    property? left : Bool = false
+
+    def initialize(@kind : Kind, @adapter : Grant::Adapter::Base, @options : Options, @pushed : TransactionState? = nil)
+    end
+  end
+
+  # Opens the level `run` works in, as the nested blocks of `run` did:
+  # joining the open transaction, a savepoint in it, or a real transaction.
+  private def self.enter_level(adapter : Grant::Adapter::Base, options : Options) : Level
     state = current_state_for?(adapter)
-    return run_real(adapter, options) { yield } unless state
+    return enter_real(adapter, options, nil) unless state
 
     stack = fiber_stack
-    if state.same?(stack.last?)
-      run_nested(state, adapter, options) { yield }
-    else
+    pushed = nil
+    unless state.same?(stack.last?)
       # The open transaction on *adapter* has a transaction on another database
       # nested inside it. Make it the innermost level for the block so saves
       # enlist their callbacks and record snapshots with it, not with the
       # other database's transaction.
       stack.push(state)
+      pushed = state
+    end
+    begin
+      if options.independent
+        if Grant::SchemaTenant.current_connection?(adapter) || adapter.pinned_connection?
+          # A schema-tenant or pinned-connection block owns one physical
+          # connection; a second one would lose its session state, so nest
+          # with a savepoint instead.
+          return enter_savepoint(state, options.joinable, adapter, options, pushed)
+        end
+        return enter_real(adapter, options, pushed)
+      end
+      raise Grant::TransactionIsolationError.new if options.isolation
+      if options.requires_new || !state.joinable?
+        enter_savepoint(state, options.joinable, adapter, options, pushed)
+      else
+        Level.new(:joined, adapter, options, pushed)
+      end
+    rescue ex
+      pop_pushed(pushed)
+      raise ex
+    end
+  end
+
+  private def self.pop_pushed(pushed : TransactionState?) : Nil
+    if pushed
+      stack = fiber_stack
+      stack.pop if stack.last?.same?(pushed)
+    end
+  end
+
+  private def self.enter_savepoint(state : TransactionState, joinable : Bool, adapter : Grant::Adapter::Base, options : Options, pushed : TransactionState?) : Level
+    level = Level.new(:savepoint, adapter, options, pushed)
+    level.state = state
+    level.savepoint_name = state.next_savepoint_name
+    level.marks = savepoint_marks(state)
+    level.previous_joinable = state.joinable?
+    state.joinable = joinable
+    level.started_at = Time.instant
+    begin
+      execute_control(state.connection, state.adapter, "SAVEPOINT #{level.savepoint_name}")
+      publish_transaction_start(state, level.savepoint_name)
+    rescue ex
+      # As when the savepoint's block raised: rolled back, then raised again.
+      leave_savepoint(level, ex)
+    end
+    level
+  end
+
+  private def self.enter_real(adapter : Grant::Adapter::Base, options : Options, pushed : TransactionState?) : Level
+    level = Level.new(:real, adapter, options, pushed)
+    conn = Grant::SchemaTenant.current_connection?(adapter) || adapter.pinned_connection?
+    unless conn
+      # Use a dedicated pool checkout outside schema tenancy. Inside a schema
+      # block the same already-pinned connection must carry BEGIN through
+      # COMMIT so every statement sees the active search_path.
       begin
-        run_nested(state, adapter, options) { yield }
+        conn = adapter.__transaction_checkout
+      rescue ex
+        pop_pushed(pushed)
+        raise real_failure(adapter, adapter.translate_exception(ex))
+      end
+      level.checkout = conn
+    end
+    begin
+      if options.lazy_begin
+        state = TransactionState.new(conn, options, adapter)
+        state.defer_begin!
+        fiber_stack.push(state)
+      else
+        execute_begin(conn, adapter, options)
+        state = TransactionState.new(conn, options, adapter)
+        fiber_stack.push(state)
+        publish_transaction_start(state, nil)
+      end
+      level.state = state
+    rescue ex
+      # BEGIN failed before the block ran: nothing to roll back.
+      if checkout = level.checkout
+        ex = adapter.__checked_out_failure(ex, checkout)
+        adapter.__transaction_checkin(checkout)
+        ex = adapter.translate_exception(ex)
+      end
+      pop_pushed(pushed)
+      raise real_failure(adapter, ex)
+    end
+    level
+  end
+
+  # The exception a real transaction raises for *ex*: a database error is
+  # translated, an I/O error the block raised is raised as it was.
+  private def self.real_failure(adapter : Grant::Adapter::Base, ex : Exception) : Exception
+    case ex
+    when DB::Error        then adapter.translate_exception(ex)
+    when PreservedIOError then ex.original
+    else                       ex
+    end
+  end
+
+  # Closes *level* after its block returned (*failure* nil) or raised
+  # *failure*. Returns when the block's value stands (or a `Rollback` was
+  # swallowed, after which `run` returns nil); raises what `run` raises.
+  private def self.leave_level(level : Level, failure : Exception?) : Nil
+    case level.kind
+    in .joined?
+      # A joined block's Rollback is swallowed without undoing anything.
+      raise failure if failure && !failure.is_a?(Rollback)
+    in .savepoint?
+      leave_savepoint(level, failure)
+    in .real?
+      leave_real(level, failure)
+    end
+  ensure
+    pop_pushed(level.pushed)
+  end
+
+  private def self.abandon_level(level : Level) : Nil
+    case level.kind
+    in .joined?
+    in .savepoint?
+      level.state.try &.joinable=(level.previous_joinable?)
+    in .real?
+      level.checkout.try { |checkout| level.adapter.__transaction_checkin(checkout) }
+    end
+  ensure
+    pop_pushed(level.pushed)
+  end
+
+  private def self.leave_savepoint(level : Level, failure : Exception?) : Nil
+    raise ArgumentError.new("A savepoint level has its state") unless state = level.state
+    name = level.savepoint_name
+    callbacks = nil
+    begin
+      begin
+        if failure
+          rollback_to_savepoint(state, name, level.marks)
+          publish_transaction_end(state, Grant::Events::TransactionOutcome::Rollback, level.started_at, name)
+          raise failure unless failure.is_a?(Rollback)
+        else
+          begin
+            execute_control(state.connection, state.adapter, "RELEASE SAVEPOINT #{name}")
+            publish_transaction_end(state, Grant::Events::TransactionOutcome::Commit, level.started_at, name)
+            callbacks = take_released_savepoint_callbacks(state, level.marks) unless level.previous_joinable?
+          rescue ex
+            rollback_to_savepoint(state, name, level.marks)
+            publish_transaction_end(state, Grant::Events::TransactionOutcome::Rollback, level.started_at, name)
+            raise ex
+          end
+        end
       ensure
-        stack.pop if stack.last?.same?(state)
+        state.joinable = level.previous_joinable?
       end
+    rescue ex : DB::Error
+      handle_transaction_error(state.adapter, ex)
     end
+    # Released under a non-joinable level: its after_commit callbacks run now,
+    # outside the database-error rescue.
+    callbacks.try &.each(&.call)
   end
 
-  private def self.run_nested(state : TransactionState, adapter : Grant::Adapter::Base, options : Options, & : -> T) : T? forall T
-    if options.independent
-      if Grant::SchemaTenant.current_connection?(adapter) || adapter.pinned_connection?
-        # A schema-tenant or pinned-connection block owns one physical
-        # connection; a second one would lose its session state, so nest with
-        # a savepoint instead.
-        return run_savepoint(state, options.joinable, nil) { yield }
+  private def self.leave_real(level : Level, failure : Exception?) : Nil
+    raise ArgumentError.new("A real transaction level has its state") unless state = level.state
+    adapter = level.adapter
+    callbacks = [] of Proc(Nil)
+    raised = nil
+    begin
+      if failure.is_a?(Rollback)
+        callbacks = abort_real(state)
+      elsif failure
+        abort_real(state).each(&.call)
+        raised = failure.is_a?(IO::Error) ? PreservedIOError.new(failure) : failure
+      else
+        begin
+          # A deferred BEGIN that never went out means no statement ran: there
+          # is nothing to commit.
+          execute_control(state.raw_connection, adapter, "COMMIT") unless state.begin_pending?
+        rescue ex
+          abort_real(state).each(&.call)
+          raise ex
+        end
+        callbacks = finalize_commit(state)
       end
-      return run_real(adapter, options) { yield }
+    rescue ex
+      raised = ex
     end
 
-    if options.isolation
-      raise Grant::TransactionIsolationError.new
+    if checkout = level.checkout
+      # What the pool checkout the transaction ran on does with an exception.
+      raised = adapter.__checked_out_failure(raised, checkout) if raised
+      adapter.__transaction_checkin(checkout)
+      raised = adapter.translate_exception(raised) if raised
     end
+    raise real_failure(adapter, raised) if raised
 
-    if options.requires_new || !state.joinable?
-      run_savepoint(state, options.joinable, nil) { yield }
-    else
-      run_joined { yield }
-    end
-  end
-
-  private def self.run_joined(& : -> T) : T? forall T
-    yield
-  rescue Rollback
-    nil
+    # Commit callbacks run after the transaction leaves the fiber stack, outside
+    # the database-error rescue so their exceptions are preserved.
+    callbacks.each(&.call)
   end
 
   # A savepoint opened directly under a non-joinable level (for example the
@@ -604,62 +823,6 @@ module Grant::Transaction
   private def self.restore_transaction_records(state : TransactionState) : Nil
     state.list_of_record_rollback_actions.reverse_each(&.call)
     state.list_of_record_rollback_actions.clear
-  end
-
-  private def self.run_real(adapter : Grant::Adapter::Base, options : Options, & : -> T) : T? forall T
-    outcome = begin
-      if conn = Grant::SchemaTenant.current_connection?(adapter) || adapter.pinned_connection?
-        run_real_on(conn, adapter, options) { yield }
-      else
-        # Use a dedicated pool checkout outside schema tenancy. Inside a schema
-        # block the same already-pinned connection must carry BEGIN through
-        # COMMIT so every statement sees the active search_path.
-        adapter.open_pool_connection do |pooled|
-          run_real_on(pooled, adapter, options) { yield }
-        end
-      end
-    rescue ex : DB::Error
-      handle_transaction_error(adapter, ex)
-    rescue ex : PreservedIOError
-      raise ex.original
-    end
-
-    # Commit callbacks run after the transaction leaves the fiber stack. Run
-    # them outside the database-error rescue so their exceptions are preserved.
-    outcome[0].each(&.call)
-    outcome[1]
-  end
-
-  private def self.run_real_on(conn : DB::Connection, adapter : Grant::Adapter::Base, options : Options, & : -> T) : {Array(Proc(Nil)), T?} forall T
-    if options.lazy_begin
-      state = TransactionState.new(conn, options, adapter)
-      state.defer_begin!
-      fiber_stack.push(state)
-    else
-      execute_begin(conn, adapter, options)
-      state = TransactionState.new(conn, options, adapter)
-      fiber_stack.push(state)
-      publish_transaction_start(state, nil)
-    end
-    value : T? = nil
-
-    begin
-      begin
-        value = yield
-      rescue ex : IO::Error
-        raise PreservedIOError.new(ex)
-      end
-      # A deferred BEGIN that never went out means no statement ran: there is
-      # nothing to commit.
-      execute_control(conn, adapter, "COMMIT") unless state.begin_pending?
-    rescue Rollback
-      return {abort_real(state), nil}
-    rescue ex
-      abort_real(state).each(&.call)
-      raise ex
-    end
-
-    {finalize_commit(state), value}
   end
 
   # Issues ROLLBACK and settles the state. The state leaves the stack even if
