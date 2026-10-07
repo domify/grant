@@ -823,6 +823,14 @@ module Grant::Associations
       primary_key: {{primary_key.id}}, foreign_key: {{foreign_key.id}}, source: {{source.id}},
       owner_primary_key: {{primary_key.id}}, scope: {{scope}})]
     def {{method_name.id}} : Grant::AssociationCollection(self, {{class_name.id}})
+      _grant_assoc_{{method_name.id}}
+    end
+
+    # The association itself, which the generated writers use, so a model that
+    # overrides the reader (as a Rails model may) keeps working writers.
+    #
+    # :nodoc:
+    def _grant_assoc_{{method_name.id}} : Grant::AssociationCollection(self, {{class_name.id}})
       {% if scope %}
         {% if scope.args.empty? %}
           scope_proc = ->(q : Grant::Query::Builder({{class_name.id}})) { q.{{scope.body}} }
@@ -972,7 +980,7 @@ module Grant::Associations
       # the records wait for its first save.
       def {{method_name.id}}=(records : Array({{class_name.id}}))
         if persisted?
-          {{method_name.id}}.replace(records)
+          _grant_assoc_{{method_name.id}}.replace(records)
           return records
         end
         _grant_stage_{{method_name.id}}(records)
@@ -996,7 +1004,7 @@ module Grant::Associations
       # Replaces the collection: removes the targets that left the set and
       # inserts the join rows of the new ones (one INSERT, one DELETE).
       def {{method_name.id}}=(records : Array({{class_name.id}}))
-        {{method_name.id}}.replace(records)
+        _grant_assoc_{{method_name.id}}.replace(records)
         records
       end
     {% end %}
