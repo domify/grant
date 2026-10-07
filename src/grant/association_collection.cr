@@ -681,9 +681,17 @@ class Grant::AssociationCollection(Owner, Target)
     Grant::AssociationLoader.where_in(relation, column, keys)
   end
 
+  # A record given for an association (`find_by(post: post)`) stands for its
+  # foreign key, `post_id`, as in Active Record.
   private def model_args(attrs : NamedTuple | Hash) : Grant::ModelArgs
     args = Grant::ModelArgs.new
-    attrs.each { |key, value| args[key.to_s] = value.as(Grant::Columns::Type) }
+    attrs.each do |key, value|
+      if value.is_a?(Grant::Base)
+        args["#{key}_id"] = value.primary_key_value.as(Grant::Columns::Type)
+      else
+        args[key.to_s] = value.as(Grant::Columns::Type)
+      end
+    end
     args
   end
 
