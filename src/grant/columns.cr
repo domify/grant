@@ -18,6 +18,28 @@ class Grant::ColumnPlan
 end
 
 module Grant::Columns
+  # Converts *value*, mass-assigned to the column *name* of *record*, to the
+  # column's type *type* (spelled *type_name* in messages). Returns whether it
+  # converted, and the value. A failed conversion is recorded on *record* as a
+  # conversion error with the raw input kept, as for any column; the caller
+  # keeps the raw input of a converted value after writing it.
+  #
+  # :nodoc:
+  def self.mass_convert(record : Grant::Base, name : String, value : Type, type : T.class, type_name : String) : {Bool, T?} forall T
+    converted_value = Grant::Type.convert_type(value, T)
+    if converted_value.is_a?(T)
+      {true, converted_value.as(T?)}
+    else
+      record.errors << Grant::ConversionError.new(name, "Expected #{name} to be #{type_name} but got #{typeof(converted_value)}.")
+      record.__record_unconvertible_input(name, value)
+      {false, nil.as(T?)}
+    end
+  rescue ex : ArgumentError
+    record.errors << Grant::ConversionError.new(name, ex.message)
+    record.__record_unconvertible_input(name, value)
+    {false, nil.as(T?)}
+  end
+
   alias SupportedArrayTypes = Array(String) | Array(Int16) | Array(Int32) | Array(Int64) | Array(Float32) | Array(Float64) | Array(Bool) | Array(UUID) | Array(Time) | Array(BigDecimal)
   alias Type = DB::Any | SupportedArrayTypes | UUID | BigDecimal | Int8 | Int16
 
@@ -798,46 +820,52 @@ module Grant::Columns
     attribute_name = self.class.resolve_attribute_alias(attribute_name)
     return if Grant::Columns::VirtualAttributeRegistry.assign(self, attribute_name, value)
 
-    {% begin %}
-    case attribute_name
-    {% for column in @type.instance_vars.select(&.annotation(Grant::Column)) %}
-      {% ann = column.annotation(Grant::Column) %}
-      when {{column.name.stringify}}
+    # Each column's branch is one call: the conversion and its error handling
+    # live in `Grant::Columns.mass_convert`, compiled once per column type
+    # rather than once per column of every model.
+    handled = begin
+      {% begin %}
+      case attribute_name
+      {% for column in @type.instance_vars.select(&.annotation(Grant::Column)) %}
+        {% ann = column.annotation(Grant::Column) %}
         {% if ann[:nilable] == true %}
           {% setter_type = column.type %}
         {% else %}
           {% setter_type = ann[:setter_type] %}
         {% end %}
-        begin
-          return if __mass_assign_special_{{column.name.id}}(value)
-          converted_value = Grant::Type.convert_type(value, {{setter_type}})
-          if converted_value.is_a?({{setter_type}})
-            self.{{column.name.id}} = converted_value
-            capture_before_type_cast({{column.name.stringify}}, value) if value != converted_value
-          else
-            errors << Grant::ConversionError.new({{column.name.stringify}}, "Expected {{column.name.id}} to be {{setter_type}} but got #{typeof(converted_value)}.")
-            __record_unconvertible_input({{column.name.stringify}}, value)
+      when {{column.name.stringify}}
+        unless __mass_assign_special_{{column.name.id}}(value)
+          converted, typed_value = Grant::Columns.mass_convert(self, {{column.name.stringify}}, value, {{setter_type}}, {{setter_type.stringify}})
+          if converted
+            self.{{column.name.id}} = typed_value.as({{setter_type}})
+            capture_before_type_cast({{column.name.stringify}}, value) if value != typed_value
           end
-        rescue ex : ArgumentError
-          errors << Grant::ConversionError.new({{column.name.stringify}}, ex.message)
-          __record_unconvertible_input({{column.name.stringify}}, value)
         end
-    {% end %}
-    else
-      if encrypted_attribute = self.class.encrypted_attributes[attribute_name]?
-        case value
-        when String
-          encrypted_attribute.assign(self, value)
-        when Nil
-          encrypted_attribute.assign(self, nil)
-        else
-          errors << Grant::ConversionError.new(attribute_name, "Expected #{attribute_name} to be String? but got #{typeof(value)}.")
-        end
+        true
+      {% end %}
       else
-        raise "Cannot write attribute #{attribute_name}, invalid attribute"
+        false
       end
+      {% end %}
+    rescue ex : ArgumentError
+      errors << Grant::ConversionError.new(attribute_name, ex.message)
+      __record_unconvertible_input(attribute_name, value)
+      true
     end
-    {% end %}
+    return if handled
+
+    if encrypted_attribute = self.class.encrypted_attributes[attribute_name]?
+      case value
+      when String
+        encrypted_attribute.assign(self, value)
+      when Nil
+        encrypted_attribute.assign(self, nil)
+      else
+        errors << Grant::ConversionError.new(attribute_name, "Expected #{attribute_name} to be String? but got #{typeof(value)}.")
+      end
+    else
+      raise "Cannot write attribute #{attribute_name}, invalid attribute"
+    end
   end
 
   def read_attribute(attribute_name : Symbol | String) : Type
