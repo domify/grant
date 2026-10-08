@@ -132,7 +132,7 @@ class Grant::Query::Builder(Model)
     when :ignore
       yield without_index_hints
     else # :warn
-      Grant::Logs::Query.warn { "Index hint failed (#{ex.message}); re-running #{Model.name} query without hint" }
+      Grant::Logs.warn(Grant::Logs::Query) { "Index hint failed (#{ex.message}); re-running #{Model.name} query without hint" }
       yield without_index_hints
     end
   end

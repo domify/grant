@@ -55,7 +55,7 @@ module Grant
               subscription.handler.call(event)
             rescue ex
               # An instrumentation handler must never fail the statement it observes.
-              Grant::Log.error(exception: ex) { "{{@type}} subscriber raised" }
+              Grant::Logs.error(Grant::Log, exception: ex) { "{{@type}} subscriber raised" }
             end
           end
         end

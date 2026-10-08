@@ -42,7 +42,7 @@ module Grant::CompositePrimaryKey::Transactions
     return super unless self.class.composite_primary_key?
 
     {% begin %}
-      Grant::Logs::Model.debug { "Creating record - #{self.class.name}" }
+      Grant::Logs.debug(Grant::Logs::Model) { "Creating record - #{self.class.name}" }
 
       set_timestamps unless skip_timestamps || !self.class.record_timestamps?
       fields = self.class.content_fields.dup
@@ -88,14 +88,14 @@ module Grant::CompositePrimaryKey::Transactions
   rescue err : Grant::Transaction::ReadOnlyError
     raise err
   rescue err : DB::Error | Grant::StatementInvalid
-    Grant::Logs::Model.error { "Failed to create record - #{self.class.name} - #{err.message}" }
+    Grant::Logs.error(Grant::Logs::Model) { "Failed to create record - #{self.class.name} - #{err.message}" }
     raise err
   rescue err
-    Grant::Logs::Model.error { "Failed to create record - #{self.class.name} - #{err.message}" }
+    Grant::Logs.error(Grant::Logs::Model) { "Failed to create record - #{self.class.name} - #{err.message}" }
     raise DB::Error.new(err.message, cause: err)
   else
     self.new_record = false
-    Grant::Logs::Model.info { "Record created - #{self.class.name} [#{__key_description}]" }
+    Grant::Logs.info(Grant::Logs::Model) { "Record created - #{self.class.name} [#{__key_description}]" }
   end
 
   private def __update(skip_timestamps : Bool = false)
@@ -104,7 +104,7 @@ module Grant::CompositePrimaryKey::Transactions
 
     raise Grant::ReadOnlyRecordError.new("#{self.class.name} is marked as read only") if readonly?
 
-    Grant::Logs::Model.debug { "Updating record - #{self.class.name} [#{__key_description}]" }
+    Grant::Logs.debug(Grant::Logs::Model) { "Updating record - #{self.class.name} [#{__key_description}]" }
 
     fields = self.class.content_fields.dup
     params = content_values
@@ -112,7 +112,7 @@ module Grant::CompositePrimaryKey::Transactions
     if self.class.partial_updates? && self.class.__partial_update_safe?
       changed_columns = __changed_column_names
       if changed_columns.empty?
-        Grant::Logs::Model.debug { "Skipping update, nothing changed - #{self.class.name} [#{__key_description}]" }
+        Grant::Logs.debug(Grant::Logs::Model) { "Skipping update, nothing changed - #{self.class.name} [#{__key_description}]" }
         return
       end
       if !skip_timestamps && self.class.record_timestamps?
@@ -163,11 +163,11 @@ module Grant::CompositePrimaryKey::Transactions
           raise Grant::TenantMismatchError.new("#{self.class.name} row #{__key_description} is outside the current tenant.")
         end
       end
-      Grant::Logs::Model.info { "Record updated - #{self.class.name} [#{__key_description}]" }
+      Grant::Logs.info(Grant::Logs::Model) { "Record updated - #{self.class.name} [#{__key_description}]" }
     rescue ex : Grant::TenantMismatchError | Grant::NoTenantError | Grant::StatementInvalid | Grant::Transaction::ReadOnlyError
       raise ex
     rescue err
-      Grant::Logs::Model.error { "Failed to update record - #{self.class.name} [#{__key_description}] - #{err.message}" }
+      Grant::Logs.error(Grant::Logs::Model) { "Failed to update record - #{self.class.name} [#{__key_description}] - #{err.message}" }
       raise DB::Error.new(err.message, cause: err)
     end
   end
@@ -175,7 +175,7 @@ module Grant::CompositePrimaryKey::Transactions
   private def __destroy
     return super unless self.class.keyed_by_tuple?
 
-    Grant::Logs::Model.debug { "Destroying record - #{self.class.name} [#{__key_description}]" }
+    Grant::Logs.debug(Grant::Logs::Model) { "Destroying record - #{self.class.name} [#{__key_description}]" }
     self.class.mark_write_operation
     affected = __key_scope.delete_all
     if affected == 0 && self.class.__multitenant? && !self.class._unscoped?
@@ -183,7 +183,7 @@ module Grant::CompositePrimaryKey::Transactions
     end
     @destroyed = true
 
-    Grant::Logs::Model.info { "Record destroyed - #{self.class.name} [#{__key_description}]" }
+    Grant::Logs.info(Grant::Logs::Model) { "Record destroyed - #{self.class.name} [#{__key_description}]" }
   end
 
   def delete : self
@@ -243,12 +243,12 @@ module Grant::CompositePrimaryKey::Transactions
           raise Grant::TenantMismatchError.new("#{self.class.name} row #{__key_description} is outside the current tenant.")
         end
       end
-      Grant::Logs::Model.info { "Columns updated - #{self.class.name} [#{__key_description}]" }
+      Grant::Logs.info(Grant::Logs::Model) { "Columns updated - #{self.class.name} [#{__key_description}]" }
     rescue err : Grant::StatementInvalid | Grant::TenantMismatchError
-      Grant::Logs::Model.error { "Failed to update_columns - #{self.class.name} [#{__key_description}] - #{err.message}" }
+      Grant::Logs.error(Grant::Logs::Model) { "Failed to update_columns - #{self.class.name} [#{__key_description}] - #{err.message}" }
       raise err
     rescue err
-      Grant::Logs::Model.error { "Failed to update_columns - #{self.class.name} [#{__key_description}] - #{err.message}" }
+      Grant::Logs.error(Grant::Logs::Model) { "Failed to update_columns - #{self.class.name} [#{__key_description}] - #{err.message}" }
       raise DB::Error.new(err.message, cause: err)
     end
     clear_dirty_tracking_for(fields)

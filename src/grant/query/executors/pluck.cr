@@ -35,7 +35,7 @@ module Grant::Query::Executor
         log_query_with_timing(@sql, @args, duration, results.size, Model.name)
       rescue e
         duration = Time.instant - start_time
-        Grant::Logs::SQL.error { "Pluck query failed (#{duration.total_milliseconds}ms) - #{@sql} [#{Model.name}] [fields: #{@fields.join(", ")}] - #{e.message}" }
+        Grant::Logs.error(Grant::Logs::SQL) { "Pluck query failed (#{duration.total_milliseconds}ms) - #{@sql} [#{Model.name}] [fields: #{@fields.join(", ")}] - #{e.message}" }
         raise e
       end
 

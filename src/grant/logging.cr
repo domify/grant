@@ -38,6 +38,75 @@ module Grant
 
     # Query builder operations
     Query = ::Log.for("grant.query")
+
+    # The top-level `Log`: what `Log.error { }` wrote from code a macro
+    # expands into a model, outside the Grant namespace.
+    Top = ::Log.for("")
+
+    # `Grant::Logs.debug(Grant::Logs::SQL) { "..." }` writes what
+    # `Grant::Logs::SQL.debug { "..." }` does, through one method compiled
+    # once. Log's own methods take the block inline, so each entry written in
+    # a generic type or a model was typed again for every model; here only the
+    # level check and the message are, built only when the entry is written.
+    def self.emit(log : ::Log, severity : ::Log::Severity, exception : Exception?, message : String) : Nil
+      case severity
+      when .trace?  then log.trace(exception: exception) { message }
+      when .debug?  then log.debug(exception: exception) { message }
+      when .info?   then log.info(exception: exception) { message }
+      when .notice? then log.notice(exception: exception) { message }
+      when .warn?   then log.warn(exception: exception) { message }
+      when .error?  then log.error(exception: exception) { message }
+      when .fatal?  then log.fatal(exception: exception) { message }
+      end
+    end
+
+    macro trace(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Trace
+        ::Grant::Logs.emit(%log, ::Log::Severity::Trace, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
+
+    # :ditto:
+    macro debug(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Debug
+        ::Grant::Logs.emit(%log, ::Log::Severity::Debug, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
+
+    # :ditto:
+    macro info(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Info
+        ::Grant::Logs.emit(%log, ::Log::Severity::Info, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
+
+    # :ditto:
+    macro notice(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Notice
+        ::Grant::Logs.emit(%log, ::Log::Severity::Notice, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
+
+    # :ditto:
+    macro warn(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Warn
+        ::Grant::Logs.emit(%log, ::Log::Severity::Warn, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
+
+    # :ditto:
+    macro error(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Error
+        ::Grant::Logs.emit(%log, ::Log::Severity::Error, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
+
+    # :ditto:
+    macro fatal(log, exception = nil, &block)
+      if (%log = {{log}}).level <= ::Log::Severity::Fatal
+        ::Grant::Logs.emit(%log, ::Log::Severity::Fatal, {{exception}}, ({{block.body}}).to_s)
+      end
+    end
   end
 
   # Development helpers for pretty logging

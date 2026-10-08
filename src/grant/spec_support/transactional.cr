@@ -45,7 +45,7 @@ module Grant::Spec
       begin
         rollback_test_transactions(handles)
       rescue rollback_error
-        Grant::Log.warn(exception: rollback_error) { "Could not roll back a test transaction after a failed begin" }
+        Grant::Logs.warn(Grant::Log, exception: rollback_error) { "Could not roll back a test transaction after a failed begin" }
       end
       raise ex
     end

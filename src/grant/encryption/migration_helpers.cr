@@ -49,7 +49,7 @@ module Grant::Encryption
         write_batch(model_class, destination, changes)
       end
 
-      Grant::Log.info { "Encryption complete!" } if progress
+      Grant::Logs.info(Grant::Log) { "Encryption complete!" } if progress
       processed
     end
 
@@ -86,7 +86,7 @@ module Grant::Encryption
         write_batch(model_class, target, changes)
       end
 
-      Grant::Log.info { "Decryption complete!" } if progress
+      Grant::Logs.info(Grant::Log) { "Decryption complete!" } if progress
       processed
     end
 
@@ -176,7 +176,7 @@ module Grant::Encryption
         write_batch(model_class, column, changes)
       end
 
-      Grant::Log.info { "Key rotation complete!" } if progress
+      Grant::Logs.info(Grant::Log) { "Key rotation complete!" } if progress
       processed
     end
 
@@ -250,7 +250,7 @@ module Grant::Encryption
 
       key_column = model_class.primary_name
       total = model_class.count
-      Grant::Log.info { "#{verb} #{total} records..." } if progress
+      Grant::Logs.info(Grant::Log) { "#{verb} #{total} records..." } if progress
 
       seen = 0
       last : Grant::Columns::Type = nil
@@ -285,7 +285,7 @@ module Grant::Encryption
         first = false
         if progress
           percent = total > 0 ? (seen.to_f / total * 100).round(2) : 100.0
-          Grant::Log.info { "Progress: #{seen}/#{total} (#{percent}%)" }
+          Grant::Logs.info(Grant::Log) { "Progress: #{seen}/#{total} (#{percent}%)" }
         end
         break if rows.size < batch_size
       end

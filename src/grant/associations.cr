@@ -179,7 +179,7 @@ module Grant::Associations
           {% end %}
         {% end %}
         if parent = relation.first
-          Grant::Logs::Association.debug { "Loaded belongs_to association - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [fk: #{{{foreign_key.id.stringify}}} = #{{{foreign_key.id}}}]" }
+          Grant::Logs.debug(Grant::Logs::Association) { "Loaded belongs_to association - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [fk: #{{{foreign_key.id.stringify}}} = #{{{foreign_key.id}}}]" }
           _adopt_strict_loading(parent, false)
         {% if inverse_of_bt %}
           parent.set_loaded_association({{inverse_of_bt.id.stringify}}, self)
@@ -447,7 +447,7 @@ module Grant::Associations
             owner_key = {% if options[:primary_key] %}self.read_attribute({{primary_key_name}}){% else %}self.read_attribute(self.class.primary_name){% end %}
             result = {{class_name.id}}.first(sql, [owner_key])
             if result
-              Grant::Logs::Association.debug { "Loaded has_one :through association - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [through: #{{{through.id.stringify}}}]" }
+              Grant::Logs.debug(Grant::Logs::Association) { "Loaded has_one :through association - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [through: #{{{through.id.stringify}}}]" }
               _adopt_strict_loading(result, false)
             end
             result
@@ -533,7 +533,7 @@ module Grant::Associations
         result = relation.first
         set_loaded_association({{method_name.stringify}}, result)
         if result
-          Grant::Logs::Association.debug { "Loaded has_one association - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [fk: #{{{foreign_key.id.stringify}}} = #{owner_key}]" }
+          Grant::Logs.debug(Grant::Logs::Association) { "Loaded has_one association - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [fk: #{{{foreign_key.id.stringify}}} = #{owner_key}]" }
           _adopt_strict_loading(result, false)
           {% if inverse_of %}
             result.set_loaded_association({{inverse_of.id.stringify}}, self)
@@ -858,7 +858,7 @@ module Grant::Associations
         through_delete_all = nil
       {% end %}
       unless association_loaded?({{method_name.stringify}})
-        Grant::Logs::Association.debug { "Created has_many association collection - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [fk: #{{{foreign_key.id.stringify}}}]#{{{through ? " [through: " + through.id.stringify + "]" : ""}}}" }
+        Grant::Logs.debug(Grant::Logs::Association) { "Created has_many association collection - #{self.class.name}.#{{{method_name.stringify}}} [#{{{class_name.id.stringify}}}] [fk: #{{{foreign_key.id.stringify}}}]#{{{through ? " [through: " + through.id.stringify + "]" : ""}}}" }
       end
       {% if options[:before_add] || options[:after_add] || options[:before_remove] || options[:after_remove] %}
         callbacks = Grant::AssociationCallbacks({{class_name.id}}).new(

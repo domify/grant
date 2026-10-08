@@ -325,7 +325,7 @@ module Grant::Schema
       if io = @output
         io.puts text
       else
-        Grant::Log.info { text }
+        Grant::Logs.info(Grant::Log) { text }
       end
     end
 

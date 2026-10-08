@@ -614,11 +614,11 @@ abstract class Grant::Adapter::Base
       connection.grant_last_used_ticks = now
       true
     rescue probe_error : ::Exception
-      Grant::Log.debug(exception: probe_error) { "Idle connection to #{name} failed its probe and was discarded" }
+      Grant::Logs.debug(Grant::Log, exception: probe_error) { "Idle connection to #{name} failed its probe and was discarded" }
       begin
         connection.close
       rescue close_error : ::Exception
-        Grant::Log.debug(exception: close_error) { "Closing a dead idle connection to #{name} failed" }
+        Grant::Logs.debug(Grant::Log, exception: close_error) { "Closing a dead idle connection to #{name} failed" }
       end
       connection.release
       false
@@ -662,7 +662,7 @@ abstract class Grant::Adapter::Base
   end
 
   def log(query : String, elapsed_time : Time::Span, params = [] of String) : Nil
-    Grant::Logs::SQL.debug { colorize query, Grant::Encryption::LogFilter.redact(query, params), elapsed_time.total_seconds }
+    Grant::Logs.debug(Grant::Logs::SQL) { colorize query, Grant::Encryption::LogFilter.redact(query, params), elapsed_time.total_seconds }
     Grant::Logs.log_verbose(query, elapsed_time)
   end
 
@@ -706,7 +706,7 @@ abstract class Grant::Adapter::Base
         rescue restore_error
           # The block's error is the one to report; an aborted transaction
           # (PostgreSQL) rejects the restore and resets the setting anyway.
-          Grant::Log.warn(exception: restore_error) { "Could not restore referential integrity after a failed block" }
+          Grant::Logs.warn(Grant::Log, exception: restore_error) { "Could not restore referential integrity after a failed block" }
         end
         raise ex
       end

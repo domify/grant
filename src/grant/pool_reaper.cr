@@ -38,7 +38,7 @@ module Grant
             begin
               sweep
             rescue ex
-              Log.warn(exception: ex) { "Pool sweep failed for #{@adapter.name}" }
+              Grant::Logs.warn(Log, exception: ex) { "Pool sweep failed for #{@adapter.name}" }
             end
           end
         end
@@ -63,7 +63,7 @@ module Grant
       if idle_timeout = @adapter.idle_timeout
         if now - @adapter.last_used_ticks >= idle_timeout.total_milliseconds
           closed = @adapter.close_idle_connections(keep: @adapter.min_connections)
-          Log.debug { "Closed #{closed} idle connection(s) on #{@adapter.name}" } if closed > 0
+          Grant::Logs.debug(Log) { "Closed #{closed} idle connection(s) on #{@adapter.name}" } if closed > 0
         end
       end
 

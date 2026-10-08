@@ -105,10 +105,10 @@ module Grant::QueryAnalysis
       detector.clear
 
       if analysis.has_issues?
-        Grant::Logs::Query.warn { "Potential N+1 queries detected - #{analysis.potential_n1_issues.size} issues, #{analysis.total_queries} total queries (#{analysis.total_duration_ms}ms)" }
+        Grant::Logs.warn(Grant::Logs::Query) { "Potential N+1 queries detected - #{analysis.potential_n1_issues.size} issues, #{analysis.total_queries} total queries (#{analysis.total_duration_ms}ms)" }
 
         analysis.potential_n1_issues.each do |issue|
-          Grant::Logs::Query.warn { "N+1 Query Pattern - #{issue.model}##{issue.operation}: #{issue.query_count} queries (#{issue.total_duration_ms}ms) [#{issue.association || "no association"}]" }
+          Grant::Logs.warn(Grant::Logs::Query) { "N+1 Query Pattern - #{issue.model}##{issue.operation}: #{issue.query_count} queries (#{issue.total_duration_ms}ms) [#{issue.association || "no association"}]" }
         end
       end
 
@@ -250,7 +250,7 @@ module Grant::QueryAnalysis
     def report
       return if @stats.empty?
 
-      Grant::Logs::Query.info { "Query Statistics Summary - #{@stats.size} operations, #{@stats.values.sum(&.count)} queries (#{@stats.values.sum(&.total_duration_ms)}ms)" }
+      Grant::Logs.info(Grant::Logs::Query) { "Query Statistics Summary - #{@stats.size} operations, #{@stats.values.sum(&.count)} queries (#{@stats.values.sum(&.total_duration_ms)}ms)" }
 
       # Sort by total duration (descending)
       sorted_stats = @stats.to_a.sort_by { |_, stat| -stat.total_duration_ms }
@@ -258,7 +258,7 @@ module Grant::QueryAnalysis
       sorted_stats.each do |key, stat|
         model, operation = key.split("#", 2)
 
-        Grant::Logs::Query.info { "Query Stats - #{model}##{operation}: #{stat.count} queries, total: #{stat.total_duration_ms.round(2)}ms, avg: #{stat.avg_duration_ms.round(2)}ms, min: #{stat.min_duration_ms.round(2)}ms, max: #{stat.max_duration_ms.round(2)}ms" }
+        Grant::Logs.info(Grant::Logs::Query) { "Query Stats - #{model}##{operation}: #{stat.count} queries, total: #{stat.total_duration_ms.round(2)}ms, avg: #{stat.avg_duration_ms.round(2)}ms, min: #{stat.min_duration_ms.round(2)}ms, max: #{stat.max_duration_ms.round(2)}ms" }
       end
     end
 

@@ -27,7 +27,7 @@ module Grant::Query::Executor
           result
         rescue e
           duration = Time.instant - start_time
-          Grant::Logs::SQL.error { "Query failed (#{duration.total_milliseconds}ms) - #{@sql} [#{Model.name}] - #{e.message}" }
+          Grant::Logs.error(Grant::Logs::SQL) { "Query failed (#{duration.total_milliseconds}ms) - #{@sql} [#{Model.name}] - #{e.message}" }
           raise e
         end
       end

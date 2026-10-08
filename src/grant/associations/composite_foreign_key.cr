@@ -91,7 +91,7 @@ module Grant::Associations
           {% if primary_key %}Grant::Associations.__composite_key_names({{primary_key}}){% else %}Grant::CompositeAssociation.key_columns_of({{class_name.id}}){% end %},
           Grant::Associations.__composite_scope_proc({{scope}}, {{class_name}}))
         if parent
-          Grant::Logs::Association.debug { "Loaded belongs_to association - #{self.class.name}.#{{{name_text}}} [#{{{class_name.id.stringify}}}] [composite key]" }
+          Grant::Logs.debug(Grant::Logs::Association) { "Loaded belongs_to association - #{self.class.name}.#{{{name_text}}} [#{{{class_name.id.stringify}}}] [composite key]" }
           _adopt_strict_loading(parent, false)
           {% if inverse_of %}
             parent.set_loaded_association({{inverse_of.id.stringify}}, self)

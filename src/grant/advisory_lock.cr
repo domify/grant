@@ -62,7 +62,7 @@ module Grant
           begin
             adapter.release_advisory_lock(connection, key)
           rescue ex : DB::Error
-            Log.warn(exception: ex) { "Could not release advisory lock #{key.inspect}; the server drops it with the session" }
+            Grant::Logs.warn(Log, exception: ex) { "Could not release advisory lock #{key.inspect}; the server drops it with the session" }
           end
         end
       end

@@ -1435,7 +1435,7 @@ class Grant::Query::Builder(Model)
       end
     end
     elapsed_ms = (Time.instant - started).total_milliseconds
-    Grant::Logs::SQL.debug { "Query executed (#{elapsed_ms}ms) - #{sql} [#{Model.name}] [rows: 1]" }
+    Grant::Logs.debug(Grant::Logs::SQL) { "Query executed (#{elapsed_ms}ms) - #{sql} [#{Model.name}] [rows: 1]" }
     Grant::Logs.log_verbose(sql, Time.instant - started, Model.name)
 
     @cache_version = cache_version_string(count, newest_value)

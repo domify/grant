@@ -320,7 +320,7 @@ module Grant::Transactions
       {% end %}
       {% ann = primary_key.annotation(Grant::Column) %}
 
-      Grant::Logs::Model.debug { "Creating record - #{self.class.name}" }
+      Grant::Logs.debug(Grant::Logs::Model) { "Creating record - #{self.class.name}" }
 
       set_timestamps unless skip_timestamps || !self.class.record_timestamps?
       fields = self.class.content_fields.dup
@@ -368,17 +368,17 @@ module Grant::Transactions
   rescue err : Grant::Transaction::ReadOnlyError
     raise err
   rescue err : DB::Error | Grant::StatementInvalid
-    Grant::Logs::Model.error { "Failed to create record - #{self.class.name} - #{err.message}" }
+    Grant::Logs.error(Grant::Logs::Model) { "Failed to create record - #{self.class.name} - #{err.message}" }
     raise err
   rescue err
-    Grant::Logs::Model.error { "Failed to create record - #{self.class.name} - #{err.message}" }
+    Grant::Logs.error(Grant::Logs::Model) { "Failed to create record - #{self.class.name} - #{err.message}" }
     raise DB::Error.new(err.message, cause: err)
   else
     self.new_record = false
 
     {% begin %}
       {% primary_key = @type.instance_vars.find { |ivar| (ann = ivar.annotation(Grant::Column)) && ann[:primary] } %}
-      Grant::Logs::Model.debug { "Record created - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+      Grant::Logs.debug(Grant::Logs::Model) { "Record created - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
     {% end %}
   end
 
@@ -394,7 +394,7 @@ module Grant::Transactions
     # through a read-only relation) cannot be persisted. Mirrors AR.
     raise Grant::ReadOnlyRecordError.new("#{self.class.name} is marked as read only") if readonly?
 
-    Grant::Logs::Model.debug { "Updating record - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+    Grant::Logs.debug(Grant::Logs::Model) { "Updating record - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
 
     fields = self.class.content_fields.dup
     params = content_values + [@{{primary_key.name.id}}]
@@ -402,7 +402,7 @@ module Grant::Transactions
     if self.class.partial_updates? && self.class.__partial_update_safe?
       changed_columns = __changed_column_names
       if changed_columns.empty?
-        Grant::Logs::Model.debug { "Skipping update, nothing changed - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+        Grant::Logs.debug(Grant::Logs::Model) { "Skipping update, nothing changed - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
         return
       end
       if !skip_timestamps && self.class.record_timestamps?
@@ -468,11 +468,11 @@ module Grant::Transactions
         self.class.adapter.update(self.class.table_name, self.class.primary_name, fields, params)
       end
 
-     Grant::Logs::Model.debug { "Record updated - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+     Grant::Logs.debug(Grant::Logs::Model) { "Record updated - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
     rescue ex : Grant::TenantMismatchError | Grant::NoTenantError | Grant::StatementInvalid | Grant::Transaction::ReadOnlyError
       raise ex
     rescue err
-      Grant::Logs::Model.error { "Failed to update record - #{self.class.name} [id: #{@{{primary_key.name.id}}}] - #{err.message}" }
+      Grant::Logs.error(Grant::Logs::Model) { "Failed to update record - #{self.class.name} [id: #{@{{primary_key.name.id}}}] - #{err.message}" }
       raise DB::Error.new(err.message, cause: err)
     end
   {% end %}
@@ -514,7 +514,7 @@ module Grant::Transactions
     {% raise raise "A primary key must be defined for #{@type.name}." unless primary_key %}
     {% ann = primary_key.annotation(Grant::Column) %}
 
-    Grant::Logs::Model.debug { "Destroying record - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+    Grant::Logs.debug(Grant::Logs::Model) { "Destroying record - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
 
     if self.class.__multitenant?
       affected = self.class.__tenant_write_scope
@@ -528,7 +528,7 @@ module Grant::Transactions
     end
     @destroyed = true
 
-    Grant::Logs::Model.debug { "Record destroyed - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+    Grant::Logs.debug(Grant::Logs::Model) { "Record destroyed - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
   {% end %}
   end
 
@@ -646,11 +646,11 @@ module Grant::Transactions
 
     if save_failed
       if message = failure_message
-        Log.error { "Save Exception: #{message}" }
+        Grant::Logs.error(Log) { "Save Exception: #{message}" }
 
         {% begin %}
         {% primary_key = @type.instance_vars.find { |ivar| (ann = ivar.annotation(Grant::Column)) && ann[:primary] } %}
-        Grant::Logs::Model.error { "Failed to save record - #{self.class.name} [id: #{@{{primary_key.name.id}}}] [new_record: #{new_record?}] - #{message}" }
+        Grant::Logs.error(Grant::Logs::Model) { "Failed to save record - #{self.class.name} [id: #{@{{primary_key.name.id}}}] [new_record: #{new_record?}] - #{message}" }
         {% end %}
       end
       return false
@@ -894,12 +894,12 @@ module Grant::Transactions
 
       begin
         self.class.adapter.update(self.class.table_name, self.class.primary_name, fields, params)
-        Grant::Logs::Model.debug { "Columns updated - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
+        Grant::Logs.debug(Grant::Logs::Model) { "Columns updated - #{self.class.name} [id: #{@{{primary_key.name.id}}}]" }
       rescue err : Grant::StatementInvalid
-        Grant::Logs::Model.error { "Failed to update_columns - #{self.class.name} [id: #{persisted_primary_key}] - #{err.message}" }
+        Grant::Logs.error(Grant::Logs::Model) { "Failed to update_columns - #{self.class.name} [id: #{persisted_primary_key}] - #{err.message}" }
         raise err
       rescue err
-        Grant::Logs::Model.error { "Failed to update_columns - #{self.class.name} [id: #{persisted_primary_key}] - #{err.message}" }
+        Grant::Logs.error(Grant::Logs::Model) { "Failed to update_columns - #{self.class.name} [id: #{persisted_primary_key}] - #{err.message}" }
         raise DB::Error.new(err.message, cause: err)
       end
       clear_dirty_tracking_for(fields)
@@ -1132,12 +1132,12 @@ module Grant::Transactions
       return false if around_halted?
     rescue ex : DB::Error | Grant::StatementInvalid | Grant::Callbacks::Abort
       if message = ex.message
-        Log.error { "Destroy Exception: #{message}" }
+        Grant::Logs.error(Log) { "Destroy Exception: #{message}" }
         errors << Grant::Error.new(:base, message)
 
         {% begin %}
         {% primary_key = @type.instance_vars.find { |ivar| (ann = ivar.annotation(Grant::Column)) && ann[:primary] } %}
-        Grant::Logs::Model.error { "Failed to destroy record - #{self.class.name} [id: #{@{{primary_key.name.id}}}] - #{message}" }
+        Grant::Logs.error(Grant::Logs::Model) { "Failed to destroy record - #{self.class.name} [id: #{@{{primary_key.name.id}}}] - #{message}" }
         {% end %}
       end
       run_rollback_callbacks if responds_to?(:run_rollback_callbacks)

@@ -196,7 +196,7 @@ module Grant
         updated << ReplicaEntry.new(adapter, key, monitor, weight)
         @entries = updated
       end
-      Log.info { "Added replica #{key} to load balancer" }
+      Grant::Logs.info(Log) { "Added replica #{key} to load balancer" }
       replaced
     end
 
@@ -210,7 +210,7 @@ module Grant
       end
       if removed
         @strategy.reset
-        Log.info { "Removed replica #{adapter.name} from load balancer" }
+        Grant::Logs.info(Log) { "Removed replica #{adapter.name} from load balancer" }
       end
     end
 
@@ -253,7 +253,7 @@ module Grant
         end
       end
 
-      Log.warn { "All replicas unhealthy, falling back to #{best.key}" }
+      Grant::Logs.warn(Log) { "All replicas unhealthy, falling back to #{best.key}" }
       best.adapter
     end
 
@@ -306,7 +306,7 @@ module Grant
     def strategy=(new_strategy : LoadBalancingStrategy)
       @strategy.reset
       @strategy = new_strategy
-      Log.info { "Changed load balancing strategy to #{new_strategy.class}" }
+      Grant::Logs.info(Log) { "Changed load balancing strategy to #{new_strategy.class}" }
     end
 
     # Get status of all replicas

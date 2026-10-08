@@ -60,7 +60,7 @@ class Grant::Query::Builder(Model)
     rows = [] of Tuple({% for key in T.keys %}{{T[key].instance}}, {% end %})
 
     adapter = Model.adapter
-    Grant::Logs::SQL.debug { "Typed pluck - #{sql} [#{Model.name}] [args: #{arguments.size}]" }
+    Grant::Logs.debug(Grant::Logs::SQL) { "Typed pluck - #{sql} [#{Model.name}] [args: #{arguments.size}]" }
     adapter.open(sql, arguments, Model.name) do |db|
       db.query(sql, args: adapter.normalize_bind_values(arguments)) do |rs|
         rs.each do

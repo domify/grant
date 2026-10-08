@@ -69,7 +69,7 @@ class Grant::Query::Builder(Model)
     sql = built.raw_sql
     params = a.numbered_parameters
 
-    Grant::Logs::SQL.debug { "Streaming query - #{sql} [#{Model.name}]" }
+    Grant::Logs.debug(Grant::Logs::SQL) { "Streaming query - #{sql} [#{Model.name}]" }
 
     mark_readonly = readonly?
     adapter = Model.adapter

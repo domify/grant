@@ -886,7 +886,7 @@ module Grant::Transaction
   # control commands. Route those statements over COM_QUERY for MySQL; the
   # other adapters accept them through the normal DB execution path.
   private def self.execute_control(conn : DB::Connection, adapter : Grant::Adapter::Base, statement : String) : Nil
-    Grant::Logs::Transaction.debug { statement }
+    Grant::Logs.debug(Grant::Logs::Transaction) { statement }
     if adapter.mysql?
       conn.unprepared.exec(statement)
     else

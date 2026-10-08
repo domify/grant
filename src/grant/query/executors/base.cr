@@ -8,13 +8,13 @@ module Grant::Query::Executor
       statement = messages.first?
       messages.each do |message|
         # Bound values of encrypted and filtered columns never reach the log.
-        Grant::Logs::SQL.debug { message.is_a?(Array) && statement.is_a?(String) ? Grant::Encryption::LogFilter.redact(statement, message) : message }
+        Grant::Logs.debug(Grant::Logs::SQL) { message.is_a?(Array) && statement.is_a?(String) ? Grant::Encryption::LogFilter.redact(statement, message) : message }
       end
     end
 
     # Enhanced logging with timing and structured data
     def log_query(sql : String, args : Array(Grant::Columns::Type), model_name : String? = nil)
-      Grant::Logs::SQL.debug { "Query prepared - #{sql} [#{model_name}] [args: #{args.size}]" }
+      Grant::Logs.debug(Grant::Logs::SQL) { "Query prepared - #{sql} [#{model_name}] [args: #{args.size}]" }
     end
 
     def log_query_with_timing(sql : String, args : Array(Grant::Columns::Type), duration : Time::Span, row_count : Int32? = nil, model_name : String? = nil)
@@ -22,9 +22,9 @@ module Grant::Query::Executor
 
       # Log as warning if query is slow (> 100ms)
       if duration_ms > 100
-        Grant::Logs::SQL.warn { "Slow query detected (#{duration_ms}ms) - #{sql} [#{model_name}] [rows: #{row_count}]" }
+        Grant::Logs.warn(Grant::Logs::SQL) { "Slow query detected (#{duration_ms}ms) - #{sql} [#{model_name}] [rows: #{row_count}]" }
       else
-        Grant::Logs::SQL.debug { "Query executed (#{duration_ms}ms) - #{sql} [#{model_name}] [rows: #{row_count}]" }
+        Grant::Logs.debug(Grant::Logs::SQL) { "Query executed (#{duration_ms}ms) - #{sql} [#{model_name}] [rows: #{row_count}]" }
       end
       Grant::Logs.log_verbose(sql, duration, model_name)
     end

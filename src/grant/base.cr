@@ -1,4 +1,5 @@
 require "./collection"
+require "./association_sql"
 require "./association_collection"
 require "./loaded_association_collection"
 require "./associations"

@@ -473,7 +473,7 @@ module Grant::NestedAttributes
         rescue ex : Grant::RecordNotFound
           raise ex
         rescue ex
-          Log.error { "Error processing nested attributes for {{ assoc_name.id }}: #{ex.message}" }
+          Grant::Logs.error(Grant::Logs::Top) { "Error processing nested attributes for {{ assoc_name.id }}: #{ex.message}" }
           self.errors << Grant::Error.new("{{ assoc_name.id }}", ex.message.to_s)
           success = false
         end

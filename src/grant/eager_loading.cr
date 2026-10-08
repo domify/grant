@@ -144,7 +144,7 @@ module Grant::EagerLoading
 
       message = "#{self.class.name}##{name} was not preloaded and strict loading is enabled"
       if Grant.settings.strict_loading_violation.log?
-        Grant::Logs::Association.warn { message }
+        Grant::Logs.warn(Grant::Logs::Association) { message }
       else
         raise Grant::StrictLoadingViolationError.new(message)
       end

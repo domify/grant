@@ -36,7 +36,7 @@ module Grant::Query::Executor
 
         log_query_with_timing(@sql, @args, Time.instant - start_time, rows.size, Model.name)
       rescue e
-        Grant::Logs::SQL.error { "Aggregate query failed (#{(Time.instant - start_time).total_milliseconds}ms) - #{@sql} [#{Model.name}] - #{e.message}" }
+        Grant::Logs.error(Grant::Logs::SQL) { "Aggregate query failed (#{(Time.instant - start_time).total_milliseconds}ms) - #{@sql} [#{Model.name}] - #{e.message}" }
         raise e
       end
 

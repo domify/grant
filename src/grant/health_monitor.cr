@@ -37,7 +37,7 @@ module Grant
         end
       end
 
-      Log.debug { "Started health monitoring for #{@adapter.name}" }
+      Grant::Logs.debug(Log) { "Started health monitoring for #{@adapter.name}" }
     end
 
     def stop
@@ -47,7 +47,7 @@ module Grant
       when @stop_signal.send(nil)
       else
       end
-      Log.debug { "Stopped health monitoring for #{@adapter.name}" }
+      Grant::Logs.debug(Log) { "Stopped health monitoring for #{@adapter.name}" }
     end
 
     def healthy? : Bool
@@ -71,7 +71,7 @@ module Grant
     end
 
     private def check_health : Bool
-      Log.trace { "Checking health for #{@adapter.name}" }
+      Grant::Logs.trace(Log) { "Checking health for #{@adapter.name}" }
 
       # A probe from an earlier check is still stuck: the connection is
       # unresponsive, and starting another fiber would only add to the pile.
@@ -89,7 +89,7 @@ module Grant
           @adapter.verify!
           true
         rescue ex
-          Log.warn { "Health check query failed for #{@adapter.name}: #{ex.message}" }
+          Grant::Logs.warn(Log) { "Health check query failed for #{@adapter.name}: #{ex.message}" }
           false
         end
         @probing.set(false)
@@ -109,9 +109,9 @@ module Grant
       @last_check_timestamp.set(Time.utc.to_unix)
 
       if previous_health && !result
-        Log.error { "Connection #{@adapter.name} became unhealthy#{failure ? ": #{failure}" : ""}" }
+        Grant::Logs.error(Log) { "Connection #{@adapter.name} became unhealthy#{failure ? ": #{failure}" : ""}" }
       elsif !previous_health && result
-        Log.info { "Connection #{@adapter.name} recovered and is now healthy" }
+        Grant::Logs.info(Log) { "Connection #{@adapter.name} recovered and is now healthy" }
       end
 
       result

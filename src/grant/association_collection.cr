@@ -78,7 +78,7 @@ class Grant::AssociationCollection(Owner, Target)
               end
     duration = Time.instant - start_time
 
-    Grant::Logs::Association.info { "Loaded has_many association - #{Owner.name} [#{Target.name}] [fk: #{@foreign_key}] - #{results.size} records (#{duration.total_milliseconds}ms)" }
+    Grant::Logs.info(Grant::Logs::Association) { "Loaded has_many association - #{Owner.name} [#{Target.name}] [fk: #{@foreign_key}] - #{results.size} records (#{duration.total_milliseconds}ms)" }
 
     inverse = inverse_name
     results.each do |record|
@@ -1046,20 +1046,7 @@ class Grant::AssociationCollection(Owner, Target)
       if chain = through_chain
         return chain.restrict(relation, owner)
       end
-      through_metadata, source_metadata = through_associations
-      if source_metadata[:type] == :belongs_to
-        source_key = through_metadata[:target_class].quote(source_metadata[:foreign_key])
-        target_key = source_metadata[:primary_key]
-      else
-        join_model = through_metadata[:target_class]
-        primary_name = join_model.primary_name || raise Grant::Querying::MissingPrimaryKeyError.new("#{join_model.name} has no primary key")
-        source_key = join_model.quote(primary_name)
-        target_key = source_metadata[:foreign_key]
-      end
-      join_model = through_metadata[:target_class]
-      join_table = join_model.quoted_table_name
-      join_owner_key = join_model.quote(through_metadata[:foreign_key])
-      subquery = "SELECT #{source_key} FROM #{join_table} WHERE #{join_owner_key} = ?"
+      target_key, subquery = Grant::AssociationSql.through_subquery(through_associations)
       relation.where("#{Target.quote(target_key)} IN (#{subquery})", owner_key)
     else
       relation = relation.where(@foreign_key.to_s, :eq, owner_key)
@@ -1088,11 +1075,13 @@ class Grant::AssociationCollection(Owner, Target)
   end
 
   private def through_associations : Tuple(Grant::AssociationRegistry::AssociationMeta, Grant::AssociationRegistry::AssociationMeta)
-    through_name = @through || raise ArgumentError.new("Missing through association metadata")
-    source_name = @through_source || raise ArgumentError.new("Missing source association metadata")
-    through_metadata = Grant::AssociationRegistry.get(Owner.name, through_name.to_s) || raise ArgumentError.new("Cannot resolve through association #{Owner.name}##{through_name}")
-    source_metadata = Grant::AssociationRegistry.get(through_metadata[:target_class].name, source_name) || raise ArgumentError.new("Cannot resolve source association #{through_metadata[:target_class].name}##{source_name}")
-    {through_metadata, source_metadata}
+    Grant::AssociationSql.through_associations(Owner.name, @through, @through_source)
+  end
+
+  # How the target's columns are quoted (its shard's adapter for a sharded
+  # model), for `Grant::AssociationSql`.
+  private def target_quote : String -> String
+    ->(name : String) { Target.quote(name) }
   end
 
   private def scope_fragments : Tuple(String, Array(Grant::Columns::Type), String)
@@ -1106,66 +1095,19 @@ class Grant::AssociationCollection(Owner, Target)
               else
                 Grant::Query::Builder::DbType::Sqlite
               end
-    builder = Grant::Query::Builder(Target).new(db_type)
-    builder = association_scope.call(builder)
-    clauses = [] of String
-    params = [] of Grant::Columns::Type
-
-    builder.where_fields.each do |field|
-      if field.is_a?(NamedTuple(join: Symbol, field: String, operator: Symbol, value: Grant::Columns::Type))
-        operator = SCOPE_OPERATORS[field[:operator].to_s]? || field[:operator].to_s
-        column = field[:field]
-        column = "#{Target.quote(Target.table_name)}.#{Target.quote(column)}" unless column.includes?(".")
-        clauses << "#{column} #{operator} ?"
-        params << field[:value]
-      elsif field.is_a?(NamedTuple(join: Symbol, stmt: String, value: Grant::Columns::Type))
-        clauses << "(#{field[:stmt]})"
-        params << field[:value] unless field[:value].nil?
-      end
-    end
-
-    where_clause = clauses.empty? ? "" : "AND #{clauses.join(" AND ")}"
-    modifiers = [] of String
-    unless builder.order_fields.empty?
-      order_fields = builder.order_fields.map do |order|
-        field = order[:field]
-        next field if order[:direction].raw?
-        quoted = field.includes?(".") ? field.split(".").map { |part| Target.quote(part) }.join(".") : Target.quote(field)
-        direction = order[:direction].sorts_descending? ? "DESC" : "ASC"
-        "#{quoted} #{direction}"
-      end
-      modifiers << "ORDER BY #{order_fields.join(", ")}"
-    end
-    modifiers << "LIMIT #{builder.limit}" if builder.limit
-    modifiers << "OFFSET #{builder.offset}" if builder.offset
-    {where_clause, params, modifiers.join(" ")}
+    builder = association_scope.call(Grant::Query::Builder(Target).new(db_type))
+    Grant::AssociationSql.scope_fragments(builder.where_fields, builder.order_fields, builder.limit, builder.offset,
+      Target.table_name, target_quote)
   end
 
   private def query : String
     if chain = through_chain
       chain.where_clause(Target)
-    elsif @through.nil?
-      type_predicate = if type_column = @type_column
-                         " AND #{Target.quote(Target.table_name)}.#{Target.quote(type_column)} = ?"
-                       else
-                         ""
-                       end
-      "WHERE #{Target.quote(Target.table_name)}.#{Target.quote(@foreign_key.to_s)} = ?#{type_predicate}"
     else
-      through_metadata, source_metadata = through_associations
-      join_model = through_metadata[:target_class]
-      join_table = join_model.quoted_table_name
-      target_table = Target.quoted_table_name
-      join_primary_name = join_model.primary_name || raise Grant::Querying::MissingPrimaryKeyError.new("#{join_model.name} has no primary key")
-      join_primary_key = join_model.quote(join_primary_name)
-      target_join = if source_metadata[:type] == :belongs_to
-                      "#{target_table}.#{Target.quote(source_metadata[:primary_key])} = #{join_table}.#{join_model.quote(source_metadata[:foreign_key])}"
-                    else
-                      "#{target_table}.#{Target.quote(source_metadata[:foreign_key])} = #{join_table}.#{join_primary_key}"
-                    end
-      "JOIN #{join_table} ON #{target_join} WHERE #{join_table}.#{join_model.quote(through_metadata[:foreign_key])} = ?"
+      Grant::AssociationSql.query(Target.quote(Target.table_name), target_quote, @foreign_key.to_s, @type_column,
+        @through.nil? ? nil : through_associations)
     end
   end
 
-  SCOPE_OPERATORS = {"eq" => "=", "gteq" => ">=", "lteq" => "<=", "neq" => "!=", "ltgt" => "<>", "gt" => ">", "lt" => "<", "ngt" => "!>", "nlt" => "!<", "like" => "LIKE", "nlike" => "NOT LIKE"}
+  SCOPE_OPERATORS = Grant::AssociationSql::SCOPE_OPERATORS
 end
