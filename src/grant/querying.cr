@@ -1,0 +1,748 @@
+# The SELECT statements behind `Model.find(id)`, kept per model, adapter family
+# and key type. A key lookup on a plain model (no default scope, scoping block
+# or inheritance filter) always renders the same statement, so it is built
+# once through the query builder and reused with the key as its only bind.
+module Grant::PrimaryKeyLookup
+  @@statements = {} of Tuple(String, Int32) => String
+  @@mutex = Mutex.new
+
+  # The statement for *model_name* in *slot*, built by the block on first use.
+  def self.statement(model_name : String, slot : Int32, & : -> String) : String
+    key = {model_name, slot}
+    @@mutex.synchronize do
+      if statement = @@statements[key]?
+        return statement
+      end
+    end
+
+    statement = yield
+    @@mutex.synchronize { @@statements[key] = statement }
+    statement
+  end
+
+  # Drops every kept statement (a model's table or scope changed).
+  def self.clear : Nil
+    @@mutex.synchronize { @@statements.clear }
+  end
+end
+
+module Grant::Querying
+  alias IdValue = Int32 | Int64 | Float32 | Float64 | String
+
+  # Raised by `first!`, `take!`, `sole`, the ordinal bang finders and friends
+  # when no record matches.
+  class NotFound < Grant::RecordNotFound
+  end
+
+  # Raised by `sole`/`find_sole_by` when more than one record matches.
+  class NotUnique < Grant::ErrorBase
+  end
+
+  class ScopedRawSqlError < Grant::ErrorBase
+  end
+
+  class MissingPrimaryKeyError < Grant::ErrorBase
+  end
+
+  class MissingWhereClauseError < Grant::ErrorBase
+  end
+
+  module ClassMethods
+    # True for a model whose connection depends on a shard context. Sharded
+    # models resolve their adapter per query, so they take the relation path.
+    #
+    # :nodoc:
+    def __sharded_model? : Bool
+      false
+    end
+
+    # True when `find` may reuse a kept statement: the model's current scope is
+    # an empty relation (no scoping block, default scope, tenancy or
+    # inheritance filter) and nothing tags statements with a comment.
+    #
+    # :nodoc:
+    def __plain_lookup? : Bool
+      return false if Fiber.current.grant_scoping_stacks
+      return false if __sharded_model?
+      return false if __multitenant? || Grant::QueryLogs.enabled?
+      return false if __sti_model? && !sti_root_class?
+      _unscoped? || !_has_default_scope?
+    end
+
+    # Looks up one record by primary key with the kept statement, running the
+    # same list executor a relation does.
+    #
+    # :nodoc:
+    def __find_with_kept_statement(id : Int32 | Int64 | String) : self?
+      adapter = self.adapter
+      family = adapter.postgres? ? 0 : (adapter.mysql? ? 1 : 2)
+      kind = id.is_a?(Int32) ? 0 : (id.is_a?(Int64) ? 1 : 2)
+      sql = Grant::PrimaryKeyLookup.statement(name, family * 3 + kind) do
+        current_scope.where(primary_name, :eq, id).__first_statement_sql
+      end
+      Grant::Query::Executor::List(self).new(sql, [id.as(Grant::Columns::Type)]).run.first?
+    end
+
+    # Builds a single model instance from the current row of a result set.
+    #
+    # Marks the record as persisted (not a new record) and fires the
+    # `after_find` callback if the model defines one. This is the low-level
+    # entry point used by every read path; you rarely call it directly.
+    #
+    # *result* is a positioned `DB::ResultSet` (its cursor must already point at
+    # a row). Returns the hydrated model instance.
+    #
+    # ```
+    # class User < Grant::Base
+    #   column id : Int64, primary: true
+    #   column email : String
+    #   column active : Bool
+    # end
+    #
+    # User.adapter.open do |db|
+    #   db.query("SELECT * FROM users LIMIT 1") do |rs|
+    #     rs.each { user = User.from_rs(rs) }
+    #   end
+    # end
+    # ```
+    def from_rs(result : DB::ResultSet) : self
+      from_rs(result, __column_plan(result, adapter))
+    end
+
+    # Hydrates the current row using a *plan* built once for the whole result
+    # set (`__column_plan`), so reading many rows does not repeat the column
+    # lookups or the adapter resolution for each one. Single table inheritance
+    # models resolve the row's class first and take the unplanned path.
+    #
+    # :nodoc:
+    def from_rs(result : DB::ResultSet, plan : Grant::ColumnPlan) : self
+      return from_rs(result) if __sti_model?
+
+      model = Grant::Scoping.hydrating { new }
+      model.new_record = false
+      model.from_rs result, plan
+      model.after_find if model.responds_to?(:after_find)
+      Grant::Notifications.instrument(Grant::Events::Instantiation) do
+        Grant::Events::Instantiation.new(name)
+      end
+      model
+    end
+
+    # Executes arbitrary bound SQL and hydrates each row as this model.
+    # Raw SQL cannot infer or apply a default scope. Scoped models must call
+    # this inside `unscoped { ... }` when bypassing that scope is intentional.
+    def find_by_sql(sql : String, binds : Array(Grant::Columns::Type) = [] of Grant::Columns::Type) : Array(self)
+      ensure_raw_sql_unscoped!
+
+      records = [] of self
+      connection.with_result_set(sql, binds) do |result_set|
+        plan = __column_plan(result_set, adapter)
+        result_set.each do
+          records << from_rs(result_set, plan)
+        end
+      end
+      records
+    end
+
+    # Executes a bound count query and returns its value as `Int64`.
+    # The SQL is raw and cannot have a default scope applied; scoped models must
+    # call this inside `unscoped { ... }` when appropriate.
+    def count_by_sql(sql : String, binds : Array(Grant::Columns::Type) = [] of Grant::Columns::Type) : Int64
+      ensure_raw_sql_unscoped!
+
+      value = connection.select_value(sql, binds)
+      Grant::Result.integer_count(value)
+    end
+
+    # Sanitizes an ActiveRecord-style `[sql, *values]` array for this model's
+    # current adapter. Prefer bound query methods for statements sent to a
+    # database.
+    def sanitize_sql_array(conditions : Array) : String
+      Grant::Sanitization.sanitize_sql_array(conditions, adapter)
+    end
+
+    # Returns a SQL string unchanged, or sanitizes an array condition using
+    # this model's current adapter.
+    def sanitize_sql(sql : String) : String
+      sql
+    end
+
+    # :ditto:
+    def sanitize_sql(conditions : Array) : String
+      sanitize_sql_array(conditions)
+    end
+
+    # Runs a raw SQL fragment against the model's table and hydrates the rows.
+    #
+    # Runs *clause* after the generated `SELECT ... FROM table`. When the model
+    # has a default scope, that scope is applied inside a subquery before the
+    # clause runs. Use it for JOINs or multi-parameter clauses the chainable
+    # builder can't express; use `unscoped` for a deliberate scope bypass.
+    #
+    # - *clause*: SQL appended after the SELECT list (e.g. `"WHERE email = ?"`,
+    #   or a full `"JOIN ... WHERE ..."`). Defaults to `""` (all rows).
+    # - *params*: positional bind values substituted for `?` placeholders.
+    #
+    # Returns an `Array(self)` of hydrated records (eagerly loaded).
+    #
+    # ```
+    # User.raw_all("WHERE active = ?", [true])
+    # User.raw_all("WHERE email LIKE ? ORDER BY id DESC", ["%@example.com"])
+    # ```
+    def raw_all(clause = "", params = [] of Grant::Columns::Type) : Array(self)
+      rows = [] of self
+      if responds_to?(:current_scope)
+        scoped_query = current_scope
+        scoped_assembler = scoped_query.assembler
+        scoped_sql = scoped_assembler.select.raw_sql
+        scoped_params = scoped_assembler.numbered_parameters.dup
+        scoped_params.concat(params)
+
+        clean_clause = clause.strip
+        unless clean_clause.empty?
+          alias_name = adapter.quote(table_name)
+          selected_fields = (scoped_query.select_columns || fields).map do |field|
+            "#{alias_name}.#{adapter.quote(field)}"
+          end.join(", ")
+          clean_clause = adapter.ensure_clause_template(clean_clause, scoped_params.size - params.size)
+          scoped_sql = "SELECT #{selected_fields} FROM (#{scoped_sql}) AS #{alias_name} #{clean_clause}"
+        end
+
+        adapter.select(Grant::Select::Container.new(scoped_sql), "", scoped_params) do |results|
+          plan = __column_plan(results, adapter)
+          results.each do
+            rows << from_rs(results, plan)
+          end
+        end
+      else
+        adapter.select(select_container, clause, params) do |results|
+          plan = __column_plan(results, adapter)
+          results.each do
+            rows << from_rs(results, plan)
+          end
+        end
+      end
+      rows
+    end
+
+    # Returns all rows of the model's table, optionally filtered by a raw SQL *clause*.
+    #
+    # The *clause* accepts any SQL92-compatible fragment (WHERE, JOIN, GROUP BY,
+    # ORDER BY, etc.) appended after the generated SELECT, so you are never
+    # restricted to a DSL. Results are lazy: no query runs until you iterate or
+    # call a terminal method on the returned collection.
+    #
+    # For most filtering prefer the chainable builder (`Model.where(...)`); reach
+    # for `all` with a raw clause when you need SQL the builder can't express.
+    #
+    # - *clause*: SQL appended after `SELECT ... FROM table` (default `""` = every row).
+    # - *params*: positional bind values for `?` placeholders in *clause*.
+    # - *use_primary_adapter*: when `true` (default) the read is routed to the
+    #   primary connection (so it sees prior writes); set `false` to allow a
+    #   read replica.
+    #
+    # Returns a lazily-evaluated collection that yields `self` instances.
+    #
+    # ```
+    # User.all                             # every user (lazy)
+    # User.all.to_a                        # force-load into an Array(User)
+    # User.all("WHERE active = ?", [true]) # raw filtered query
+    # User.all.each { |user| puts user.email }
+    # ```
+    def all(clause = "", params = [] of Grant::Columns::Type, use_primary_adapter = true) : Array(self) | Grant::Collection(self)
+      mark_write_operation if use_primary_adapter == true
+
+      # If we have scoping support, use current_scope
+      if responds_to?(:current_scope)
+        clean_clause = clause.strip
+        # Fall back to raw_all for clauses that the query builder can't handle:
+        # - JOIN clauses (e.g. from :through associations)
+        # - Multiple parameters (query.where only accepts a single value)
+        if clean_clause.includes?("JOIN ") || params.size > 1 || clean_clause.upcase.starts_with?("ORDER BY ")
+          Collection(self).new(-> { raw_all(clause, params) })
+        else
+          query = current_scope
+          if !clean_clause.empty?
+            # Handle WHERE clause - strip the WHERE prefix if present
+            if clean_clause.starts_with?("WHERE ")
+              clean_clause = clean_clause[6..-1] # Remove "WHERE " prefix
+            end
+            if params.empty?
+              query = query.where(clean_clause)
+            else
+              query = query.where(clean_clause, params.first)
+            end
+          end
+          query.select
+        end
+      else
+        Collection(self).new(-> { raw_all(clause, params) })
+      end
+    end
+
+    # Returns the first matching record, or `nil` if none match.
+    #
+    # Adds a `LIMIT 1` to the query. Without a *clause* it returns the first row
+    # by the table's natural/scoped order; add an `ORDER BY` clause for a
+    # deterministic "first".
+    #
+    # - *clause*: optional raw SQL fragment (e.g. `"WHERE active = ?"`,
+    #   `"ORDER BY id DESC"`).
+    # - *params*: positional bind values for `?` placeholders in *clause*.
+    #
+    # ```
+    # User.first                             # => #<User ...> or nil
+    # User.first("WHERE active = ?", [true]) # first active user
+    # User.first("ORDER BY id DESC")         # highest id
+    # ```
+    def first(clause = "", params = [] of Grant::Columns::Type) : self?
+      # If we have scoping support, use current_scope with limit
+      if responds_to?(:current_scope)
+        clean_clause = clause.strip
+        # Fall back to raw_all for clauses that the query builder can't handle:
+        # - JOIN clauses (e.g. from :through associations)
+        # - Multiple parameters (query.where only accepts a single value)
+        if clean_clause.includes?("JOIN ") || params.size > 1 || clean_clause.upcase.starts_with?("ORDER BY ")
+          all([clean_clause, "LIMIT 1"].join(" "), params, false).first?
+        else
+          query = current_scope
+          if !clean_clause.empty?
+            # Handle WHERE clause - strip the WHERE prefix if present
+            if clean_clause.starts_with?("WHERE ")
+              clean_clause = clean_clause[6..-1] # Remove "WHERE " prefix
+            end
+            if params.empty?
+              query = query.where(clean_clause)
+            else
+              query = query.where(clean_clause, params.first)
+            end
+          end
+          query.first
+        end
+      else
+        all([clause.strip, "LIMIT 1"].join(" "), params, false).first?
+      end
+    end
+
+    # Like `first` but raises `NotFound` instead of returning `nil`.
+    #
+    # ```
+    # User.first!                             # => #<User ...> (raises if table empty)
+    # User.first!("WHERE active = ?", [true]) # => first active user or raises
+    # ```
+    def first!(clause = "", params = [] of Grant::Columns::Type) : self
+      first(clause, params) || raise NotFound.new("No #{{{@type.name.stringify}}} found with first(#{clause})")
+    end
+
+    # Returns the record whose primary key equals *value*, or `nil` if none.
+    #
+    # *value* is the primary-key value to look up (e.g. an `Int64` id).
+    #
+    # ```
+    # User.find(1)   # => #<User id: 1, ...> or nil
+    # User.find(999) # => nil
+    # ```
+    def find(value) : self?
+      first("WHERE #{primary_name} = ?", [value])
+    end
+
+    # Like `find` but raises `NotFound` when no record has primary key *value*.
+    #
+    # ```
+    # User.find!(1)   # => #<User id: 1, ...>
+    # User.find!(999) # raises Grant::Querying::NotFound
+    # ```
+    def find!(value) : self
+      find(value) || raise Grant::Querying::NotFound.new("No #{{{@type.name.stringify}}} found where #{primary_name} = #{value}")
+    end
+
+    # Returns the first record matching every column in *criteria*, or `nil`.
+    #
+    # Pass column/value pairs as keyword arguments; they are combined with AND.
+    # A `nil` value matches `IS NULL`.
+    #
+    # ```
+    # User.find_by(email: "a@example.com") # => #<User ...> or nil
+    # User.find_by(active: true, email: "a@b.com")
+    # ```
+    def find_by(**criteria : Grant::Columns::Type) : self?
+      find_by criteria.to_h
+    end
+
+    # :ditto:
+    #
+    # Hash form — accepts a pre-built criteria hash (`Grant::ModelArgs`).
+    #
+    # ```
+    # User.find_by({"email" => "a@example.com", "active" => true})
+    # ```
+    def find_by(criteria : Grant::ModelArgs) : self?
+      if has_attribute_aliases?
+        criteria = criteria.transform_keys { |field| resolve_attribute_alias(field.to_s).as(Symbol | String) }
+      end
+      if criteria.keys.any? { |field| Grant::Encryption::EncryptedAttributeRegistry.for(name).has_key?(field.to_s) }
+        return current_scope.where(criteria).first
+      end
+
+      clause, params = build_find_by_clause(criteria)
+      first "WHERE #{clause}", params
+    end
+
+    # Like `find_by` but raises `NotFound` when nothing matches *criteria*.
+    #
+    # ```
+    # User.find_by!(email: "a@example.com") # => #<User ...> or raises
+    # ```
+    def find_by!(**criteria : Grant::Columns::Type) : self
+      find_by!(criteria.to_h)
+    end
+
+    # :ditto:
+    #
+    # Hash form — accepts a pre-built criteria hash (`Grant::ModelArgs`).
+    def find_by!(criteria : Grant::ModelArgs) : self
+      find_by(criteria) || raise NotFound.new("No #{{{@type.name.stringify}}} found where #{criteria.map { |k, v| %(#{k} #{v.nil? ? "is NULL" : "= #{v}"}) }.join(" and ")}")
+    end
+
+    # Returns the single record that matches the criteria. Raises `NotFound` if no record found.
+    # Raises `NotUnique` if more than one record found.
+    def sole(clause = "", params = [] of Grant::Columns::Type) : self
+      # If we have scoping support, use current_scope
+      if responds_to?(:current_scope)
+        clean_clause = clause.strip
+        # Fall back to raw_all for clauses that the query builder can't handle
+        if clean_clause.includes?("JOIN ") || params.size > 1 || clean_clause.upcase.starts_with?("ORDER BY ")
+          results = all(clause, params, false).to_a
+        else
+          query = current_scope
+          if !clean_clause.empty?
+            # Handle WHERE clause - strip the WHERE prefix if present
+            if clean_clause.starts_with?("WHERE ")
+              clean_clause = clean_clause[6..-1] # Remove "WHERE " prefix
+            end
+            if params.empty?
+              query = query.where(clean_clause)
+            else
+              query = query.where(clean_clause, params.first)
+            end
+          end
+          results = query.select.to_a
+        end
+      else
+        results = all(clause, params, false).to_a
+      end
+
+      case results.size
+      when 0
+        raise NotFound.new("No #{{{@type.name.stringify}}} found")
+      when 1
+        results.first
+      else
+        raise NotUnique.new("Multiple #{{{@type.name.stringify}}} records found (expected exactly one)")
+      end
+    end
+
+    # Returns the single record that matches the given criteria. Raises `NotFound` if no record found.
+    # Raises `NotUnique` if more than one record found.
+    def find_sole_by(**criteria : Grant::Columns::Type) : self
+      find_sole_by(criteria.to_h)
+    end
+
+    # :ditto:
+    def find_sole_by(criteria : Grant::ModelArgs) : self
+      if criteria.empty?
+        sole
+      else
+        clause, params = build_find_by_clause(criteria)
+        sole("WHERE #{clause}", params)
+      end
+    end
+
+    # Finds and destroys all records matching the given criteria
+    def destroy_by(**criteria : Grant::Columns::Type) : Int32
+      destroy_by(criteria.to_h)
+    end
+
+    # :ditto:
+    def destroy_by(criteria : Grant::ModelArgs) : Int32
+      guard_writes!
+      query = current_scope
+      query = query.where(criteria) unless criteria.empty?
+      records = query.select
+
+      count = 0
+      records.each do |record|
+        if record.destroy
+          count += 1
+        end
+      end
+      count
+    end
+
+    # Finds and deletes all records matching the given criteria (skips callbacks)
+    def delete_by(**criteria : Grant::Columns::Type) : Int64
+      delete_by(criteria.to_h)
+    end
+
+    # :ditto:
+    def delete_by(criteria : Grant::ModelArgs) : Int64
+      guard_writes!
+      mark_write_operation
+      query = current_scope
+      query = query.where(criteria) unless criteria.empty?
+      query.delete_all
+    end
+
+    # Updates updated_at timestamp for all records matching the given criteria
+    def touch_all(*fields, time : Time = Grant::Timestamps.current_time) : Int64
+      guard_writes!
+      current_scope.touch_all(*fields, time: time)
+    end
+
+    # Iterates over every matching record one at a time, loading them in batches.
+    #
+    # Delegates to the relation's `find_each`, which pages with a keyset
+    # cursor (never OFFSET), so the cost of a page does not grow with the
+    # table. Accepts the relation options `start`, `finish`, `cursor`, `order`
+    # and `error_on_ignore`; without a block it returns an iterator.
+    #
+    # - *clause* / *params*: optional raw `WHERE` filter (as in `all`). It must
+    #   not contain ORDER BY, LIMIT, OFFSET or GROUP BY; use the relation
+    #   methods for those.
+    # - *batch_size*: rows fetched per batch (default `1000`).
+    # - *offset*: rows to skip before the first batch (default `0`).
+    #
+    # ```
+    # User.find_each(batch_size: 500) do |user|
+    #   puts user.email
+    # end
+    #
+    # User.find_each("WHERE active = ?", [true]) do |user|
+    #   process(user)
+    # end
+    # ```
+    def find_each(clause = "", params = [] of Grant::Columns::Type, batch_size limit = 1000, offset = 0, start : Grant::Columns::Type = nil, finish : Grant::Columns::Type = nil, cursor : Array(Symbol)? = nil, order : Symbol = :asc, error_on_ignore : Bool = false, &) : Nil
+      batch_scope(clause, params, offset).find_each(limit, start, finish, cursor, order, error_on_ignore) do |record|
+        yield record
+      end
+    end
+
+    # :ditto:
+    def find_each(clause = "", params = [] of Grant::Columns::Type, batch_size limit = 1000, offset = 0, start : Grant::Columns::Type = nil, finish : Grant::Columns::Type = nil, cursor : Array(Symbol)? = nil, order : Symbol = :asc, error_on_ignore : Bool = false) : Iterator(self)
+      batch_scope(clause, params, offset).find_each(limit, start, finish, cursor, order, error_on_ignore)
+    end
+
+    # Iterates over matching records in batches, yielding each batch as an Array.
+    #
+    # Delegates to the relation's `find_in_batches` (keyset cursor, never
+    # OFFSET), so a large table is never fully materialized and deep pages cost
+    # the same as the first. Takes the same options as `find_each`. Use this
+    # (rather than `find_each`) when you can process records a batch at a time.
+    #
+    # Raises `ArgumentError` if *batch_size* is less than 1.
+    #
+    # ```
+    # User.find_in_batches(batch_size: 1000) do |batch|
+    #   puts "processing #{batch.size} users"
+    # end
+    # ```
+    def find_in_batches(clause = "", params = [] of Grant::Columns::Type, batch_size limit = 1000, offset = 0, start : Grant::Columns::Type = nil, finish : Grant::Columns::Type = nil, cursor : Array(Symbol)? = nil, order : Symbol = :asc, error_on_ignore : Bool = false, &) : Nil
+      batch_scope(clause, params, offset).find_in_batches(limit, start, finish, cursor, order, error_on_ignore) do |batch|
+        yield batch
+      end
+    end
+
+    # :ditto:
+    def find_in_batches(clause = "", params = [] of Grant::Columns::Type, batch_size limit = 1000, offset = 0, start : Grant::Columns::Type = nil, finish : Grant::Columns::Type = nil, cursor : Array(Symbol)? = nil, order : Symbol = :asc, error_on_ignore : Bool = false) : Iterator(Array(self))
+      batch_scope(clause, params, offset).find_in_batches(limit, start, finish, cursor, order, error_on_ignore)
+    end
+
+    # The relation a class-level batching call runs on: the current scope with
+    # the legacy raw `WHERE` *clause* and *offset* folded in.
+    private def batch_scope(clause : String, params : Array(Grant::Columns::Type), offset : Int) : Grant::Query::Builder(self)
+      scope = current_scope
+      filter = clause.strip
+      unless filter.empty?
+        if filter.matches?(/\b(ORDER\s+BY|LIMIT|OFFSET|GROUP\s+BY)\b/i)
+          raise ArgumentError.new("find_each/find_in_batches accept only a WHERE clause; use order, limit and offset on the relation instead")
+        end
+        scope = scope.where(filter.sub(/\AWHERE\s+/i, ""), params)
+      end
+      scope = scope.offset(offset) if offset > 0
+      scope
+    end
+
+    # Returns `true` if a record exists with primary key *id*, otherwise `false`.
+    #
+    # A `nil` *id* always returns `false`. This runs an efficient existence
+    # check (no rows are hydrated).
+    #
+    # ```
+    # User.exists?(1)   # => true
+    # User.exists?(999) # => false
+    # User.exists?(nil) # => false
+    # ```
+    def exists?(id : IdValue?) : Bool
+      query = current_scope
+      return false if id.nil?
+      key = primary_name || raise MissingPrimaryKeyError.new("#{name} has no primary key")
+      query.where(key, :eq, id).exists?
+    end
+
+    # Returns `true` if any record matches *criteria*, otherwise `false`.
+    #
+    # Pass column/value pairs as keyword arguments; they are combined with AND.
+    #
+    # ```
+    # User.exists?(email: "a@example.com") # => true/false
+    # User.exists?(active: true, id: 1)
+    # ```
+    def exists?(**criteria : Grant::Columns::Type) : Bool
+      exists? criteria.to_h
+    end
+
+    # :ditto:
+    #
+    # Hash form — accepts a pre-built criteria hash (`Grant::ModelArgs`).
+    def exists?(criteria : Grant::ModelArgs) : Bool
+      current_scope.where(criteria).exists?
+    end
+
+    # Returns the number of rows in the model's current scope.
+    #
+    # Counts the default scope and any active filters. To count an additional
+    # filtered set, use the chainable builder: `User.where(active: true).count`.
+    # The scalar result is an `Int64`.
+    #
+    # ```
+    # User.count # => 42 (within the default scope, when present)
+    # ```
+    def count : Int64
+      result = current_scope.count
+      if result.is_a?(Int64)
+        result
+      else
+        result.values.sum
+      end
+    end
+
+    # Counts rows whose *column* is not NULL, or the distinct values of it with
+    # `distinct: true`. `count(:all)` and `count("*")` are `count`. The
+    # relation's `count(column)` returns a `Hash` per group.
+    #
+    # ```
+    # User.count(:deleted_at)            # => 3
+    # User.count(:email, distinct: true) # => 40
+    # ```
+    def count(column : Symbol | String, distinct : Bool = false) : Int64
+      result = current_scope.count(column, distinct)
+      result.is_a?(Int64) ? result : result.values.sum
+    end
+
+    def exec(clause : String = "", binds : Array(Grant::Columns::Type) = [] of Grant::Columns::Type) : DB::ExecResult
+      ensure_raw_sql_unscoped!
+      connection.execute(clause, binds)
+    end
+
+    def query(clause = "", params = [] of Grant::Columns::Type, & : DB::ResultSet -> T) forall T
+      guard_writes!
+      ensure_raw_sql_unscoped!
+      mark_write_operation
+      clause = Grant::QueryLogs.append(adapter.ensure_clause_template(clause))
+      Grant::Logs.timed(adapter, clause, params) do
+        adapter.open(clause, params, name) { |db| db.query(clause, args: adapter.normalize_bind_values(params)) { |rs| yield rs } }
+      end
+    end
+
+    def scalar(clause : String = "", binds : Array(Grant::Columns::Type) = [] of Grant::Columns::Type)
+      ensure_raw_sql_unscoped!
+      mark_write_operation
+      selected_adapter = adapter
+      statement = Grant::QueryLogs.append(selected_adapter.ensure_clause_template(clause))
+      Grant::Logs.timed(selected_adapter, statement, binds) do
+        selected_adapter.open(statement, binds, name) do |database|
+          database.scalar(statement, args: selected_adapter.normalize_bind_values(binds))
+        end
+      end
+    end
+
+    # Yields the result of a raw scalar query. The bound overload mirrors the
+    # direct-return form while preserving the existing block API.
+    def scalar(clause : String = "", &)
+      yield scalar(clause)
+    end
+
+    # :ditto:
+    def scalar(clause : String, binds : Array(Grant::Columns::Type), &)
+      yield scalar(clause, binds)
+    end
+
+    private def ensure_raw_sql_unscoped!
+      if responds_to?(:_has_default_scope?) && _has_default_scope? && !_unscoped?
+        Grant::Tenant.current! if responds_to?(:multitenant_column)
+        raise Grant::Querying::ScopedRawSqlError.new(
+          "Raw SQL cannot apply the default scope for #{name}. " \
+          "Wrap deliberate raw access in #{name}.unscoped { ... }.")
+      end
+    end
+
+    private def exec_exists(clause : String, params : Array(Grant::Columns::Type)) : Bool
+      adapter.exists? quoted_table_name, clause, params
+    end
+
+    private def build_find_by_clause(criteria : Grant::ModelArgs)
+      keys = criteria.keys
+      criteria_hash = Hash(Symbol | String, Grant::Columns::Type).new
+
+      criteria.each do |name, value|
+        criteria_hash[name] = coerce_where_value(name.to_s, value).as(Grant::Columns::Type)
+      end
+
+      clauses = keys.map do |name|
+        if criteria_hash.has_key?(name) && !criteria_hash[name].nil?
+          matcher = "= ?"
+        else
+          matcher = "IS NULL"
+          criteria_hash.delete name
+        end
+
+        "#{quoted_table_name}.#{quote(name.to_s)} #{matcher}"
+      end
+
+      {clauses.join(" AND "), criteria_hash.values}
+    end
+  end
+
+  # Reloads the record's attributes from the database in place and clears its
+  # current and previous dirty state. Raises `Grant::Querying::NotFound` if the
+  # record no longer exists in the current scope.
+  #
+  # ```
+  # post = Post.create(name: "Grant Rocks!", body: "Check this out.")
+  # # record gets updated by another process
+  # post.reload # refreshes this same object from the database
+  # ```
+  def reload : self
+    fresh = self.class.find!(primary_key_value)
+
+    {% begin %}
+      {% for column in @type.instance_vars.select(&.annotation(Grant::Column)) %}
+        @{{column.name.id}} = fresh.@{{column.name.id}}
+      {% end %}
+    {% end %}
+
+    # The reloaded values supersede any raw mass-assignment input.
+    clear_before_type_cast
+    self.new_record = false
+    clear_loaded_associations
+    _autosave_reset_for_reload
+    ensure_dirty_tracking_initialized
+    original_attributes, changed_attributes, previous_changes = dirty_tracking_hashes
+    original_attributes.clear
+    changed_attributes.clear
+    previous_changes.clear
+    capture_original_attributes
+
+    self
+  end
+end
