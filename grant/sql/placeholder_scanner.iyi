@@ -1,0 +1,157 @@
+# Single-pass rewriter for the `?` placeholders in a raw SQL fragment.
+#
+# A `?` inside a quoted string, quoted identifier, dollar-quoted body or
+# comment is data and is left alone. `??` is the escape for a literal `?`
+# outside those regions (for example PostgreSQL's JSONB existence operator).
+# Everything else is copied through untouched, so PostgreSQL `::` casts and
+# already numbered `$n` placeholders are unaffected.
+module grant/sql/placeholder_scanner
+
+private QUOTE        = '\''.ord.to_u8
+private DOUBLE_QUOTE = '"'.ord.to_u8
+private QUESTION     = '?'.ord.to_u8
+private DASH         = '-'.ord.to_u8
+private SLASH        = '/'.ord.to_u8
+private STAR         = '*'.ord.to_u8
+private DOLLAR       = '$'.ord.to_u8
+private BACKSLASH    = '\\'.ord.to_u8
+private NEWLINE      = '\n'.ord.to_u8
+private UPPER_E      = 'E'.ord.to_u8
+private LOWER_E      = 'e'.ord.to_u8
+
+# Rewrites *clause*. With `numbered` true each placeholder becomes `$n`,
+# counting from *starting_index* + 1; otherwise placeholders stay `?` and
+# only `??` collapses to a literal `?`.
+pub def rewrite(clause : String, starting_index : Int32 = 0, numbered : Bool = true) : String
+  return clause unless clause.includes?("?")
+  return clause if !numbered && !clause.includes?("??")
+
+  bytes = clause.to_unsafe
+  size = clause.bytesize
+  count = starting_index
+  copied_to = 0
+  index = 0
+
+  result = String.build(size + 8) do |io|
+    while index < size
+      byte = bytes[index]
+      case byte
+      when QUOTE
+        backslash_escapes = index > 0 && (bytes[index - 1] == UPPER_E || bytes[index - 1] == LOWER_E) &&
+                            (index == 1 || !identifier_byte?(bytes[index - 2]))
+        index = skip_quoted(bytes, size, index, QUOTE, backslash_escapes)
+      when DOUBLE_QUOTE
+        index = skip_quoted(bytes, size, index, DOUBLE_QUOTE, false)
+      when DASH
+        if index + 1 < size && bytes[index + 1] == DASH
+          index += 2
+          while index < size && bytes[index] != NEWLINE
+            index += 1
+          end
+        else
+          index += 1
+        end
+      when SLASH
+        if index + 1 < size && bytes[index + 1] == STAR
+          index = skip_block_comment(bytes, size, index)
+        else
+          index += 1
+        end
+      when DOLLAR
+        index = skip_dollar_quoted(bytes, size, index)
+      when QUESTION
+        io.write(bytes + copied_to, index - copied_to)
+        if index + 1 < size && bytes[index + 1] == QUESTION
+          io << '?'
+          index += 2
+        else
+          if numbered
+            count += 1
+            io << '$' << count
+          else
+            io << '?'
+          end
+          index += 1
+        end
+        copied_to = index
+      else
+        index += 1
+      end
+    end
+    io.write(bytes + copied_to, size - copied_to)
+  end
+
+  result
+end
+
+def identifier_byte?(byte : UInt8) : Bool
+  (byte >= 'a'.ord && byte <= 'z'.ord) || (byte >= 'A'.ord && byte <= 'Z'.ord) ||
+    (byte >= '0'.ord && byte <= '9'.ord) || byte == '_'.ord
+end
+
+# Returns the index just past the literal that opens at *start*. A doubled
+# delimiter stays inside the literal.
+def skip_quoted(bytes : UInt8*, size : Int32, start : Int32, delimiter : UInt8, backslash_escapes : Bool) : Int32
+  index = start + 1
+  while index < size
+    byte = bytes[index]
+    if backslash_escapes && byte == BACKSLASH
+      index += 2
+    elsif byte == delimiter
+      if index + 1 < size && bytes[index + 1] == delimiter
+        index += 2
+      else
+        return index + 1
+      end
+    else
+      index += 1
+    end
+  end
+  size
+end
+
+def skip_block_comment(bytes : UInt8*, size : Int32, start : Int32) : Int32
+  index = start + 2
+  depth = 1
+  while index < size && depth > 0
+    if bytes[index] == SLASH && index + 1 < size && bytes[index + 1] == STAR
+      depth += 1
+      index += 2
+    elsif bytes[index] == STAR && index + 1 < size && bytes[index + 1] == SLASH
+      depth -= 1
+      index += 2
+    else
+      index += 1
+    end
+  end
+  index
+end
+
+# A `$tag$ ... $tag$` body (the tag may be empty). `$1` is a parameter, not a
+# tag, because a tag cannot start with a digit.
+def skip_dollar_quoted(bytes : UInt8*, size : Int32, start : Int32) : Int32
+  tag_end = start + 1
+  if tag_end < size && (identifier_byte?(bytes[tag_end]) && !(bytes[tag_end] >= '0'.ord && bytes[tag_end] <= '9'.ord))
+    while tag_end < size && identifier_byte?(bytes[tag_end])
+      tag_end += 1
+    end
+  end
+  return start + 1 unless tag_end < size && bytes[tag_end] == DOLLAR
+
+  tag_size = tag_end - start + 1
+  index = tag_end + 1
+  while index + tag_size <= size
+    return index + tag_size if equal_bytes(bytes, index, start, tag_size)
+    index += 1
+  end
+  size
+end
+
+def equal_bytes(bytes : UInt8*, first : Int32, second : Int32, length : Int32) : Bool
+  offset = 0
+  while offset < length
+    return false unless bytes[first + offset] == bytes[second + offset]
+    offset += 1
+  end
+  true
+end

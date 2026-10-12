@@ -1,0 +1,20 @@
+module grant/value
+
+pub alias Value = Nil | Bool | Int64 | Float64 | String
+pub alias Attributes = Hash(String, Value)
+
+# The row is data; mapping it into an application record is an explicit API.
+pub struct Row
+  getter attributes : Attributes
+
+  def initialize(@attributes : Attributes)
+  end
+
+  def [](name : String) : Value
+    @attributes[name]
+  end
+
+  def []?(name : String) : Value
+    @attributes[name]?
+  end
+end

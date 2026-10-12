@@ -1,0 +1,73 @@
+module model_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError}
+
+struct Bank
+  getter id : Int64?
+  getter account_id : Int64
+  getter name : String
+
+  def initialize(@account_id : Int64, @name : String, @id : Int64? = nil)
+  end
+end
+
+struct BankMapping
+end
+
+impl Mapping(Bank) for BankMapping
+  def table : Table
+    Table.new("banks")
+  end
+
+  def attributes(record : Bank) : Attributes
+    {"id" => record.id, "account_id" => record.account_id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Bank | DatabaseError
+    id = row["id"]
+    account_id = row["account_id"]
+    name = row["name"]
+    if id.is_a?(Int64) && account_id.is_a?(Int64) && name.is_a?(String)
+      Bank.new(account_id, name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid bank row")
+    end
+  end
+
+  def validate(record : Bank) : Nil | ValidationError
+    if record.name.strip.empty?
+      ValidationError.new({"name" => ["can't be blank"]})
+    else
+      nil
+    end
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE banks(id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+repository = Repository(Bank).new(connection, BankMapping.new)
+assert repository.insert(Bank.new(1_i64, "")).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0
+bank = repository.insert(Bank.new(1_i64, "Initial")).or_panic
+id = bank.id || 0_i64
+assert id > 0
+found = repository.find(id).or_panic
+assert !found.nil?
+assert found.name == "Initial" if found
+own = repository.query.where("account_id", 1_i64)
+other = repository.query.where("account_id", 2_i64)
+assert repository.update(other, id, Bank.new(1_i64, "Wrong tenant")).or_panic.nil?
+updated = repository.update(own, id, Bank.new(1_i64, "Updated")).or_panic
+assert !updated.nil?
+assert updated.name == "Updated" if updated
+assert repository.find(999_i64).or_panic.nil?
+second = Connection.open(":memory:").or_panic
+second.execute("CREATE TABLE banks(id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+foreign_repository = Repository(Bank).new(second, BankMapping.new)
+assert repository.update(foreign_repository.query, id, Bank.new(1_i64, "Other database")).is_a?(DatabaseError)
+second.close.or_panic
+connection.close.or_panic

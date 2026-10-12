@@ -1,0 +1,29 @@
+module grant/errors
+
+pub struct DatabaseError
+  getter code : Int32
+  getter operation : String
+  getter detail : String
+
+  def initialize(@code : Int32, @operation : String, @detail : String)
+  end
+end
+
+impl Error for DatabaseError
+  def message : String
+    "#{operation}: #{detail} (#{code})"
+  end
+end
+
+pub struct ValidationError
+  getter messages : Hash(String, Array(String))
+
+  def initialize(@messages : Hash(String, Array(String)))
+  end
+end
+
+impl Error for ValidationError
+  def message : String
+    "record validation failed"
+  end
+end

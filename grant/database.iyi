@@ -1,0 +1,21 @@
+module grant/database
+
+import grant/value::{Value, Row}
+import grant/errors::{DatabaseError}
+
+pub struct Mutation
+  getter changes : Int64
+  getter last_insert_id : Int64
+
+  def initialize(@changes : Int64, @last_insert_id : Int64)
+  end
+end
+
+# Every adapter declares the same contract. No global registry or class reopening.
+pub trait Database
+  abstract def identity : UInt64
+  abstract def execute(sql : String, parameters : Array(Value)) : Mutation | DatabaseError
+  abstract def query(sql : String, parameters : Array(Value)) : Array(Row) | DatabaseError
+  abstract def close : Nil | DatabaseError
+  abstract def offset_without_limit(count : Int32) : String
+end

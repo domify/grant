@@ -1,0 +1,7 @@
+module postgresql_test
+
+import grant/adapters/postgresql::{Connection}
+import grant/errors::{DatabaseError}
+
+# Deterministic failure path: no server or source database is contacted.
+assert Connection.open("host=/tmp/grant-iyi-nonexistent-socket dbname=grant connect_timeout=1").is_a?(DatabaseError)

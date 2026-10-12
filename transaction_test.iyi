@@ -1,0 +1,31 @@
+module transaction_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/transaction::{transaction}
+import grant/errors::{DatabaseError, ValidationError}
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE items(id INTEGER PRIMARY KEY)").or_panic
+value = transaction(connection) do
+  connection.execute("INSERT INTO items VALUES(1)").or_panic
+  42
+end.or_panic
+assert value == 42
+assert connection.query("SELECT * FROM items").or_panic.size == 1
+failure = transaction(connection) do
+  connection.execute("INSERT INTO items VALUES(2)").or_panic
+  ValidationError.new({"name" => ["can't be blank"]})
+end
+assert failure.is_a?(ValidationError)
+assert connection.query("SELECT * FROM items").or_panic.size == 1
+panicked = transaction(connection) do
+  connection.execute("INSERT INTO items VALUES(3)").or_panic
+  raise "deliberate transaction panic"
+  0
+end
+assert panicked.is_a?(Panicked)
+assert connection.query("SELECT * FROM items").or_panic.size == 1
+# A transaction can be used again after each rollback.
+transaction(connection) { connection.execute("INSERT INTO items VALUES(4)").or_panic; 0 }.or_panic
+assert connection.query("SELECT * FROM items").or_panic.size == 2
+connection.close.or_panic

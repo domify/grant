@@ -1,0 +1,170 @@
+module grant/query
+
+import grant/database::{Database, Mutation}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError}
+
+pub struct Table
+  getter name : String
+  getter primary_key : String
+
+  def initialize(@name : String, @primary_key : String = "id")
+  end
+end
+
+# Validate identifiers independently of value binding. No user value is SQL text.
+pub def identifier(name : String) : String | DatabaseError
+  return DatabaseError.new(21, "identifier", "identifier is empty") if name.empty?
+  index = 0
+  name.each_char do |char|
+    valid = (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char == '_'
+    valid ||= index > 0 && char >= '0' && char <= '9'
+    return DatabaseError.new(21, "identifier", "invalid identifier: #{name}") unless valid
+    index += 1
+  end
+  "\"#{name}\""
+end
+
+pub struct Predicate
+  getter name : String
+  getter value : Value
+
+  def initialize(@name : String, @value : Value)
+  end
+end
+
+# Queries carry values separately and execute only at terminal methods.
+# Each chained query is independent; changing one cannot widen another's scope.
+pub class Query
+  @database : Database
+  getter table : Table
+  @filters : Array(Predicate)
+  @limit : Int32?
+  @offset : Int32
+  @order : String?
+  @descending : Bool
+
+  def initialize(@database : Database, @table : Table, @filters : Array(Predicate) = [] of Predicate,
+                 @limit : Int32? = nil, @offset : Int32 = 0, @order : String? = nil, @descending : Bool = false)
+  end
+
+  def database_identity : UInt64
+    @database.identity
+  end
+
+  def where(name : String, value : Value) : Query
+    filters = copy_filters(@filters)
+    filters << Predicate.new(name, value)
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+  end
+
+  def limit(count : Int32) : Query
+    Query.new(@database, @table, copy_filters(@filters), count, @offset, @order, @descending)
+  end
+
+  def offset(count : Int32) : Query
+    Query.new(@database, @table, copy_filters(@filters), @limit, count, @order, @descending)
+  end
+
+  def order(name : String, descending : Bool = false) : Query
+    Query.new(@database, @table, copy_filters(@filters), @limit, @offset, name, descending)
+  end
+
+  def all : Array(Row) | DatabaseError
+    table = identifier(@table.name)!
+    return DatabaseError.new(21, "select", "negative pagination") if @offset < 0 || (@limit || 0) < 0
+    parameters = [] of Value
+    predicate = where_sql(parameters)!
+    sql = "SELECT * FROM #{table}#{predicate}"
+    if name = @order
+      column = identifier(name)!
+      sql += " ORDER BY #{column}" + (@descending ? " DESC" : " ASC")
+    end
+    if count = @limit
+      sql += " LIMIT #{count} OFFSET #{@offset}"
+    elsif @offset > 0
+      sql += @database.offset_without_limit(@offset)
+    end
+    @database.query(sql, parameters)
+  end
+
+  def first : Row | Nil | DatabaseError
+    result = limit(1).all
+    if result.is_a?(DatabaseError)
+      result
+    else
+      result.empty? ? nil : result[0]
+    end
+  end
+
+  def count : Int64 | DatabaseError
+    table = identifier(@table.name)!
+    parameters = [] of Value
+    predicate = where_sql(parameters)!
+    rows = @database.query("SELECT COUNT(*) AS count FROM #{table}#{predicate}", parameters)!
+    value = rows[0]["count"]
+    value.is_a?(Int64) ? value : DatabaseError.new(20, "count", "adapter returned a non-integer count")
+  end
+
+  def insert(attributes : Attributes) : Row | DatabaseError
+    table = identifier(@table.name)!
+    return DatabaseError.new(21, "insert", "scoped insert is not supported") unless @filters.empty?
+    return DatabaseError.new(21, "insert", "pagination/order is not supported for writes") if @limit || @offset != 0 || @order
+    names = [] of String
+    parameters = [] of Value
+    attributes.each do |name, value|
+      names << identifier(name)!
+      parameters << value
+    end
+    placeholders = parameters.map { |_| "?" }.join(", ")
+    sql = names.empty? ? "INSERT INTO #{table} DEFAULT VALUES" : "INSERT INTO #{table} (#{names.join(", ")}) VALUES (#{placeholders})"
+    rows = @database.query(sql + " RETURNING *", parameters)!
+    rows.empty? ? DatabaseError.new(20, "insert", "adapter returned no row") : rows[0]
+  end
+
+  def update(attributes : Attributes) : Mutation | DatabaseError
+    return DatabaseError.new(21, "update", "update requires a filter") if @filters.empty?
+    return DatabaseError.new(21, "update", "update attributes are empty") if attributes.empty?
+    return DatabaseError.new(21, "update", "pagination/order is not supported for writes") if @limit || @offset != 0 || @order
+    table = identifier(@table.name)!
+    parameters = [] of Value
+    assignments = [] of String
+    attributes.each do |name, value|
+      column = identifier(name)!
+      assignments << "#{column} = ?"
+      parameters << value
+    end
+    predicate = where_sql(parameters)!
+    @database.execute("UPDATE #{table} SET #{assignments.join(", ")}#{predicate}", parameters)
+  end
+
+  def delete : Mutation | DatabaseError
+    return DatabaseError.new(21, "delete", "delete requires a filter") if @filters.empty?
+    return DatabaseError.new(21, "delete", "pagination/order is not supported for writes") if @limit || @offset != 0 || @order
+    table = identifier(@table.name)!
+    parameters = [] of Value
+    predicate = where_sql(parameters)!
+    @database.execute("DELETE FROM #{table}#{predicate}", parameters)
+  end
+
+  private def where_sql(parameters : Array(Value)) : String | DatabaseError
+    clauses = [] of String
+    @filters.each do |predicate|
+      column = identifier(predicate.name)!
+      value = predicate.value
+      if value.nil?
+        clauses << "#{column} IS NULL"
+      else
+        clauses << "#{column} = ?"
+        parameters << value
+      end
+    end
+    clauses.empty? ? "" : " WHERE #{clauses.join(" AND ")}"
+  end
+end
+
+def copy_filters(source : Array(Predicate)) : Array(Predicate)
+  copy = [] of Predicate
+  source.each { |predicate| copy << predicate }
+  copy
+end

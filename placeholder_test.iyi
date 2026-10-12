@@ -1,0 +1,19 @@
+module placeholder_test
+
+import grant/sql/placeholder_scanner::{rewrite}
+
+assert rewrite("a = ? AND b = ?", 4) == "a = $5 AND b = $6"
+assert rewrite("title = 'why?' AND id = ?") == "title = 'why?' AND id = $1"
+assert rewrite("note = 'it''s ok?' AND id = ?") == "note = 'it''s ok?' AND id = $1"
+assert rewrite(%(SELECT "what?" FROM t WHERE id = ?)) == %(SELECT "what?" FROM t WHERE id = $1)
+assert rewrite(%q(a = E'it\'s ?' AND b = ?)) == %q(a = E'it\'s ?' AND b = $1)
+assert rewrite("a = ? -- really?\nAND b = ?") == "a = $1 -- really?\nAND b = $2"
+assert rewrite("a = ? /* why? /* nested? */ still? */ AND b = ?") == "a = $1 /* why? /* nested? */ still? */ AND b = $2"
+assert rewrite("SELECT $$is it?$$, ?") == "SELECT $$is it?$$, $1"
+assert rewrite("SELECT $body$is it?$body$, ?") == "SELECT $body$is it?$body$, $1"
+assert rewrite("a = $1 AND b = ? AND c = 'x?'") == "a = $1 AND b = $1 AND c = 'x?'"
+assert rewrite("a = ? AND b = 'oops ?") == "a = $1 AND b = 'oops ?"
+assert rewrite("id::text = ?") == "id::text = $1"
+assert rewrite("data ?? 'key' AND id = ?") == "data ? 'key' AND id = $1"
+assert rewrite("café = ? AND ☃ = ?") == "café = $1 AND ☃ = $2"
+assert rewrite("data ?? 'key' AND id = ?", 0, false) == "data ? 'key' AND id = ?"

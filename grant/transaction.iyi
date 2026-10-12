@@ -1,0 +1,33 @@
+module grant/transaction
+
+import grant/database::{Database}
+import grant/errors::{DatabaseError}
+import grant/value::{Value}
+
+# Error unions roll back; success commits. A child task contains a panic so
+# cleanup runs without relying on Crystal's exception unwinding.
+# Nested transactions/savepoints are not yet part of this contract.
+pub def transaction(database : Database, &block : -> T) : T | DatabaseError | Panicked | Cancelled forall T
+  database.execute("BEGIN", [] of Value)!
+  outcome = group do |tasks|
+    tasks.spawn { block.call }.value
+  end
+  if outcome.is_a?(Error)
+    cleanup = database.execute("ROLLBACK", [] of Value)
+    if cleanup.is_a?(DatabaseError)
+      return DatabaseError.new(cleanup.code, "rollback", "#{cleanup.detail}; original error: #{outcome.message}")
+    end
+    outcome
+  else
+    committed = database.execute("COMMIT", [] of Value)
+    if committed.is_a?(DatabaseError)
+      cleanup = database.execute("ROLLBACK", [] of Value)
+      if cleanup.is_a?(DatabaseError)
+        return DatabaseError.new(cleanup.code, "rollback", "#{cleanup.detail}; commit error: #{committed.detail}")
+      end
+      committed
+    else
+      outcome
+    end
+  end
+end

@@ -1,0 +1,26 @@
+module sqlite_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE banks (id INTEGER PRIMARY KEY, name TEXT NOT NULL, account_id INTEGER NOT NULL)").or_panic
+result = connection.execute("INSERT INTO banks(name, account_id) VALUES (?, ?)", ["Bank ' quoted", 1_i64] of Value).or_panic
+assert result.changes == 1
+assert result.last_insert_id == 1
+rows = connection.query("SELECT name, account_id FROM banks WHERE account_id = ?", [1_i64] of Value).or_panic
+assert rows.size == 1
+assert rows[0]["name"] == "Bank ' quoted"
+assert connection.query("SELECT * FROM banks WHERE account_id = ?", [2_i64] of Value).or_panic.empty?
+assert connection.query("SELECT ?", [] of Value).is_a?(DatabaseError)
+assert connection.execute("INSERT INTO banks(name, account_id) VALUES(NULL, 1)").is_a?(DatabaseError)
+assert connection.execute("SELECT 1; DROP TABLE banks").is_a?(DatabaseError)
+assert connection.execute("SELECT 1\0; DROP TABLE banks").is_a?(DatabaseError)
+connection.execute("BEGIN").or_panic
+connection.execute("DELETE FROM banks").or_panic
+connection.execute("ROLLBACK").or_panic
+assert connection.query("SELECT * FROM banks").or_panic.size == 1
+connection.close.or_panic
+assert connection.query("SELECT 1").is_a?(DatabaseError)
+connection.close.or_panic

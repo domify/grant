@@ -1,0 +1,61 @@
+module grant/model
+
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError}
+import grant/database::{Database}
+import grant/query::{Query, Table}
+
+# Applications explicitly map their sealed record types to a table. The ORM
+# never reopens those types or discovers their fields through a global macro.
+pub trait Mapping(T)
+  abstract def table : Table
+  abstract def attributes(record : T) : Attributes
+  abstract def from_row(row : Row) : T | DatabaseError
+  abstract def validate(record : T) : Nil | ValidationError
+end
+
+pub class Repository(T)
+  @database : Database
+  @mapping : Mapping(T)
+
+  def initialize(@database : Database, @mapping : Mapping(T))
+  end
+
+  def query : Query
+    Query.new(@database, @mapping.table)
+  end
+
+  def find(id : Int64) : T | Nil | DatabaseError
+    row = query.where(@mapping.table.primary_key, id).first!
+    row ? @mapping.from_row(row) : nil
+  end
+
+  def insert(record : T) : T | DatabaseError | ValidationError
+    @mapping.validate(record)!
+    values = write_attributes(record)
+    row = query.insert(values)!
+    @mapping.from_row(row)
+  end
+
+  # Caller supplies a scoped query; retain its tenant filters during the write
+  # and the read-back rather than falling back to an unscoped primary key.
+  def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError
+    return DatabaseError.new(21, "update", "scope belongs to another table") unless scope.table.name == @mapping.table.name
+    return DatabaseError.new(21, "update", "scope belongs to another database") unless scope.database_identity == @database.identity
+    @mapping.validate(record)!
+    values = write_attributes(record)
+    selected = scope.where(@mapping.table.primary_key, id)
+    result = selected.update(values)!
+    return nil if result.changes == 0
+    row = selected.first!
+    row ? @mapping.from_row(row) : nil
+  end
+
+  private def write_attributes(record : T) : Attributes
+    values = Attributes.new
+    @mapping.attributes(record).each do |name, value|
+      values[name] = value unless name == @mapping.table.primary_key
+    end
+    values
+  end
+end

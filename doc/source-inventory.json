@@ -1,0 +1,1309 @@
+{
+  "source": "crystal-upstream",
+  "commit": "dfad8bfc89778a6d89e38ff481899db552e428b8",
+  "files": [
+    {
+      "path": ".DS_Store",
+      "sha256": "dc4ae1566985db14fff5edd4609b74331a8c60b5ee4c96e07af63dfe2516430c",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/base.cr",
+      "sha256": "0aabeeca932397d865852657d274a5c899e2c95aca643aa2c73a4e878ec96e75",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/error_translator.cr",
+      "sha256": "189a1fdfce1833b4d4d3cb0980568ae769d2c389a7c91cf2571abeebeaba60f4",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/mysql.cr",
+      "sha256": "7c5afd111f1284e8e55c4f9d093ddad0c8186afcb84388c15a0df0d4407ce967",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/mysql_test_helpers.cr",
+      "sha256": "157b8067073bb18f9ba9d8e6d447343c79f51eac8c8fa95e14170c5cb623696f",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/pg.cr",
+      "sha256": "980e8d7d7786b084ac48466f75ffdd59575477d490fd6abfd29e4b5cf3fdc9b7",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/pg_test_helpers.cr",
+      "sha256": "1521ea646831a36d6b3e2051a265f45e7680d601c20e7e8bf91e6d63266e175a",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/placeholder_scanner.cr",
+      "sha256": "40b2375931299c45a047c14b2bf5b148c0d5059dd4f81f2a02f37e54b6585dfe",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/pool_support.cr",
+      "sha256": "03e5bee5a756bec6f44d99ce481d33c7003e591fb30f54a1b43536037b7343d8",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/registry.cr",
+      "sha256": "1fb16e1890e37d542312c1a59af0e86d0284f60e0b8de59e870b3e58d457b980",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/server_version.cr",
+      "sha256": "f58693e0c9d5bbea0859d6863fdf6e16222aeae0c04233ec9b7dfea51f9eb00f",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/sqlite.cr",
+      "sha256": "fa45b409f2de6b94c40e3a9ff13804128c81393298855f0104eae9ccc1544f02",
+      "status": "reference_only"
+    },
+    {
+      "path": "adapter/sqlite_test_helpers.cr",
+      "sha256": "5c62932dbc694f296b2277b53c112bc9913b9b318b8ae3910d8289b71f94fbd1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/adapter/schema.cr",
+      "sha256": "1d2c26bd6f147312b371018b4e65060ff7559ba6158584555776ae848e0e5362",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/advisory_lock.cr",
+      "sha256": "4099f54d151b09a44918e468c2a6fad3a8010bed48cdfe390fa0ef2a462c5549",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/aggregations.cr",
+      "sha256": "54bf677ee33e7ae2bdb65c4e5d8569e92ef74d50b317d10b567043b25c996dfb",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_callbacks.cr",
+      "sha256": "00e35c8f3d658020d0e82d93e6f60b8b80f847ca02f6c01c3aff5a8124bb4e0e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_collection.cr",
+      "sha256": "3476065b769b2ce613bf48680dfa131649c2fdd4d4c1370c2e6d20f22dda3f3e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_loader.cr",
+      "sha256": "04259c8e66fed48c6dd38c8caeec10cd8124d9923c6edfb29bad85aecb3a75c4",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_options.cr",
+      "sha256": "8e72f940035010cc62fac3ce47f26cc4ce53b69ad7f770ec88239d2977eb46cd",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_registry.cr",
+      "sha256": "2499de273c1c456ea826973f39857ecf7cdfe3871bbce57ed09d0993018e0d8e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_touch.cr",
+      "sha256": "f454e5d41eff7c71944fdd11fb5258a459dd69e27e61557a634d00808c758956",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/association_writers.cr",
+      "sha256": "9c71407bf43f7a3728be6eeb031a39f263991683b93819a2d6fb1bf4c27cedfd",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/collection_accessors.cr",
+      "sha256": "0c842e6b01dd66c5c91e37532df5ff8100a3a553b1d51b200ef6cf535afc4881",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/collection_finders.cr",
+      "sha256": "d1dac46f0e7987366f94db40af5370b42d7fef7fcb0a3205fa8108a576e1cee9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/collection_relation.cr",
+      "sha256": "709ce3954d781a64ca0848339fc125812974387c38937fb5c84ee6cac416b8db",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/composite_association.cr",
+      "sha256": "e76fa7f9eb9ab1c6aa3f20c2502211a0a768d061ebf8970133d1d9e432ec5b5f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/composite_collection.cr",
+      "sha256": "031978dd62a3a779e1dd0e877a5093fd7375ddcd70faa756d790deef13ea4ba0",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/composite_foreign_key.cr",
+      "sha256": "a70d5ade671ecbaca67f12f1ab9bf319dde82d86db7893b2f49bf2335d14d005",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/habtm.cr",
+      "sha256": "155b7c8737285caf5d26fe15f920ae20e5c92a711fd7b7c0ec9a702c4b3d5296",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/has_one_writer.cr",
+      "sha256": "d1a9801b013d1ff17b64d619807d582461182ed0259a38a680760be0e4e4a7ba",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/option_validation.cr",
+      "sha256": "c0da38409d262c033fbd2adcd5067f37efcc2b3d72bae93d98c6fd00aaed9a00",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/singular_builders.cr",
+      "sha256": "3a486d3b77b8df6c6f2946b297e1cdaa955ed5233c384dad98a8ea274beff632",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/through.cr",
+      "sha256": "c4e903b83215572f9252a815458d73f9d30b6e5efeb47f611fa14700705ab9ae",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/through_chain.cr",
+      "sha256": "37e86df8450406cbfd046898038960f315cf051d897be2d9ff71573fc71e2908",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations/through_preload.cr",
+      "sha256": "0c94b489055f9d2b28280c0f6ee28a5aa1ab1d52ea7b4ef02df426b50d787fd1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/associations.cr",
+      "sha256": "4274931cbccab6dbb46907457e5930f55cde9b7582e904beaea47b26f4b024d9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/coordinator.cr",
+      "sha256": "d1d922779fd12a4d50f025c75d80a640e9abb17720dd7088a6d9d464e852c8f9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/errors.cr",
+      "sha256": "6c479df03990ad527dfe9cc8a947244f3163c2c0e2b530762c5bf670985c19d9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/limiter.cr",
+      "sha256": "d1c2bbacaa07f3046c691d61237b2fc35af19374cfd656e7ddff1875837c07f0",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/metrics.cr",
+      "sha256": "0dfec347cb58916ae57e20e721d66501b02256220260ec90d446b1abdc039549",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/promise.cr",
+      "sha256": "789bda029ef7cf08adfd8cbd28c9d43b6d2ff447065877b43ceb1659acd276e1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/result.cr",
+      "sha256": "a30092043ae37bb6c598a4240aa377c4a9c53abc0db0e429b33897f2aa39fe3c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async/sharded_executor.cr",
+      "sha256": "c6781e635056977bbfeb0d5dd06bb4045f234f9a4b57de9fabfded2bfceb73e1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/async.cr",
+      "sha256": "c6b0244a2495b698c08f944465cbf39f413b0619e78ea25025540683ef3a56eb",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/attribute_api.cr",
+      "sha256": "15066614b5ee7ba0eebc1720b0f5d62c6e9024a696a2421be85b355cba46b537",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/attributes.cr",
+      "sha256": "113459f80da6c87f0ad57d1c9d5c25c7ef64dd05698e95fb874f4ff806ca0dda",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/autosave.cr",
+      "sha256": "ab72842990596523ce3ef099e176ab98d0658f4e05dd2e9860b215963670f7a3",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/base.cr",
+      "sha256": "bb94a4f137c79def4e0b07a1c1bd776086c66306f0287c04faae15fc0003df95",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/bulk_operations.cr",
+      "sha256": "0bc55549396cff852e2d18ee83687c29ff617805ef23b127d5c9ae8e1c8b8a76",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/callbacks.cr",
+      "sha256": "abae1d65c32bcb2559cd642a7339abc6d86dccdd81cd330ac455a01036f5006f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/collection.cr",
+      "sha256": "ca31ba3fb59c0c43c6880321368becfec4092b6782ee4311437a53c35699576f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/columns.cr",
+      "sha256": "eebf80691fb9caf87755697c0758ded0ab1e99c5fbcb1750034bed4b86d6c2bb",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/columns_helpers.cr",
+      "sha256": "2c598bfd981e4bd83bd7009eeb685d3db7dad3a7cc1000cc76596e81df6631ab",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/commit_callbacks.cr",
+      "sha256": "e91be1f474ee8654622b0d20f6b55f0beb925868a6c0569da3852d8a39645e49",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/composite_primary_key/transactions.cr",
+      "sha256": "35d2f7b717d7c9e92e588008bece9cbf2a05050dc2a65739ef262d3a6d6b35df",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/composite_primary_key/validation.cr",
+      "sha256": "28aabe6848e0887c5d05bfccf7615d7e15fac75b5d133d9d1867681429179b69",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/composite_primary_key.cr",
+      "sha256": "3cc281181e52e426f014edb30399db741c9478ec8db8bd38ae36f43021672394",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection.cr",
+      "sha256": "f18effa2e84ddf75847dc2aa9f87295620932b67dddf6891e0ee693e64ef40a2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_context.cr",
+      "sha256": "bc50d83bad77fe75300456fbef64f6d1ae5b0552d02b29dfd677f7afd878b431",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_handling.cr",
+      "sha256": "2f206ff6370fa0d1bf7ea19c7556c2cbb682636c0d4591e19c64354eeda24768",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_management.cr",
+      "sha256": "747eef1dc565ff7a6e233c6fdcb8b242c2a1969da63d13067f98a36ee9a603da",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_manager.cr",
+      "sha256": "45f3466356f0f971c3de7d32dd54bbf798afcc19389a6fb53e58082c9970e020",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_pool.cr",
+      "sha256": "34d641dedcb231d0ffd85c00b6410e910abeed9c85f7845cabd1ba02f43a372c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_pooling.cr",
+      "sha256": "c943dc5c27ef83a34e9f6955089c02f6921cef7f2f4a0d10f95aeba3ce61dc09",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connection_registry.cr",
+      "sha256": "61d729104f4f8e00e6ee861b912c925a13936aea9f3a011feab65959dc6da43c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/connections.cr",
+      "sha256": "ed9cb09db92083e8faedffa6842faccfa777551774fa72262676f414d1dedfbc",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/convenience_methods.cr",
+      "sha256": "64db0b51fb38694dc46bdb8e45ed7a5c929bfd5cff15a6d0a93c03764a2fab35",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/converters/decimal.cr",
+      "sha256": "0b261fe96ab4ac224f5dbfd76fd921688c07f788b18cf33e5daa70c66362f677",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/converters.cr",
+      "sha256": "1878f4b607a912436ec69f2fb983323a35cd62103e6273956de34d7233a0be10",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/counter_cache.cr",
+      "sha256": "adc62f03816fd0c6f856c7f5bace404c58f6cce2dbc22e285389cd20ba35c3ee",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/counters.cr",
+      "sha256": "0d3a0ba27bb790bde52a1b6dbe75b7fa6e8f205abf5d48938ce5f7e58dec322a",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/database_configurations.cr",
+      "sha256": "17bb27cfb2b96ea2abdba773755b9c68d610b278c48aab2301db093785af032f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/delegated_type.cr",
+      "sha256": "7acd1cd9c99bd66698520a2cdb31518fe4471b64a5d09d2860577865f5d3e599",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/dependent.cr",
+      "sha256": "cf6a1515a32d5745e06d42717326fee4086bb3ddbe29edc1cf35b236fc38d2f7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/dirty.cr",
+      "sha256": "789499c5fd0415deadda94ff55e856a4aa551eb8602a846b9360e6349a24ba73",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/eager_loading.cr",
+      "sha256": "9a6d2c82065d3e3e46f153aa38e996e48560a3401b7ba10f0e699dcf924c6a80",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/cipher.cr",
+      "sha256": "a6e889c6a9184ad75aabad58246e22b298f4e65ef61ee927b18c020fbcb526b7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/compression.cr",
+      "sha256": "ebf568a368d77eae1026157d9ae76f21f55da21ae8e52b3602933decafa26b59",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/config.cr",
+      "sha256": "22c63a32db1ae732b98bc6d17fef9eb3e2135a4d5f8885c58386593eb663d621",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/context.cr",
+      "sha256": "3b01a3295a957ef04f360b7efad24ded5164b2ab99ad63b95a6026e445fc4959",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/encrypted_attribute.cr",
+      "sha256": "ef5b1e9ee7f318e2ef179677fb066e1ecba339e271195c823cd143409b826819",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/key_provider.cr",
+      "sha256": "779076a8cac1e1bc22415c2b546a552911facf0cfd5fa8aa693f1351cd030064",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/log_filter.cr",
+      "sha256": "e738080b24afe7b0871f272bb6194d1aee1f0d8105044d0c8a0e929992aecc32",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/migration_helpers.cr",
+      "sha256": "d46417bf9bfea371c58c1f48e3d940362847b9789af6284e1ca8b0b15d2319bf",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/query_extensions.cr",
+      "sha256": "9e0fd423a9be4ad9eb0ba3c3b880235492d65e0ab3fd962b4ae2eb27ee9cf1c5",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/scheme.cr",
+      "sha256": "479c022e11a8b427eb507d6740b3b082733f25bc8acb8af718d6fb4100f7480f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/sealed.cr",
+      "sha256": "fb73ce6d6e64e212c2028203bb0b658b236ee36d85a0aabe06324ddadae92dfa",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption/serializer.cr",
+      "sha256": "a8e328166e87f0cf653dc50b252a5df3b33947b3296b290413706c7324c98026",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/encryption.cr",
+      "sha256": "ade84ead934c21be3e6a4e690f1ecc63e3455c091869e599ecb04c92ee595469",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/enum_attributes.cr",
+      "sha256": "95e7c51dc90ac26c98eddf9c4e22ba1b2a31a0dca2689eebcba5e0e147411708",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/error.cr",
+      "sha256": "ca82f78d938be2711688c1d61bd116505270a97426a086c29ea5827515337471",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/error_taxonomy.cr",
+      "sha256": "501c2f98531e6154b83d8380735aa20e704c529bf46e6dddd38d09f29c624908",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/errors.cr",
+      "sha256": "79c0aea3de15248f7da2f22f3c99fa417504dfaf05aa585d0f6e1b09703c7518",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/exceptions.cr",
+      "sha256": "267e4502d5da8a8815d4bac81bc91261173a7f4f411a5c9bdbe91ac4449869ff",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/health_monitor.cr",
+      "sha256": "cf61f61535b67eabff788f780926991991d82ba5ef7e3ef5bdfe36a475cc1896",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/i18n.cr",
+      "sha256": "e79dc4bcde30f0cbced4ab61b16c4a0a516b29a16ffe549ff093f50f30c8c763",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/integration.cr",
+      "sha256": "bae17addf77b1fc859cf64a40936bd2e3adf46db56d15f781b95e46a624e7b59",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/integrators.cr",
+      "sha256": "4e7adbe48ea5ff977df5fc609a3df2e6b9aa1f72c99b6e91fc474927c2357467",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/loaded_association_collection.cr",
+      "sha256": "244a7609325e177a45dab304b55a57356bc725deca7cd5c7dd782d2a1c78cbf0",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/locking/clause.cr",
+      "sha256": "9c4a8254585255961bb1c96eedd3516a495aef4ff79193491064fa4f2ee78898",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/locking/optimistic.cr",
+      "sha256": "0c32562a6ea116f4839352304c65389b3d920ddabe37b432cb2372d0e0e0b94b",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/locking/pessimistic.cr",
+      "sha256": "638143715c42fa5a145ae9be7d629c26448d244b0efde5d2b7d82f721febc914",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/locking.cr",
+      "sha256": "cc6e223ae1e330d93bd0a993cb3ecbf2d9302d8d08b6f4394072fc58ae0d78f9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/log.cr",
+      "sha256": "7520ca2b27578bc7c1c9109a5c6b71d667b385e7b8ec57f765235f7c1d762f78",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/logging.cr",
+      "sha256": "d6316444d529c5bc45d582a139cc8ca4ea96d5b52f1a9e2efd0675f31080aa6c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/middleware/database_selector.cr",
+      "sha256": "56576686ca7cf1325a71df58cf22f2b1ce15670d1592a8eae226558d0341d823",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/middleware/query_cache.cr",
+      "sha256": "106e7a5e0e7a6a82c4de590e99d81918215e6093f9a7864735bc09063b6bfb09",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/middleware/shard_selector.cr",
+      "sha256": "2d71e71e3fb8fe081c957f860c3c5683ab441046294f15078d023dc2d2ff2fe4",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/migrator.cr",
+      "sha256": "bb36160ddf8a4f6e91a85019843dc1379a91a90d15aec4ab1f0f0d09174ddb90",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/model_name.cr",
+      "sha256": "e591bb514523bc96d45344dd7ff873bdf4fd328a645e6b855b9bdfa5671058de",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/nested_attributes.cr",
+      "sha256": "3b153d90f5c8594843768041fb472385c28495361f00af43960720091f263216",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/normalization.cr",
+      "sha256": "64adc944d67d28436feca2b5e8bab7c99169d3af9fab5443999676cd39f9a8d1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/notifications.cr",
+      "sha256": "859298c804ba40cec574e4efd662387819eb3d1300869207d14335f25c7b710f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/parity.cr",
+      "sha256": "dd697ef558c74b364cb8ba4a622ee9e3ffed79fceab20038d11826a40208990a",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/phase4_roadmap.md",
+      "sha256": "d026d27a3d4ccef565aee7a445fa9ddc69599a5b61fbb80b134430d6be3d7bf3",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/polymorphic.cr",
+      "sha256": "00c58fec196db7f7342a9dbfd7aea11e646abe49b3496a213e98ebe7277b0c07",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/pool_reaper.cr",
+      "sha256": "937d2350eda672189ae64e5e1863cc6c50c2d88fb0c35825905ff1422925fcd6",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/aggregations.cr",
+      "sha256": "4b6650f7000750aafde0b5796b9f5a545ca48be81e4e26b230ce55a501e24903",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assembler/base.cr",
+      "sha256": "d58953fba67c1555b1cec2b0146fd01d7ce43ce4e43c126456cc1fcc68c472d4",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assembler/from_and_with.cr",
+      "sha256": "72f48b31299c5dc213c1a307d7b00df8574275537df50b525aa509bb1ad913be",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assembler/predicate_renderer.cr",
+      "sha256": "63fba77696f64fee5af80316efea3df1fe0321a256e76b445c9c41dd65a80259",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assembler/where.cr",
+      "sha256": "5f0c4880994a9f5195442825a36b97d5e5214834324db60263c0de198250213f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assemblers/base.cr",
+      "sha256": "b4d3ed9133439129b0b96f28c935caf1163fd6c3afbec55c56629d8d3d1b945c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assemblers/mysql.cr",
+      "sha256": "6f6bd4e7fbd656f21ebf664db149a49b45af4a168e65fc353f21478a6888d251",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assemblers/pg.cr",
+      "sha256": "3fbcab120bc9f97d7a9ba28480e584f9fcbd4c1f4887ab310cafd259179bd411",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/assemblers/sqlite.cr",
+      "sha256": "1559527ca832eec0346546469bfc7d30c6f2798998cf7d065dee2beea93244d4",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/association_exists.cr",
+      "sha256": "5723197e25b22adc320c14542014f4e3763175630b2f101b551ce51f79d484df",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/association_references.cr",
+      "sha256": "cb5fa0520e30e0b268121e9e0bcd6b117c19040f404461b53737b02e7d4ee9cb",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/association_scopes.cr",
+      "sha256": "8ad4bb34c04c21f48e18b231b8f0930a5582602ecbcd26989eb726a2b1ec17d2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/batches.cr",
+      "sha256": "cee93bcebab188afac14d8b3d07759d7e61cf5b458623bb3decae276267b4593",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/builder.cr",
+      "sha256": "98621622b8d7713672c93ab6641ddc004702cf73ec8cf589f74eb7b51e4a8a1f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/builder_methods.cr",
+      "sha256": "29ed7516a2c4f4f8439795fca467a4e4cbd44bb461aa933ac8a34bb277a9b915",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/aggregate.cr",
+      "sha256": "151ac7154762c279cfc65236a20de2e7301277cc9a22bca69614b502f08918e6",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/base.cr",
+      "sha256": "2d3d39fdd0557a212854b12810eb2a5f9616e19f22564a4e45611859d703c8a2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/grouped.cr",
+      "sha256": "6d790b8e393d36d9392cce51ab3e7947e1ae4fda2985f3b0cc2cad3cbb382f15",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/list.cr",
+      "sha256": "aae3926f843d19e80d05df2ff99953ff4552b39d539a55757a661952280fd663",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/multi_value.cr",
+      "sha256": "635f7b034585a8d381579e691424858cdae7c49aeeee75fb0ad1bb93ee21da51",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/pluck.cr",
+      "sha256": "c2639f0a20f2493f1103bf1ec534ef279f56234f4b7b40741e219b8d1af36102",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/executors/value.cr",
+      "sha256": "4af497fc8f1ac18ca508a5ef19123d1775db8872c127161e881ca73129da19dd",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/extract_associated.cr",
+      "sha256": "0e14c4957d2403fcff46f89d0904fd5c8eb98353ba18e65dcad112461843bdc1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/finders.cr",
+      "sha256": "00255c35153643e45eb53d17e1f0ff7aa7a336d958f3e1166744003c4a3109c7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/from_and_with.cr",
+      "sha256": "45edfd73d2ee430866b5df022054db36ecff8189d3339e460d204d24e280ba5a",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/grouping.cr",
+      "sha256": "e211737462d95f8054c19e0acd578b61309bc646391babeab98c199f0361becc",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/joins.cr",
+      "sha256": "fc9607a73e30cdc87de2127bd2fbd962839236e79395a318e3eee27d51f5e592",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/locking.cr",
+      "sha256": "b3b0420a8ad30c2b4af37640d1b639293884a5e3f860692eeab5d2532877510c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/ordering.cr",
+      "sha256": "3b0032a0cafa3da5958387c3d54049f390736ec5b7c341e8ab2ad099982b6578",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/pluck.cr",
+      "sha256": "00e91c2f82d2a1c85dafe34ccccf92fab589364c410e31b5c15198a9932d3864",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/readonly.cr",
+      "sha256": "6c881c9b78b2ba6ef70bf1f263b5ddbe88eddb2bde72bee9a262e1dc00c1fec1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/relation_merging.cr",
+      "sha256": "05b3f6e88ba7b60b8a3426a203d430d61ae99b4dabe7433c3b5b2b0b8017c881",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/relation_rewrites.cr",
+      "sha256": "3895e5f32cccf717347397b1a4cfd146480adad5beb4fdc614b5b67e47ea3135",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/scoped_relation.cr",
+      "sha256": "258791ba3a714f44fbb26c1663f97610b0b0620c41f2bf80e7649025dc9a95d3",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/scoping_inheritance.cr",
+      "sha256": "eb87738490a36a1c65828c8cce5d7f79b485c47b1300395115b85e42b0829a2f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/select_expressions.cr",
+      "sha256": "60d5fef3635ca6fb86eca4d7388b8bc0733901a6c80138bed9b19f7c0c065792",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/sql_expression.cr",
+      "sha256": "29fdf4ce268a14045ab86e59032c51d747c04168c4ee8a6a020eb161a2b5fbb1",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/tuple_conditions.cr",
+      "sha256": "d12f5b5f68a910e4264b205c0b3927c9f5481a865174e1fbf23104cd55032285",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/typed_predicates.cr",
+      "sha256": "d550dd24452bbb62728ed005838603bc3fff2fbda3de9f76ddf58bca71ab3b40",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/update_forms.cr",
+      "sha256": "ca4de75be6883596f758ed492f64664816d95a5cdab62d973878872c6a875582",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/where_chain.cr",
+      "sha256": "4717c5271b787bad29795d0bcc39314d94fe5bd8208a6163195edbb0f17aeae7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query/where_composition.cr",
+      "sha256": "63c86057dc616fbeea73b377ed5dcc2db50acb0962230b17dbcd02e485f15241",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query_analysis.cr",
+      "sha256": "f12688ace497a0800779a6f176a0c68e14e5243e0bdacf48138e4310bfa6b5a9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query_cache.cr",
+      "sha256": "be1c146e4def3a9f36949fd3c677109dcd679b77d471296e9994a75fd1ce18a5",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query_extensions.cr",
+      "sha256": "2e6861df444a8c551c3f34f892ff406cd979f2aada99aff096cdb5147386b696",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/query_logs.cr",
+      "sha256": "6a22082c5c5221783cff703083a9caddd7e2262d328c9c098269b2dd36c86239",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/querying.cr",
+      "sha256": "14ff975474a82247d7212973b2657b279aec1dc9db9e3317c97ab4e07060ff96",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/readonly.cr",
+      "sha256": "a1a4b84a7ad71fb372fc33e148c7d858ffad68bfb2ae09e6ba54cfe61cf9d996",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/record_copy.cr",
+      "sha256": "beb0c4939bf113e045a2766044e42dccdb632ac13ebf04b2a3dd436cba74586b",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/reflection.cr",
+      "sha256": "1d68d281194b2af76c2f7dd769b4f9d187e20ccfd2dfb0325599041c5448dcc9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/replica_load_balancer.cr",
+      "sha256": "3d5b9bd89d47a48f9770dd061346d68e60ef9c2a94285a56d83bd3180a707aa2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/result.cr",
+      "sha256": "33b8fd0b5966bc61cd525524cfc3e99b50c58a2d81ab8f5e21ce0633ce5d4143",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sanitization.cr",
+      "sha256": "96331625ab8c7feb3d8c69cceb3a5f4accac1c331576276d8a987f30e659f01f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scale/in_chunking.cr",
+      "sha256": "61e6aa801ec8bc514e76670d796f8c210c9f485c7747d62a061dcd531007db59",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scale/index_hints.cr",
+      "sha256": "e59ab5327b5352e81c6b160b8c33c7c07a71073d0ec17a8a11f0f3681188c76d",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scale/schema_tenant.cr",
+      "sha256": "c4a18e331dab1d8342b64fe1079b8e1ecef217d0b03fdcdd7903afaf9511ae63",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scale/streaming.cr",
+      "sha256": "1fcf8d69ed9e5462146094a0c8d9ea3ca9718ec79c770bbd990bcda7f25b1eeb",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scale/tenant.cr",
+      "sha256": "58c7b344b30c53259494d8cc925cee437662407dc77a5cc9ad8f92b25a3e3294",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scale.cr",
+      "sha256": "0779d0a513690046e2443285eca46e37beb3e2cdf2bfffce0e568c77cb324970",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/alter_table.cr",
+      "sha256": "efd735cbac688f02e238647e0edb97af8e611eb85350ff63e3025c0f14434935",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/column_info.cr",
+      "sha256": "9c71f93a13619bbf709c9be823a09c423651c8bdcb5b835fcff6b77d27b49efb",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/command_recorder.cr",
+      "sha256": "136622aafa448920e5c906581922241505187eacc911c4d2cf4464151bc912ed",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/constraint_catalog.cr",
+      "sha256": "1b737a5236162a317bc9b98eae557b7aa868270ced50490fb995fabf137b70ea",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/constraint_definition.cr",
+      "sha256": "5ea2cba665762c44ef93c92a8b97dfa67e79749d05d8d5ed97127947f57488a8",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/dumper.cr",
+      "sha256": "227cf1afab48fdb02599857cd2726fdb5e380f0756dff8cd9f79cbb2ab83ae3b",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/generator.cr",
+      "sha256": "5eaea01f8793501f05f31b1dbf411900ac6f9a6d74cc22ba2e041bc8d81b66d0",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/gin_index.cr",
+      "sha256": "f869e8a036b57ca4340489a4348d4b1965a5ba56e4c0b8c5e914343de64de789",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/index_definition.cr",
+      "sha256": "f88e8180e87e9703aa69272e62b66aadb41a9987a686d977fa1769f3b15d4b88",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/internal_metadata.cr",
+      "sha256": "e1957584b5037dd25ed37997d559e8c68c2acb817aa18210207cbea3d5cb121e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/introspection.cr",
+      "sha256": "12fd35ae9304d2da763eda8d6c045aa2759fe85e8c6a75375383edd25618cbd2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/loader.cr",
+      "sha256": "28cc2d4cfc90f98c0c2c43086d7dce3377fc06298503df4b83f93347d2890c33",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/migration.cr",
+      "sha256": "a4b0d6c1b3600a66558bcb26c59fb88518d53407507b9b00bb1de6fbb2bbc6c2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/migration_context.cr",
+      "sha256": "9d685793b8657c8fa1f80f30eedd98c751dc5f854a480f3d7ee8889fa4a51668",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/model_indexes.cr",
+      "sha256": "51bcab9871b894aba430b6ba6e0be84236c27303c124d368cac2cd4baf0f3694",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/multi_database_migrator.cr",
+      "sha256": "da7713aacd24409d74cf18ac991baeb0a0c95cf84a5b6b27613763e0ce6fbcdd",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/schema_migration.cr",
+      "sha256": "eb1846a3fbabc08ea6a1bbafebfbe6639fe171f0b72ba2f19c11ba1727102ed7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/schema_statements.cr",
+      "sha256": "23cac6ee06831bb3c09e05f10c2595154da411439c2074f353b12c93cddc51e4",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/table_definition.cr",
+      "sha256": "2deaac488c69ecdf8bcce02de87af2ef0560e0aec7bc541119a0c0c3573be293",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/table_definition_constraints.cr",
+      "sha256": "908565154718340d1f286573badec3a83029cac0e76ef86b9e01131c8785219d",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/table_rebuild.cr",
+      "sha256": "cc892ba6afa3d773169ba4435df629854f3b76eb549809d0b18bed297b6dc910",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/schema/verify.cr",
+      "sha256": "41c45eb52f47a2c61ee1b3b32c9a4e21a34af645bdef410dca65867d9d92c12e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/scoping.cr",
+      "sha256": "e9407c1cd7293f603feccd4d385f91dc0f5817e1fe8c28f94a7c3cd82db60bd9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/secure_password.cr",
+      "sha256": "061b8364244a68a71b2017ecac0f4470e60fe2dab556311a60a7448569da7e0e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/secure_token.cr",
+      "sha256": "0672727342ce79f91961277643107b447e90954e1e39db7b3b69d17b1a01256c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/seeds.cr",
+      "sha256": "5553cb5b875bf86486fa3a6e13eed529a06a24c322496bbf45ae84d360f4cae9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/select.cr",
+      "sha256": "c522536179bb8a10877de32c6e4a2131067576eea384819ac45e381e0a518fef",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/serialized_column.cr",
+      "sha256": "cf8fd147b9c4b0693ae2f6d2de6712d602178e1f64ab5d9c4093f93c58b265cf",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/serialized_object.cr",
+      "sha256": "f7d58ba5e20dcefd7af115e98814b03aad010bfcc7f8050662949986829b520e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/serializers/base.cr",
+      "sha256": "c51fbaeded25882a6269edd0a09773a4e9e8799e3983b84eb47484687711b476",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/serializers/json.cr",
+      "sha256": "64d9adb56c5bb34640e77faf8c929e0b9ad1f432cb05f6dce221dc93f3343782",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/serializers/jsonb.cr",
+      "sha256": "3ce39ba061c5863da2f425f142ed15f7d8b0e328ea822ed9718e855551ec19fa",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/serializers/yaml.cr",
+      "sha256": "98ed176783d847c55a19852fb027232656857e652299121f63b1d7bcd46b5364",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/settings.cr",
+      "sha256": "69a276415adc1790f4e5f8e1a336f88256a45289e7904830e010f496444719e9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/geo_resolver.cr",
+      "sha256": "89baca75d88cc0609a856d2d68688299c9d103300914a55c9c947b85cb1f4d52",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/model.cr",
+      "sha256": "36102a7763f37ad4bce52fb31cb2ccedc59966df282f60c868f16061a2f6fd97",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/query_router.cr",
+      "sha256": "7f0101eb595b6459344868fd28f4f14abf2ae9dffe4f89946fd10a6f2be7078f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/range_resolver.cr",
+      "sha256": "dca1755c7ffcec5d0263458223d73461b60f6f5a4e848fb02a38cc85876b945b",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/resolvers/hash_resolver.cr",
+      "sha256": "32bb4cc39c9484ed00a0bdb099ace2296ceca6840c64d8f1d927e63e644bcd65",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/resolvers/lookup_resolver.cr",
+      "sha256": "6f68e991971c4fe378209a7b5d6c5685816e71774489c37a17f4d4494374f5c4",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/resolvers/time_range_resolver.cr",
+      "sha256": "1d2d0597335d23b540c28bcccfead2bd0c351ae3effc06ae97d5bfd4ee5beae7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/scatter_gather.cr",
+      "sha256": "5273797e2a1302bd049f7c1e36c29bd9ceba299c6c00208bca7b2ddc0b368a56",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/shard_manager.cr",
+      "sha256": "4c334e2d99b00bb4e7cc74c54378c074c56928e02ea7be35f1655a2b711f7732",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding/sharded_query_builder.cr",
+      "sha256": "f5c6c911acd38d6f80b3beffba5ab917206bc2580c1c4f0b2a7accc62a1874f9",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sharding.cr",
+      "sha256": "fb7f0388aba6a841d604473468a9795795071b20ecbfabf442e27b3b26bcc60d",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/signed_id.cr",
+      "sha256": "3102bc7bc1ae302e54618bf56438666489005d844e9fdaf85e0cd94a48a8b3b8",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/spec_support/query_assertions.cr",
+      "sha256": "bbacd986e8d90f7fa96f3213b44b7d87f853b58a14a36e6ab320dce979499e5c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/spec_support/transactional.cr",
+      "sha256": "50f1c095482b27c8eae90ba21dbcb82fc4a80aac5572123e6f1d1db8c9d57591",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sql/fragment.cr",
+      "sha256": "301a66feab01da08b00c0961fe9863014176d806821ebe567a3ab18fb533ad65",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sqlite_version_check.cr",
+      "sha256": "0f80208292255e6351e739fa167667008dead26b11f0ec47cc200a21ee8bc29b",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/sti.cr",
+      "sha256": "2cabdba8226bdd97d50e96bdcffdc54c3363b4b67e37c746e94be886d1d24062",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/store_accessor.cr",
+      "sha256": "50e0eb45b1194fb391ff51231ff6960443657f66cbbeab81cf9d3e38d2738754",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/table.cr",
+      "sha256": "da62451e3d5bde49137cfbd56035700faa3974f8f1d6be39b97a774012be70cf",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/target.cr",
+      "sha256": "9bfa3ac48babe55a53a804ab3b26acb49ea590e324de3a61b2859d31b3b80c88",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/tasks/database.cr",
+      "sha256": "cd70d3bbb5605eeffb55ff8316ed98133d762f5f5c3c5496d5e306abffb2b016",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/test_fixtures.cr",
+      "sha256": "266177daecb97bab0ce3abd70df5c8b3526514748d5961dab7f3b5eb0cf77817",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/timestamps.cr",
+      "sha256": "e5b0799e7231d67d715e23fbfd051a3df0e95f4b30fe6e00efe6edeb3dd87a46",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/token_for.cr",
+      "sha256": "92f811b1b53041d8b44ada099ae9d49f58765e6ccf4a6ffb508b46298bf3b992",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/transaction.cr",
+      "sha256": "1fe5edded44f577ac48cfcb2bdc00b09f0e9addc26d8ce815940626b3a332458",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/transactions.cr",
+      "sha256": "7228ac042a4b9e2d9a0a1f3fc13b5a35ac90fe4b06c40ca3785ea84e235551b7",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/type.cr",
+      "sha256": "93b7491db140348c7468ad53a1b3a9f8afcf3f2e77c37b65ebfed65a3751a1c5",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation.cr",
+      "sha256": "74641de057b6b000b9a9d9698c6b6dd32af98febe0f11fb0ed66b5c6c436b457",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/blank.cr",
+      "sha256": "d501c154496a2ba8f922f74e6748a619403301d0a139b147f5e2b858ac7c523e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/choice.cr",
+      "sha256": "22b982f5d14e1f7baeec58c236230138163e1ee662b943d8d0b273fc366a452f",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/exclusion.cr",
+      "sha256": "4d2df2b578cb97a3625053df3232be397542c3177df67bb21522805b73b388e2",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/inequality.cr",
+      "sha256": "90c7f969020ccf44697b9947f2b54efd4ef41d254acb68f2153211ffb77cdf3d",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/length.cr",
+      "sha256": "b83c7fa31d1f2afe8f187ffb4d7551fdd3f3b5c98c2930367beb9180d2c4a127",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/nil.cr",
+      "sha256": "60c2ac542fb565add26f2ec00b23b0831a23684f9480d17ca585521e6c9b4a2e",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validation_helpers/uniqueness.cr",
+      "sha256": "270419688bd861c8a7a0d399fd1093fba51094dfb532bbb04ef938714f523f94",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validator_info.cr",
+      "sha256": "2a0465fc4befd639bd7b2114a33eef903e8c571af3b39f36c7ed4e17a49152ce",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validators/blank.cr",
+      "sha256": "f41c9528a65e90604e11293dbfc98a7dc47fb6e1db983fdbc7e5140c394a5f7a",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validators/built_in.cr",
+      "sha256": "fbcb64c5893a7449c412ec184bd1cc492995c29828ad598a2dcde6a0817d62f8",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validators/numericality.cr",
+      "sha256": "54a11b4cfd70a97b9d79a82317edcf1e02c2202d2488c5e9ef456292ea8f29b3",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validators/uniqueness.cr",
+      "sha256": "1771af98b5a915080661638c2ffff790dac653d8a21bae35332e5763512def41",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/validators.cr",
+      "sha256": "02812f78974af3222f127806a6d07b5e384b58b3a29869556889d453191e160c",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/value_objects.cr",
+      "sha256": "781ea0b516a8ffadcc8e337cbf6dff2a139a2a8c5c577292a4c3ba7055c6e8ec",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant/version.cr",
+      "sha256": "27b6cb48106a9a4285bec5e9fa9c43c71359e6110e70eb275a74d8039b4bbae8",
+      "status": "reference_only"
+    },
+    {
+      "path": "grant.cr",
+      "sha256": "cdf118f69e8e6dd18567ed0d252050b23d104dacad90376144c6ed2c669b44b7",
+      "status": "reference_only"
+    },
+    {
+      "path": "target/desktop.cr",
+      "sha256": "60ea12b1ce7bc966e5a959d3f2d8422ca3779d7e5baaaf932d357f02634490e0",
+      "status": "reference_only"
+    },
+    {
+      "path": "target/mobile.cr",
+      "sha256": "012b3af7e966259444703340aaced6cb85c0b1db01f6a2e6e83d051b57a877e9",
+      "status": "reference_only"
+    },
+    {
+      "path": "target/web.cr",
+      "sha256": "a6f1de96ff7bef9fc865ff5efb2b77f90d72ae70ed606b8facd8f2bd955b1252",
+      "status": "reference_only"
+    }
+  ],
+  "native_modules": [
+    "grant/adapters/postgresql.iyi",
+    "grant/adapters/sqlite.iyi",
+    "grant/cstring.iyi",
+    "grant/database.iyi",
+    "grant/errors.iyi",
+    "grant/model.iyi",
+    "grant/query.iyi",
+    "grant/sql/placeholder_scanner.iyi",
+    "grant/transaction.iyi",
+    "grant/value.iyi"
+  ],
+  "note": "Native functionality is tracked in PORTING.md; reference_only means this original file has not been fully converted."
+}

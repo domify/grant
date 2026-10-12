@@ -1,0 +1,156 @@
+module grant/adapters/postgresql
+
+import std/text
+import grant/cstring::{cstring}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError}
+import grant/database::{Database, Mutation}
+import grant/sql/placeholder_scanner::{rewrite}
+
+@[Link("pq")]
+lib PostgreSQL
+  fun connect = PQconnectdb(info : UInt8*) : Void*
+  fun status = PQstatus(connection : Void*) : Int32
+  fun finish = PQfinish(connection : Void*) : Void
+  fun error = PQerrorMessage(connection : Void*) : UInt8*
+  fun execute = PQexecParams(connection : Void*, command : UInt8*, count : Int32,
+                             types : UInt32*, values : UInt8**, lengths : Int32*, formats : Int32*, result_format : Int32) : Void*
+  fun result_status = PQresultStatus(result : Void*) : Int32
+  fun result_error = PQresultErrorMessage(result : Void*) : UInt8*
+  fun clear = PQclear(result : Void*) : Void
+  fun rows = PQntuples(result : Void*) : Int32
+  fun columns = PQnfields(result : Void*) : Int32
+  fun column_name = PQfname(result : Void*, column : Int32) : UInt8*
+  fun column_type = PQftype(result : Void*, column : Int32) : UInt32
+  fun is_null = PQgetisnull(result : Void*, row : Int32, column : Int32) : Int32
+  fun value = PQgetvalue(result : Void*, row : Int32, column : Int32) : UInt8*
+  fun size = PQgetlength(result : Void*, row : Int32, column : Int32) : Int32
+  fun changes = PQcmdTuples(result : Void*) : UInt8*
+end
+
+# libpq owns the protocol/TLS implementation; this adapter and its public
+# surface are native iyi. Values remain parameters, never interpolated SQL.
+pub class Connection
+  @handle : Void*
+  @closed : Bool
+
+  def initialize(@handle : Void*)
+    @closed = false
+  end
+
+  def self.open(connection_info : String) : Connection | DatabaseError
+    return DatabaseError.new(21, "open", "NUL byte in connection info") if connection_info.includes?("\0")
+    handle = PostgreSQL.connect(connection_info)
+    return DatabaseError.new(1, "open", "libpq returned no connection") if handle.address == 0_u64
+    if PostgreSQL.status(handle) != 0
+      error = DatabaseError.new(1, "open", cstring(PostgreSQL.error(handle)))
+      PostgreSQL.finish(handle)
+      return error
+    end
+    new(handle)
+  end
+
+  def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    result = perform(sql, parameters)!
+    status = PostgreSQL.result_status(result)
+    if status != 1
+      error = DatabaseError.new(status, "execute", cstring(PostgreSQL.result_error(result)))
+      PostgreSQL.clear(result)
+      return error
+    end
+    changes = cstring(PostgreSQL.changes(result)).to_i64? || 0_i64
+    PostgreSQL.clear(result)
+    # PostgreSQL keys are retrieved by Query.insert's RETURNING, not a global id.
+    Mutation.new(changes, 0_i64)
+  end
+
+  def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+    result = perform(sql, parameters)!
+    status = PostgreSQL.result_status(result)
+    if status != 2
+      error = DatabaseError.new(status, "query", cstring(PostgreSQL.result_error(result)))
+      PostgreSQL.clear(result)
+      return error
+    end
+    rows = [] of Row
+    PostgreSQL.rows(result).times do |row|
+      attributes = Attributes.new
+      PostgreSQL.columns(result).times do |column|
+        name = cstring(PostgreSQL.column_name(result, column))
+        value = read_value(result, row, column)
+        if value.is_a?(DatabaseError)
+          PostgreSQL.clear(result)
+          return value
+        end
+        attributes[name] = value
+      end
+      rows << Row.new(attributes)
+    end
+    PostgreSQL.clear(result)
+    rows
+  end
+
+  def identity : UInt64
+    @handle.address
+  end
+
+  def offset_without_limit(count : Int32) : String
+    " OFFSET #{count}"
+  end
+
+  def close : Nil | DatabaseError
+    return nil if @closed
+    PostgreSQL.finish(@handle)
+    @closed = true
+    nil
+  end
+
+  private def perform(sql : String, parameters : Array(Value)) : Void* | DatabaseError
+    return DatabaseError.new(21, "query", "connection is closed") if @closed
+    return DatabaseError.new(21, "query", "NUL byte in SQL") if sql.includes?("\0")
+    texts = [] of String
+    values = [] of Pointer(UInt8)
+    parameters.each do |value|
+      if value.nil?
+        values << Pointer(UInt8).new(0_u64)
+      else
+        text = value.is_a?(Bool) ? (value ? "true" : "false") : value.to_s
+        # libpq text parameters cannot represent embedded NUL bytes.
+        return DatabaseError.new(20, "bind", "NUL byte in text parameter") if text.includes?("\0")
+        texts << text
+        values << text.to_unsafe
+      end
+    end
+    command = rewrite(sql)
+    result = PostgreSQL.execute(@handle, command.to_unsafe, values.size, Pointer(UInt32).new(0_u64),
+      values.to_unsafe, Pointer(Int32).new(0_u64), Pointer(Int32).new(0_u64), 0)
+    # Keep all parameter buffers alive through PQexecParams.
+    texts.size
+    if result.address == 0_u64
+      DatabaseError.new(1, "query", cstring(PostgreSQL.error(@handle)))
+    else
+      result
+    end
+  end
+
+  private def read_value(result : Void*, row : Int32, column : Int32) : Value | DatabaseError
+    return nil if PostgreSQL.is_null(result, row, column) != 0
+    text = cstring(PostgreSQL.value(result, row, column), PostgreSQL.size(result, row, column))
+    case PostgreSQL.column_type(result, column)
+    when 16_u32 then text == "t"
+    when 20_u32, 21_u32, 23_u32
+      text.to_i64? || DatabaseError.new(20, "decode", "invalid integer")
+    when 700_u32, 701_u32
+      text.to_f? || DatabaseError.new(20, "decode", "invalid float")
+    when 17_u32
+      DatabaseError.new(20, "decode", "bytea columns are not supported yet")
+    else
+      # Decimal/date/UUID/JSON are retained as exact text for explicit mappings;
+      # never silently convert decimal/money to a floating-point number.
+      text
+    end
+  end
+end
+
+impl Database for Connection
+end

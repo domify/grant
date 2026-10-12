@@ -1,0 +1,33 @@
+module query_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/value::{Value, Attributes}
+import grant/query::{Query, Table}
+import grant/errors::{DatabaseError}
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE banks(id INTEGER PRIMARY KEY, name TEXT NOT NULL, account_id INTEGER, notes TEXT)").or_panic
+query = Query.new(connection, Table.new("banks"))
+query.insert({"name" => "Tenant one", "account_id" => 1_i64, "notes" => nil} of String => Value).or_panic
+query.insert({"name" => "Tenant two", "account_id" => 2_i64, "notes" => ""} of String => Value).or_panic
+scoped = query.where("account_id", 1_i64)
+assert scoped.count.or_panic == 1
+assert scoped.where("account_id", 2_i64).count.or_panic == 0
+assert query.count.or_panic == 2
+assert scoped.where("notes", nil).count.or_panic == 1
+assert query.where("notes", "").count.or_panic == 1
+assert scoped.update({"name" => "Changed"} of String => Value).or_panic.changes == 1
+row = query.where("account_id", 2_i64).first.or_panic
+assert !row.nil?
+assert row["name"] == "Tenant two" if row
+assert query.where("name", "' OR 1=1 --").count.or_panic == 0
+assert query.where("name; DROP TABLE banks", "x").all.is_a?(DatabaseError)
+assert Query.new(connection, Table.new("banks; DROP TABLE banks")).all.is_a?(DatabaseError)
+assert query.order("name").limit(1).offset(1).all.or_panic.size == 1
+assert query.limit(-1).all.is_a?(DatabaseError)
+assert query.update({"name" => "unsafe"} of String => Value).is_a?(DatabaseError)
+assert query.delete.is_a?(DatabaseError)
+assert scoped.limit(1).delete.is_a?(DatabaseError)
+assert scoped.delete.or_panic.changes == 1
+assert query.count.or_panic == 1
+connection.close.or_panic
