@@ -64,6 +64,9 @@ assert repository.update(other, id, Bank.new(1_i64, "Wrong tenant")).or_panic.ni
 updated = repository.update(own, id, Bank.new(1_i64, "Updated")).or_panic
 assert !updated.nil?
 assert updated.name == "Updated" if updated
+renamed = repository.update(own.where("name", "Updated"), id, Bank.new(1_i64, "Renamed")).or_panic
+assert !renamed.nil?
+assert renamed.name == "Renamed" if renamed
 assert repository.find(999_i64).or_panic.nil?
 second = Connection.open(":memory:").or_panic
 second.execute("CREATE TABLE banks(id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, name TEXT NOT NULL)").or_panic

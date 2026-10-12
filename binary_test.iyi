@@ -1,0 +1,43 @@
+module binary_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/value::{Value, Binary}
+import grant/query::{Query, Table}
+import grant/schema::{Schema, Definition, Column, ColumnType}
+
+source = [0_u8, 255_u8, 128_u8, 39_u8, 65_u8]
+binary = Binary.from_bytes(source)
+source[0] = 100_u8
+assert binary.bytes == [0_u8, 255_u8, 128_u8, 39_u8, 65_u8]
+assert binary.hex == "00ff802741"
+copy = binary.bytes
+copy << 7_u8
+assert binary.bytes.size == 5
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE files(id INTEGER PRIMARY KEY, payload BLOB)").or_panic
+query = Query.new(connection, Table.new("files"))
+row = query.insert({"payload" => binary} of String => Value).or_panic
+assert row["payload"] == binary
+empty = Binary.new("")
+query.insert({"payload" => empty} of String => Value).or_panic
+query.insert({"payload" => nil} of String => Value).or_panic
+assert query.where("payload", binary).count.or_panic == 1
+assert query.where("payload", empty).count.or_panic == 1
+assert query.where("payload", nil).count.or_panic == 1
+assert query.where_in("payload", [binary, empty] of Value).count.or_panic == 2
+rows = connection.query("SELECT typeof(payload) AS storage, length(payload) AS size FROM files ORDER BY id").or_panic
+assert rows[0]["storage"] == "blob"
+assert rows[0]["size"] == 5_i64
+assert rows[1]["storage"] == "blob"
+assert rows[1]["size"] == 0_i64
+assert rows[2]["storage"] == "null"
+assert query.where("id", 1_i64).update({"payload" => Binary.new("a\0b")} of String => Value).or_panic.changes == 1
+updated = query.where("id", 1_i64).first.or_panic
+assert updated["payload"] == Binary.new("a\0b") if updated
+schema = Schema.new(connection)
+schema.create_table(Definition.new("defaults", [Column.new("payload", ColumnType::Binary, default: binary)])).or_panic
+stored = Query.new(connection, Table.new("defaults")).insert({} of String => Value).or_panic
+assert stored["payload"] == binary
+connection.close.or_panic
+# Decoded BLOBs own a copy of the result, independent of statement/connection.
+assert row["payload"] == binary

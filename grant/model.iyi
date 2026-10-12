@@ -68,19 +68,19 @@ pub class Repository(T)
 
   def insert(record : T) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     return DatabaseError.new(21, "insert", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run { insert_record(record) }
+    @unit.run(requires_new: true) { insert_record(record) }
   end
 
   def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     valid_scope(scope)!
     return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run { update_record(scope, id, record) }
+    @unit.run(requires_new: true) { update_record(scope, id, record) }
   end
 
   def destroy(scope : Query, id : Int64) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     valid_scope(scope)!
     return DatabaseError.new(21, "destroy", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run { destroy_record(scope, id) }
+    @unit.run(requires_new: true) { destroy_record(scope, id) }
   end
 
   private def validated(record : T) : T | DatabaseError | ValidationError | CallbackAbort
@@ -124,7 +124,9 @@ pub class Repository(T)
     selected = scope.where(@mapping.table.primary_key, id)
     changed = selected.update(write_attributes(current))!
     return nil if changed.changes == 0
-    row = selected.first!
+    # The write already applied the original scope. A changed filter column
+    # may no longer match it; hydrate the row actually updated by its fixed key.
+    row = query.where(@mapping.table.primary_key, id).first!
     return nil unless row
     current = @mapping.from_row(row)!
     observed = observe(current, row[@mapping.table.primary_key])

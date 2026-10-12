@@ -28,6 +28,8 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/association_writes.iyi`: direct collection append, ID replacement and
   nullify/delete/destroy removal with typed link transformations and atomic
   savepoints. Repository-based saves and destruction run model callbacks.
+- `grant/dependent.iyi`: explicit owner destruction callbacks with scoped
+  nullify/delete/destroy/restrict actions and cycle detection.
 - `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
@@ -68,6 +70,7 @@ iyi run transaction_test.iyi
 iyi run placeholder_test.iyi
 iyi run association_test.iyi
 iyi run association_write_test.iyi
+iyi run dependent_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
@@ -91,15 +94,19 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, that check is currently blocked by a compiler artifact
 layout bug. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 14 programs, including
-association reads and transactional writes. See
+connection failure). The current SQLite-only suite has 16 programs, including
+association reads, transactional writes, dependent destruction and binary data. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` deliberately retains the failing artifact gate.
 
-The current scalar contract is null, boolean, Int64, Float64, and String.
+The current value contract is null, boolean, Int64, Float64, String and `Binary`.
+SQLite BLOB binding/decoding preserves arbitrary bytes, including NUL and empty
+payloads. `Binary.from_bytes` snapshots its input; `bytes` returns a fresh copy.
+Decoded BLOBs own their data independently of the statement/connection.
 SQLite returns booleans as integers; a mapping must decode them explicitly.
 PostgreSQL retains decimals, dates, UUIDs, and JSON as exact text for explicit
-mapping, rather than converting money to floats. BLOB/bytea decoding is rejected.
+mapping, rather than converting money to floats. PostgreSQL bytea remains
+unsupported; binary parameters/defaults are rejected explicitly there.
 SQLite INSERT RETURNING requires SQLite 3.35 or newer.
 
 Connections are explicitly owned and closed by the caller. There is no pool,
@@ -114,7 +121,7 @@ are implemented; schema alteration, dumping, and composite keys are pending.
 Validation, normalization, dirty tracking, callbacks, and migrations implement
 a subset of the original behavior. Normalization and dirty state are explicit
 utilities, not automatic repository behavior. Around callbacks and several
-validators remain pending. Singular association writes, through/polymorphic associations,
+validators remain pending. Belongs-to assignment helpers, through/polymorphic associations,
 encrypted/serialized columns, locking,
 sharding, bulk operations, and the remaining original features still need native
 implementations and parity cases.

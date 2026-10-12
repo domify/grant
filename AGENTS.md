@@ -46,17 +46,25 @@ when needed; do not repurpose HOME. There are no runtime dependency shards;
 link the system SQLite/libpq libraries for the relevant adapter.
 
 A mutable connection is owned by one request/task at a time. Pooling,
-concurrent scheduling, singular association writes/through/polymorphism, around callbacks and the
+concurrent scheduling, belongs-to assignment helpers/through/polymorphism, around callbacks and the
 other remaining features listed in `doc/PORTING.md` are still pending; do not assume
 support. Do not silently coerce exact numeric values to floats or substitute
 fake successes for unsupported operations.
+
+SQLite `Binary` values bind as BLOB and are copied on decoding. Empty BLOB is
+distinct from NULL. Do not coerce arbitrary bytes through text encoding. The
+PostgreSQL adapter rejects Binary binding until its port is resumed.
 
 Direct collection writes use `CollectionWriter(T)` and an application-owned
 `Link(T)` implementation. New records and attachments run repository callbacks;
 nullify/delete removals are set-based and skip callbacks, while destroy runs
 callbacks. Collection operations use savepoints inside an outer unit of work.
-Singular writers, unsaved-owner staging, association-specific hooks and automatic
-dependent owner callbacks remain pending. See `doc/ASSOCIATIONS.md`.
+`replace_one` implements direct has-one replacement and `remove_all` clears a
+scoped collection. Register `Dependency(O, C)` on the owner's BeforeDestroy
+pipeline for nullify/delete/destroy/restrict behavior; owner and child repos
+must share the same UnitOfWork instance. Repository writes use nested savepoints.
+Unsaved-owner staging and association-specific hooks remain pending. See
+`doc/ASSOCIATIONS.md`.
 
 The subtree bootstrap uses local commits on `feature/phase-0-native-iyi`, keeping
 original Crystal history. Do not push or change public default branches without

@@ -1300,6 +1300,7 @@
     "grant/associations.iyi",
     "grant/cstring.iyi",
     "grant/database.iyi",
+    "grant/dependent.iyi",
     "grant/dirty.iyi",
     "grant/errors.iyi",
     "grant/lifecycle.iyi",

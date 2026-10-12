@@ -15,3 +15,4 @@ pub import grant/lifecycle
 pub import grant/unit_of_work
 pub import grant/associations
 pub import grant/association_writes
+pub import grant/dependent

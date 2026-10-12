@@ -29,6 +29,11 @@ No code delegates native model behavior to the archived Crystal ORM.
 
 - Native SQLite adapter via libsqlite3, parameter binding, row decoding, single
   statement enforcement, explicit close, and database error values.
+- SQLite BLOB parameters and decoding through immutable `Binary` values;
+  byte-array input/output is copied, empty BLOB differs from NULL, embedded NUL
+  and arbitrary byte values round-trip, and binary schema defaults use hex SQL
+  literals. SQLite tests cover binary filters, IN membership and update/storage
+  type. Binary PostgreSQL support remains deferred. Suite now has 16 SQLite programs.
 - Native PostgreSQL adapter via libpq, copied result data, parameter binding,
   PostgreSQL placeholder rewriting, and explicit errors for unsupported binary
   values. It compiles and its connection failure path is tested; live SQL is
@@ -37,13 +42,21 @@ No code delegates native model behavior to the archived Crystal ORM.
   pagination, count, insert returning a row, scoped update and delete.
 - Typed `BelongsTo`, `HasMany` and `HasOne` readers and explicit batch
   preloading for Int64 keys, preserving target scopes and rejecting global
-  pagination during preloading. Singular writing/automatic cascades remain pending.
+  pagination during preloading. Through/polymorphic relations remain pending.
 - Direct collection append and ID replacement using an application `Link(T)`;
   scoped nullify/delete removals and repository destroy with model callbacks.
   Collection operations use savepoints inside a shared unit of work, preserving
   atomicity when an outer caller catches errors. SQLite parity cases cover
   validation, scope violations, foreign-key errors, callback abort and nested
   rollback. Source suite now has 14 SQLite test programs.
+- Direct has-one replacement (including unsaved targets), scoped removal of all
+  members and explicit BeforeDestroy dependent rules supporting nullify, delete,
+  destroy and restrict. SQLite cases exercise unique foreign keys, failed
+  replacement restoration, owner callback failure, nested rollback, wrong
+  session rejection and cyclic destruction. Suite now has 15 SQLite programs.
+- Repository writes are atomic within outer managed transactions using
+  savepoints. Scoped updates hydrate by fixed primary key after applying the
+  original predicates, even when a filter column changes.
 - Immutable `where_in` predicates with bound values, empty-set false semantics
   and explicit NULL membership. Repository scoped `all`/`first` decode records
   and reject scopes for another table or database.
@@ -68,7 +81,7 @@ No code delegates native model behavior to the archived Crystal ORM.
   Unicode text, dollar quotes, and escaped question-mark operators.
 - The earlier core passed typed model artifact consumption. The expanded port
   currently fails that gate due to a compiler trait-field layout mismatch; see
-  `ARTIFACT-ISSUE.md`. Source execution passes all 13 native test programs.
+  `ARTIFACT-ISSUE.md`. Current source execution passes all 16 SQLite test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
@@ -77,13 +90,13 @@ been translated wholesale to native iyi yet.
 
 ## Remaining work
 
-1. Add exact decimal, date/time and binary value types for SQLite. PostgreSQL
+1. Add exact decimal and date/time value types for SQLite. PostgreSQL
    live CRUD and result verification are deferred under the current scope.
 2. Complete schema alteration/dumping, composite keys and migration capabilities;
    add connection pools, prepared-statement caches and nonblocking scheduling.
 3. Complete remaining validators, conditional normalization, around callbacks,
    dirty-state repository integration, timestamps and defaults with parity cases.
-4. Complete singular association writing, through/polymorphic and composite-key loading,
+4. Complete belongs-to assignment helpers, through/polymorphic and composite-key loading,
    nested attributes, STI, dependent behavior and the remaining relation APIs.
 5. Port bulk operations, locking, encryption, serialization, multiple databases,
    sharding and other features in the original module inventory.

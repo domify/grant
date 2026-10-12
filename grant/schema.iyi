@@ -3,7 +3,7 @@ module grant/schema
 import std/text
 import grant/database::{Database, Dialect, Mutation}
 import grant/query::{Table, identifier}
-import grant/value::{Value, Row}
+import grant/value::{Value, Row, Binary}
 import grant/errors::{DatabaseError}
 
 pub enum ColumnType
@@ -98,6 +98,9 @@ pub class Schema
       part += " NOT NULL" if !column.nullable || column.primary_key
       unless column.default.is_a?(Unset)
         value = column.default
+        if value.is_a?(Binary) && @database.dialect != Dialect::SQLite
+          return DatabaseError.new(21, "schema", "binary defaults are implemented only for SQLite")
+        end
         part += " DEFAULT #{literal(value)}" unless value.is_a?(Unset)
       end
       parts << part
@@ -187,6 +190,7 @@ def literal(value : Value) : String
   when Nil    then "NULL"
   when Bool   then value ? "TRUE" : "FALSE"
   when String then "'#{value.gsub("'", "''")}'"
+  when Binary then "X'#{value.hex}'"
   else             value.to_s
   end
 end

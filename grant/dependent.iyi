@@ -1,0 +1,84 @@
+module grant/dependent
+
+import grant/model::{Repository}
+import grant/query::{Query, identifier}
+import grant/value::{Value}
+import grant/lifecycle::{Callback, Event}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+
+pub enum Action
+  Nullify
+  Delete
+  Destroy
+  Restrict
+end
+
+# Register on the owner's BeforeDestroy event. Ownership and ordering remain
+# explicit; both repositories must share the exact same transaction session.
+pub class Dependency(O, C)
+  @owners : Repository(O)
+  @children : Repository(C)
+  @scope : Query
+  @foreign_key : String
+  @action : Action
+  @visiting : Array(Int64)
+
+  def initialize(@owners : Repository(O), @children : Repository(C), @foreign_key : String, @action : Action, scope : Query? = nil)
+    @scope = scope || @children.query
+    @visiting = [] of Int64
+  end
+
+  def apply(owner : O) : Nil | DatabaseError | ValidationError | CallbackAbort
+    return DatabaseError.new(21, "dependent", "repositories must share one unit of work") unless @owners.unit_of_work.object_id == @children.unit_of_work.object_id
+    return DatabaseError.new(21, "dependent", "dependent action requires an active owner transaction") unless @owners.unit_of_work.active?
+    return DatabaseError.new(21, "dependent", "pagination is not supported") if @scope.paginated?
+    Grant::Query.identifier(@foreign_key)!
+    key = @owners.attributes(owner)[@owners.query.table.primary_key]?
+    return DatabaseError.new(20, "dependent", "owner mapping must expose an Int64 primary key") unless key.is_a?(Int64)
+    return DatabaseError.new(21, "dependent", "cyclic dependent destruction") if @visiting.includes?(key)
+    @visiting << key
+    # A child mapping/callback panic becomes an error and cannot strand the
+    # cycle guard. The owning repository rolls back all earlier child writes.
+    result = group { |tasks| tasks.spawn { remove_dependents(key) }.value }
+    @visiting.pop
+    if result.is_a?(Panicked) || result.is_a?(Cancelled)
+      DatabaseError.new(21, "dependent", result.message)
+    else
+      result
+    end
+  end
+
+  private def remove_dependents(owner_id : Int64) : Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+    relation = @scope.unordered.where(@foreign_key, owner_id)
+    # Decode via the repository first to validate table and connection ownership.
+    records = @children.all(relation)!
+    return nil if records.empty?
+    case @action
+    when Action::Restrict
+      ValidationError.new({"base" => ["cannot delete record because dependent records exist"]})
+    when Action::Nullify
+      relation.update({@foreign_key => nil} of String => Value)!
+      nil
+    when Action::Delete
+      relation.delete!
+      nil
+    else
+      records.each do |child|
+        id = @children.attributes(child)[relation.table.primary_key]?
+        return DatabaseError.new(20, "dependent", "child mapping must expose an Int64 primary key") unless id.is_a?(Int64)
+        @children.destroy(relation, id)!
+      end
+      nil
+    end
+  end
+end
+
+impl Callback(O) for Dependency(O, C) forall O, C
+  def call(event : Event, record : O) : O | DatabaseError | ValidationError | CallbackAbort
+    if event == Event::BeforeDestroy
+      result = apply(record)
+      return result if result.is_a?(Error)
+    end
+    record
+  end
+end

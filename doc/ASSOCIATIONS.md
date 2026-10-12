@@ -98,8 +98,51 @@ the database constraint to enforce owner existence. Target scope ordering is
 removed for writes; pagination is rejected. Association-specific add/remove
 hooks, inverse caching and counter caches are not implemented yet.
 
-Singular association writers, autosave, nested attributes, through/polymorphic
-relations, composite/string keys and automatic owner-destruction callbacks remain
-pending. Database
+## Singular replacement and dependent destruction
+
+`CollectionWriter.replace_one(owner_id, record_or_nil, removal)` implements
+direct `has_one` replacement, including saving an unsaved replacement. It
+displaces the existing target before attaching the replacement, allowing a
+unique foreign-key index. Assigning nil removes the existing target. A failed
+replacement restores it. More than one current target returns an error rather
+than silently repairing an invalid one-to-one association.
+
+`remove_all(owner_id, removal)` applies a removal strategy to the entire scoped
+collection. Neither operation supports an unsaved owner cache.
+
+Register `Dependency(O, C)` from `grant/dependent` on an owner's `BeforeDestroy`
+event to implement dependent behavior:
+
+```iyi
+import grant/dependent::{Dependency, Action}
+import grant/lifecycle::{Event}
+
+# Both repositories must have been constructed with the same UnitOfWork.
+rule = Dependency(Account, Bank).new(accounts, banks, "account_id", Action::Destroy)
+account_events.add(rule, [Event::BeforeDestroy])
+```
+
+`Action` supports `Nullify`, `Delete`, `Destroy` and `Restrict`. Restrict returns
+a base validation error. Nullify/delete skip child model callbacks; destroy
+runs them. Every action preserves the target scope. Pagination and different
+transaction sessions are rejected before modifying children. Registering a
+rule on another event has no effect. Callback order follows pipeline insertion
+order; these rules all execute before deleting the owner.
+
+An owner error after dependent writes rolls back the owner and children,
+including inside an outer transaction that handles the error and continues.
+Cyclic destruction is rejected and the cycle guard is cleared after a failed
+operation. Child panic/cancellation is reported as `DatabaseError` so it fits
+the callback error contract and triggers rollback.
+
+Repository insert/update/destroy now use savepoints when nested, keeping each
+operation atomic independently of an outer caller catching its error. A
+successful scoped update hydrates the updated record by primary key even if a
+changed column no longer matches the original filter; the mutation itself
+still uses every original scope predicate.
+
+Belongs-to assignment helpers, autosave, nested attributes, through/polymorphic
+relations, composite/string keys, asynchronous destruction and counter caches
+remain pending. Database
 foreign-key actions implemented in `Schema` are separate from model callbacks.
 The source-free artifact compiler issue remains unresolved.

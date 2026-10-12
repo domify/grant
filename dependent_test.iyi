@@ -1,0 +1,234 @@
+module dependent_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/association_writes::{CollectionWriter, Link, Removal}
+import grant/lifecycle::{Callback, Pipeline, Event}
+import grant/unit_of_work::{UnitOfWork}
+import grant/dependent::{Dependency, Action}
+
+struct Child
+  getter id : Int64?
+  getter owner_id : Int64?
+  getter tenant : Int64
+  getter name : String
+
+  def initialize(@name : String, @owner_id : Int64? = nil, @tenant : Int64 = 1_i64, @id : Int64? = nil)
+  end
+end
+
+struct ChildMapping
+end
+
+impl Mapping(Child) for ChildMapping
+  def table : Table
+    Table.new("children")
+  end
+
+  def attributes(record : Child) : Attributes
+    {"id" => record.id, "owner_id" => record.owner_id, "tenant" => record.tenant, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Child | DatabaseError
+    id = row["id"]
+    owner = row["owner_id"]
+    tenant = row["tenant"]
+    name = row["name"]
+    if id.is_a?(Int64) && (owner.nil? || owner.is_a?(Int64)) && tenant.is_a?(Int64) && name.is_a?(String)
+      Child.new(name, owner, tenant, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid child row")
+    end
+  end
+
+  def validate(record : Child) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct ChildLink
+end
+
+impl Link(Child) for ChildLink
+  def with_owner(record : Child, owner_id : Int64) : Child | DatabaseError
+    Child.new(record.name, owner_id, record.tenant, record.id)
+  end
+end
+
+class Hooks
+  getter events : Array(Event)
+
+  def initialize
+    @events = [] of Event
+  end
+end
+
+impl Callback(Child) for Hooks
+  def call(event : Event, record : Child) : Child | DatabaseError | ValidationError | CallbackAbort
+    @events << event
+    if record.name == "abort" && event == Event::AfterUpdate
+      CallbackAbort.new("stop attachment")
+    elsif record.name == "protected" && event == Event::BeforeDestroy
+      CallbackAbort.new("stop destruction")
+    else
+      record
+    end
+  end
+end
+
+struct OwnerMapping
+end
+
+impl Mapping(Child) for OwnerMapping
+  def table : Table
+    Table.new("owners")
+  end
+
+  def attributes(record : Child) : Attributes
+    {"id" => record.id, "owner_id" => record.owner_id, "tenant" => record.tenant, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Child | DatabaseError
+    id = row["id"]
+    owner = row["owner_id"]
+    tenant = row["tenant"]
+    name = row["name"]
+    if id.is_a?(Int64) && (owner.nil? || owner.is_a?(Int64)) && tenant.is_a?(Int64) && name.is_a?(String)
+      Child.new(name, owner, tenant, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid child row")
+    end
+  end
+
+  def validate(record : Child) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+class OwnerHooks
+end
+
+impl Callback(Child) for OwnerHooks
+  def call(event : Event, record : Child) : Child | DatabaseError | ValidationError | CallbackAbort
+    if record.name == "late_abort" && event == Event::AfterDestroy
+      CallbackAbort.new("owner destroy aborted")
+    else
+      record
+    end
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("PRAGMA foreign_keys = ON").or_panic
+connection.execute("CREATE TABLE owners(id INTEGER PRIMARY KEY, owner_id INTEGER, tenant INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+connection.execute("CREATE TABLE children(id INTEGER PRIMARY KEY, owner_id INTEGER REFERENCES owners(id), tenant INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+connection.execute("CREATE UNIQUE INDEX unique_child_owner ON children(owner_id)").or_panic
+unit = UnitOfWork.new(connection)
+parents = Repository(Child).new(connection, OwnerMapping.new, unit: unit)
+children = Repository(Child).new(connection, ChildMapping.new, unit: unit)
+owner = parents.insert(Child.new("owner")).or_panic
+owner_id = owner.id || 0_i64
+writer = CollectionWriter(Child).new(children, "owner_id", ChildLink.new)
+old = writer.replace_one(owner_id, Child.new("old")).or_panic
+assert !old.nil?
+old_id = old ? old.id || 0_i64 : 0_i64
+assert writer.replace_one(owner_id, Child.new("")).is_a?(ValidationError)
+assert children.query.where("owner_id", owner_id).count.or_panic == 1
+found = children.find(old_id).or_panic
+assert found.owner_id == owner_id if found
+replacement = writer.replace_one(owner_id, Child.new("new")).or_panic
+assert !replacement.nil?
+assert children.query.where("owner_id", owner_id).count.or_panic == 1
+found = children.find(old_id).or_panic
+assert found.owner_id.nil? if found
+assert writer.replace_one(owner_id, nil, Removal::Delete).or_panic.nil?
+assert children.query.where("owner_id", owner_id).count.or_panic == 0
+assert children.query.count.or_panic == 1
+assert writer.replace_one(nil, Child.new("unsaved owner")).is_a?(DatabaseError)
+writer.append(owner_id, [Child.new("one")]).or_panic
+assert writer.remove_all(owner_id).or_panic == 1
+assert writer.remove_all(owner_id).or_panic == 0
+connection.close.or_panic
+
+[Action::Nullify, Action::Delete, Action::Destroy, Action::Restrict].each do |action|
+  db = Connection.open(":memory:").or_panic
+  db.execute("PRAGMA foreign_keys = ON").or_panic
+  db.execute("CREATE TABLE owners(id INTEGER PRIMARY KEY, owner_id INTEGER, tenant INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+  db.execute("CREATE TABLE children(id INTEGER PRIMARY KEY, owner_id INTEGER REFERENCES owners(id), tenant INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+  session = UnitOfWork.new(db)
+  parent_events = Pipeline(Child).new
+  child_events = Pipeline(Child).new
+  log = Hooks.new
+  child_events.add(log, [Event::BeforeDestroy, Event::AfterCommit, Event::AfterRollback])
+  parent_repo = Repository(Child).new(db, OwnerMapping.new, parent_events, session)
+  child_repo = Repository(Child).new(db, ChildMapping.new, child_events, session)
+  dependency = Dependency(Child, Child).new(parent_repo, child_repo, "owner_id", action)
+  parent_events.add(dependency, [Event::BeforeDestroy])
+  parent_events.add(OwnerHooks.new, [Event::AfterDestroy])
+  parent = parent_repo.insert(Child.new("parent")).or_panic
+  other = parent_repo.insert(Child.new("other")).or_panic
+  key = parent.id || 0_i64
+  child = child_repo.insert(Child.new("child", key)).or_panic
+  child_repo.insert(Child.new("other child", other.id)).or_panic
+  result = parent_repo.destroy(parent_repo.query, key)
+  if action == Action::Restrict
+    assert result.is_a?(ValidationError)
+    assert !parent_repo.find(key).or_panic.nil?
+    assert child_repo.query.where("owner_id", key).count.or_panic == 1
+  else
+    result.or_panic
+    assert parent_repo.find(key).or_panic.nil?
+    assert child_repo.query.where("owner_id", key).count.or_panic == 0
+    assert child_repo.query.where("owner_id", other.id).count.or_panic == 1
+    if action == Action::Nullify
+      remaining = child_repo.find(child.id || 0_i64).or_panic
+      assert !remaining.nil?
+      assert remaining.owner_id.nil? if remaining
+    else
+      assert child_repo.find(child.id || 0_i64).or_panic.nil?
+    end
+    assert log.events.includes?(Event::BeforeDestroy) == (action == Action::Destroy)
+  end
+  failing = parent_repo.insert(Child.new("late_abort")).or_panic
+  failing_id = failing.id || 0_i64
+  child_repo.insert(Child.new("kept", failing_id)).or_panic
+  failed = parent_repo.destroy(parent_repo.query, failing_id)
+  assert failed.is_a?(Error)
+  assert !parent_repo.find(failing_id).or_panic.nil?
+  assert child_repo.query.where("owner_id", failing_id).count.or_panic == 1
+  caught = session.run do
+    error = parent_repo.destroy(parent_repo.query, failing_id)
+    assert error.is_a?(Error)
+    parent_repo.insert(Child.new("outer kept"))
+  end
+  caught.or_panic
+  assert child_repo.query.where("owner_id", failing_id).count.or_panic == 1
+  assert parent_repo.query.where("name", "outer kept").count.or_panic == 1
+  separate = Repository(Child).new(db, ChildMapping.new)
+  invalid = Dependency(Child, Child).new(parent_repo, separate, "owner_id", Action::Delete)
+  checked = session.run { invalid.apply(failing) }
+  assert checked.is_a?(DatabaseError)
+  db.close.or_panic
+end
+
+cycle_db = Connection.open(":memory:").or_panic
+cycle_db.execute("CREATE TABLE owners(id INTEGER PRIMARY KEY, owner_id INTEGER, tenant INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+cycle_unit = UnitOfWork.new(cycle_db)
+cycle_events = Pipeline(Child).new
+cycle_repo = Repository(Child).new(cycle_db, OwnerMapping.new, cycle_events, cycle_unit)
+cycle_rule = Dependency(Child, Child).new(cycle_repo, cycle_repo, "owner_id", Action::Destroy)
+cycle_events.add(cycle_rule, [Event::BeforeDestroy])
+a = cycle_repo.insert(Child.new("a")).or_panic
+a_id = a.id || 0_i64
+b = cycle_repo.insert(Child.new("b", a_id)).or_panic
+b_id = b.id || 0_i64
+cycle_repo.query.where("id", a_id).update({"owner_id" => b_id} of String => Value).or_panic
+assert cycle_repo.destroy(cycle_repo.query, a_id).is_a?(DatabaseError)
+assert cycle_repo.query.count.or_panic == 2
+cycle_repo.query.where("id", a_id).update({"owner_id" => nil} of String => Value).or_panic
+cycle_repo.destroy(cycle_repo.query, a_id).or_panic
+assert cycle_repo.query.count.or_panic == 0
+cycle_db.close.or_panic

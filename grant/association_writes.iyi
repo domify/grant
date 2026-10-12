@@ -49,6 +49,43 @@ pub class CollectionWriter(T)
     @repository.unit_of_work.run(requires_new: true) { replace_records(owner_id, ids, strategy).as(Array(T) | WriteError) }
   end
 
+  def replace_one(owner_id : Int64?, record : T?, strategy : Removal = Removal::Nullify) : T | Nil | WriteError
+    return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
+    valid(owner_id)!
+    @repository.unit_of_work.run(requires_new: true) { replace_single(owner_id, record, strategy).as(T | Nil | WriteError) }
+  end
+
+  def remove_all(owner_id : Int64?, strategy : Removal = Removal::Nullify) : Int64 | WriteError
+    return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
+    valid(owner_id)!
+    @repository.unit_of_work.run(requires_new: true) { remove_collection(owner_id, strategy).as(Int64 | WriteError) }
+  end
+
+  private def remove_collection(owner_id : Int64, strategy : Removal) : Int64 | WriteError
+    records = @repository.all(@scope.where(@foreign_key, owner_id))!
+    ids = [] of Int64
+    records.each do |record|
+      id = record_id(record)!
+      return DatabaseError.new(20, "association", "persisted target has no primary key") unless id
+      ids << id
+    end
+    remove_records(owner_id, ids, strategy)
+  end
+
+  private def replace_single(owner_id : Int64, record : T?, strategy : Removal) : T | Nil | WriteError
+    current = @repository.all(@scope.where(@foreign_key, owner_id))!
+    return DatabaseError.new(21, "association", "has_one scope contains multiple targets") if current.size > 1
+    wanted_id = record ? record_id(record)! : nil
+    ids = [] of Int64
+    current.each do |member|
+      id = record_id(member)!
+      return DatabaseError.new(20, "association", "persisted target has no primary key") unless id
+      ids << id unless id == wanted_id
+    end
+    remove_records(owner_id, ids, strategy)!
+    record ? attach(owner_id, record) : nil
+  end
+
   private def valid(owner_id : Int64?) : Nil | DatabaseError
     return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
     return DatabaseError.new(21, "association", "pagination is not supported for collection writes") if @scope.paginated?
