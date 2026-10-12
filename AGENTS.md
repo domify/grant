@@ -49,8 +49,11 @@ native migration checksums. Replacement is explicit and drops snapshot data.
 See doc/SCHEMA.md. Keep alteration, constraints, snapshots and the generated
 schema factory in the source-free artifact gate.
 Catalog provides live SQLite tables/keys/checks/uniques/foreign-key/index metadata,
-including inline constraints and expression markers. Additional type/limit
-metadata remains pending.
+including inline constraints and expression markers. Column metadata includes
+declared families/length/precision/scale, affinity, positions and rowid aliases;
+it does not infer mappings or enforce sizes. Main-schema metadata cannot be
+shadowed by temporary tables. Collation/comment metadata and DDL size options
+remain pending.
 
 Mappings declaring a normalization Plan must implement with_attributes to rebuild
 their sealed records. Repository normalization runs before validation; query

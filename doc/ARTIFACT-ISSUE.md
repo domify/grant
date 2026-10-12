@@ -87,7 +87,7 @@ The patch is preserved at `scripts/compiler-witness-union.patch` and applied in
 tree change. The regression fails without the patch and passes with it, covering
 union and generic references and rejection of a missing ordinary type. All 126
 compiler artifact specs pass. The rebuilt canonical compiler also passes all
-twenty-one Grant artifact test consumers and the generated schema factory consumer.
+twenty-two Grant artifact test consumers and the generated schema factory consumer.
 The installed default executable is not assumed to contain these local fixes.
 
 Schema editing also exposed error-propagation AST export limitations: indexed

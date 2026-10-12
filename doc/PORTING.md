@@ -120,6 +120,14 @@ No code delegates native model behavior to the archived Crystal ORM.
   original SQL, with constraint indexes distinct from bare indexes. Implicit
   reference targets remain nullable metadata rather than fabricated key names.
   `schema_catalog_test.iyi` checks source/artifact consumption and post-rebuild reads.
+- SQLite column metadata adds declared TypeFamily, character limit, decimal
+  precision/scale, ordinary storage affinity, ordinal positions and generated
+  rowid-key flags. Nullability follows actual SQLite behavior for composite,
+  BIGINT, inline DESC, STRICT and WITHOUT ROWID primary keys. Catalog column
+  existence optionally checks a type family. Main-schema PRAGMAs cannot be
+  shadowed by temporary tables. `schema_metadata_test.iyi` verifies source and
+  artifact consumption, storage behavior, unsupported parameters and live reads
+  after rebuilds. This metadata does not infer mappings or enforce lengths.
 - SQLite named inline/table CHECK, UNIQUE and REFERENCES removal, plus selection
   by check expression or ordered unique/foreign-key columns. Token matching
   preserves literal case and adjacent clauses, including defaults, collations,
@@ -192,10 +200,10 @@ No code delegates native model behavior to the archived Crystal ORM.
   `a03fc3438`. Schema migration artifacts exposed compound references containing
   definition witnesses, fixed by the additional local compiler patch preserved
   in `scripts/compiler-witness-union.patch`. All 126 compiler artifact tests pass.
-  The rebuilt local compiler passes twenty-one artifact test consumers, the generated
+  The rebuilt local compiler passes twenty-two artifact test consumers, the generated
   schema factory consumer and the minimal layout reproduction. Older installed
   compilers require both fixes; see `ARTIFACT-ISSUE.md`. Current source execution
-  passes all 34 SQLite test programs.
+  passes all 35 SQLite test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
@@ -206,7 +214,7 @@ been translated wholesale to native iyi yet.
 
 1. Complete exact decimal SQL comparison/ordering/aggregation and automatic column
    metadata. PostgreSQL live CRUD/result verification remain deferred.
-2. Complete additional column metadata, attached/temporary schema
+2. Complete column collation/comment metadata and DDL size/precision options, attached/temporary schema
    dumping, composite model keys and the remaining migration capabilities;
    add connection pools, prepared-statement caches and nonblocking scheduling.
 3. Complete remaining validators, conditional callback metadata and normalization parity,
@@ -243,8 +251,8 @@ separate work and separate commits. No remote or public branch has been changed.
   tree exactly (`b298faa7a10c7bff3d4e433032938f94348eb8fd`).
 - All archived source-inventory hashes match the corresponding subtree files.
 - At layout bootstrap, `scripts/check.sh` passed six native test programs and
-  the artifact consumer. The current expanded port passes 34 SQLite source tests,
-  twenty-one artifact test consumers and a generated schema factory consumer with
+  the artifact consumer. The current expanded port passes 35 SQLite source tests,
+  twenty-two artifact test consumers and a generated schema factory consumer with
   the fixed local compiler.
 - The upstream script recognizes an already imported revision as a no-op.
 - In disposable repositories, a new source revision imports only into the

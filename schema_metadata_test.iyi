@@ -1,0 +1,137 @@
+module schema_metadata_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/schema::{Schema, ColumnInfo}
+import grant/schema_types::{TypeFamily, Affinity, classify, sqlite_affinity}
+import grant/schema_catalog::{Catalog}
+import grant/schema_alter::{AlterTable}
+import grant/errors::{DatabaseError}
+
+database = Connection.open(":memory:").or_panic
+schema = Schema.new(database)
+catalog = Catalog.new(database)
+database.execute("CREATE TABLE metadata(id INTEGER PRIMARY KEY, email VARCHAR(120) NOT NULL, bio TEXT, active BOOLEAN DEFAULT 1, created_at DATETIME, score DECIMAL(10, 2), count BIGINT, raw BLOB, document JSON, day DATE, clock TIME, untyped, calculated INTEGER AS (score*2) STORED)").or_panic
+columns = catalog.columns("metadata").or_panic
+assert columns.size == 13
+assert columns.map { |column| column.position } == (1..13).to_a
+assert columns[0].auto_increment && !columns[0].nullable && columns[0].primary_position == 1
+assert columns[1].type_family == TypeFamily::String && columns[1].limit == 120 && !columns[1].nullable
+assert columns[1].sqlite_affinity == Affinity::Text
+assert columns[2].type_family == TypeFamily::Text && columns[2].nullable && columns[2].limit.nil?
+assert columns[3].type_family == TypeFamily::Boolean && columns[3].default_sql == "1"
+assert columns[4].type_family == TypeFamily::DateTime
+assert columns[5].type_family == TypeFamily::Decimal && columns[5].precision == 10 && columns[5].scale == 2
+assert columns[5].sqlite_affinity == Affinity::Numeric
+assert columns[6].type_family == TypeFamily::Integer && !columns[6].auto_increment
+assert columns[7].type_family == TypeFamily::Binary && columns[7].sqlite_affinity == Affinity::Blob
+assert columns[8].type_family == TypeFamily::Json
+assert columns[9].type_family == TypeFamily::Date
+assert columns[10].type_family == TypeFamily::Time
+assert columns[11].sql_type == "" && columns[11].type_family == TypeFamily::Other && columns[11].sqlite_affinity == Affinity::Blob
+assert columns[12].generated && columns[12].position == 13
+assert catalog.column_exists?("METADATA", "EMAIL", TypeFamily::String).or_panic
+assert !catalog.column_exists?("metadata", "email", TypeFamily::Integer).or_panic
+assert !catalog.column_exists?("metadata", "missing").or_panic
+assert !catalog.column_exists?("missing", "id").or_panic
+assert catalog.column_exists?("metadata", "email;DROP TABLE metadata").is_a?(DatabaseError)
+
+# Report the declaration rather than inventing enforcement. SQLite ignores
+# VARCHAR size; exact native decimals still use TEXT and explicit mappings.
+database.execute("INSERT INTO metadata(email,score) VALUES('longer than an application might allow',1.2345)").or_panic
+assert database.query("SELECT typeof(score) AS kind FROM metadata").or_panic[0]["kind"] == "real"
+database.execute("CREATE TABLE exact(amount TEXT)").or_panic
+assert catalog.columns("exact").or_panic[0].type_family == TypeFamily::Text
+assert catalog.columns("exact").or_panic[0].precision.nil?
+
+# SQLite's rowid exceptions: single INTEGER keys auto-generate, but BIGINT,
+# inline DESC keys, composite keys and WITHOUT ROWID keys do not.
+database.execute("CREATE TABLE integer_auto(id INTEGER PRIMARY KEY AUTOINCREMENT)").or_panic
+assert schema.columns("integer_auto").or_panic[0].auto_increment
+database.execute("CREATE TABLE descending(id INTEGER PRIMARY KEY DESC)").or_panic
+assert !schema.columns("descending").or_panic[0].auto_increment
+assert schema.columns("descending").or_panic[0].nullable
+database.execute("INSERT INTO descending VALUES(NULL)").or_panic
+database.execute("CREATE TABLE bigint_key(id BIGINT PRIMARY KEY)").or_panic
+assert !schema.columns("bigint_key").or_panic[0].auto_increment
+assert schema.columns("bigint_key").or_panic[0].nullable
+database.execute("INSERT INTO bigint_key VALUES(NULL)").or_panic
+database.execute("CREATE TABLE composite(a INTEGER,b INTEGER,PRIMARY KEY(b,a))").or_panic
+keys = schema.columns("composite").or_panic
+assert keys.all? { |column| column.nullable && !column.auto_increment }
+assert keys[0].primary_position == 2 && keys[1].primary_position == 1
+database.execute("INSERT INTO composite VALUES(NULL,NULL)").or_panic
+database.execute("CREATE TABLE without_rowid(id INTEGER PRIMARY KEY) WITHOUT ROWID").or_panic
+assert !schema.columns("without_rowid").or_panic[0].nullable
+assert !schema.columns("without_rowid").or_panic[0].auto_increment
+assert database.execute("INSERT INTO without_rowid VALUES(NULL)").is_a?(DatabaseError)
+database.execute("CREATE TABLE strict_keys(id TEXT PRIMARY KEY) STRICT").or_panic
+assert !schema.columns("strict_keys").or_panic[0].nullable
+assert !schema.columns("strict_keys").or_panic[0].auto_increment
+
+# Metadata is main-schema scoped even when TEMP shadows the same table name.
+schema.add_index("metadata", ["email"], "metadata_email").or_panic
+database.execute("CREATE TEMP TABLE metadata(shadow TEXT)").or_panic
+assert schema.columns("metadata").or_panic.size == 13
+assert catalog.columns("metadata").or_panic[0].auto_increment
+assert catalog.indexes("metadata").or_panic[0].name == "metadata_email"
+database.execute("CREATE TABLE metadata_child(parent_id INTEGER REFERENCES metadata(id))").or_panic
+database.execute("CREATE TEMP TABLE metadata_child(unrelated TEXT)").or_panic
+assert catalog.foreign_keys("metadata_child").or_panic[0].target_table == "metadata"
+database.execute("DROP TABLE temp.metadata_child").or_panic
+database.execute("DROP TABLE temp.metadata").or_panic
+database.execute("CREATE VIEW metadata_view AS SELECT email, score FROM metadata").or_panic
+assert schema.columns("metadata_view").or_panic.size == 2
+assert catalog.columns("metadata_view").is_a?(DatabaseError)
+
+# Catalog reads observe rebuilds and renamed columns without a registry/cache.
+AlterTable.new(database, "metadata").change_null("email", true).apply.or_panic
+assert catalog.columns("metadata").or_panic[1].nullable
+assert catalog.columns("metadata").or_panic[1].limit == 120
+assert catalog.columns("metadata").or_panic[5].scale == 2
+schema.rename_column("metadata", "email", "address").or_panic
+assert !catalog.column_exists?("metadata", "email").or_panic
+assert catalog.column_exists?("metadata", "address", TypeFamily::String).or_panic
+
+# Original type-family spellings, plus unknown declarations that SQLite accepts.
+families = {
+  "bigint"                   => TypeFamily::Integer,
+  "int(11)"                  => TypeFamily::Integer,
+  "int unsigned"             => TypeFamily::Integer,
+  "INTEGER"                  => TypeFamily::Integer,
+  "smallserial"              => TypeFamily::Integer,
+  "tinyint(1)"               => TypeFamily::Boolean,
+  "character varying"        => TypeFamily::String,
+  "double precision"         => TypeFamily::Float,
+  "numeric(10,2)"            => TypeFamily::Decimal,
+  "timestamp with time zone" => TypeFamily::DateTime,
+  "date"                     => TypeFamily::Date,
+  "bytea"                    => TypeFamily::Binary,
+  "jsonb"                    => TypeFamily::Json,
+  "uuid"                     => TypeFamily::Uuid,
+  "point"                    => TypeFamily::Other,
+  "interval"                 => TypeFamily::Other,
+  ""                         => TypeFamily::Other,
+  "custom_type"              => TypeFamily::Other,
+}
+families.each { |type, expected| assert classify(type) == expected }
+assert sqlite_affinity("FLOATING POINT") == Affinity::Integer
+assert sqlite_affinity("CHARINT") == Affinity::Integer
+assert sqlite_affinity("STRING") == Affinity::Numeric
+assert sqlite_affinity("BLOB TEXT") == Affinity::Text
+assert sqlite_affinity("DOUBLE PRECISION") == Affinity::Real
+
+# Parameter introspection must never overflow or infer unrelated type options.
+assert ColumnInfo.new("c", "VARCHAR( 40 )", true, nil).limit == 40
+assert ColumnInfo.new("c", "NUMERIC(12)", true, nil).precision == 12
+assert ColumnInfo.new("c", "NUMERIC(12)", true, nil).scale.nil?
+assert ColumnInfo.new("c", "NUMERIC(12,0)", true, nil).scale == 0
+assert ColumnInfo.new("c", "VARCHAR(999999999999999999999999)", true, nil).limit.nil?
+assert ColumnInfo.new("c", "VARCHAR(-1)", true, nil).limit.nil?
+assert ColumnInfo.new("c", "VARCHAR(10,2)", true, nil).limit.nil?
+assert ColumnInfo.new("c", "DECIMAL(10,-2)", true, nil).precision.nil?
+assert ColumnInfo.new("c", "DECIMAL(10,2,1)", true, nil).scale.nil?
+assert ColumnInfo.new("c", "TEXT(10)", true, nil).limit.nil?
+assert ColumnInfo.new("c", "TIMESTAMP(3)", true, nil).precision.nil?
+database.close.or_panic
+assert catalog.columns("metadata").is_a?(DatabaseError)
+assert catalog.column_exists?("metadata", "address").is_a?(DatabaseError)

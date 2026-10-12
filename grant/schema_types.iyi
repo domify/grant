@@ -1,0 +1,87 @@
+module grant/schema_types
+
+import std/text
+
+# Declared semantic family is separate from SQLite's storage affinity. These
+# values describe the catalog; they don't convert records or enforce sizes.
+pub enum TypeFamily
+  Integer
+  Float
+  Decimal
+  String
+  Text
+  Boolean
+  DateTime
+  Date
+  Time
+  Binary
+  Json
+  Uuid
+  Other
+end
+
+pub enum Affinity
+  Integer
+  Text
+  Blob
+  Real
+  Numeric
+end
+
+pub def classify(sql_type : String) : TypeFamily
+  type = sql_type.downcase.strip
+  return TypeFamily::Other if type.empty?
+  return TypeFamily::Boolean if type.starts_with?("bool") || type == "tinyint(1)"
+  return TypeFamily::Other if type.starts_with?("interval") || type.starts_with?("point")
+  base = ""
+  type.each_char do |char|
+    break unless (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')
+    base += char.to_s
+  end
+  if ["int", "integer", "tinyint", "smallint", "mediumint", "bigint", "int2", "int4", "int8", "integer2", "integer4", "integer8", "serial", "serial2", "serial4", "serial8", "smallserial", "bigserial"].includes?(base)
+    return TypeFamily::Integer
+  end
+  return TypeFamily::Decimal if type.starts_with?("numeric") || type.starts_with?("decimal") || type.starts_with?("money")
+  return TypeFamily::Float if type.starts_with?("float") || type.starts_with?("double") || type.starts_with?("real")
+  return TypeFamily::Uuid if type == "uuid"
+  return TypeFamily::Json if type.starts_with?("json")
+  return TypeFamily::Binary if type.includes?("blob") || type.starts_with?("bytea") || type.includes?("binary")
+  return TypeFamily::DateTime if type.starts_with?("timestamp") || type.starts_with?("datetime")
+  return TypeFamily::Date if type == "date"
+  return TypeFamily::Time if type.starts_with?("time")
+  return TypeFamily::Text if type.includes?("text") || type.includes?("clob")
+  return TypeFamily::String if type.includes?("char") || type == "citext" || type == "name" || type.starts_with?("enum")
+  TypeFamily::Other
+end
+
+pub def sqlite_affinity(sql_type : String) : Affinity
+  type = sql_type.upcase
+  # SQLite applies these rules in this exact order: FLOATING POINT has INTEGER
+  # affinity because POINT contains INT, and CHARINT also has INTEGER affinity.
+  return Affinity::Integer if type.includes?("INT")
+  return Affinity::Text if type.includes?("CHAR") || type.includes?("CLOB") || type.includes?("TEXT")
+  return Affinity::Blob if type.strip.empty? || type.includes?("BLOB")
+  return Affinity::Real if type.includes?("REAL") || type.includes?("FLOA") || type.includes?("DOUB")
+  Affinity::Numeric
+end
+
+pub def type_parameters(sql_type : String) : Array(Int32)
+  parts = sql_type.split("(")
+  return [] of Int32 unless parts.size == 2
+  closing = parts[1].split(")")
+  return [] of Int32 unless closing.size == 2 && closing[1].strip.empty?
+  values = closing[0].split(",")
+  return [] of Int32 if values.empty? || values.size > 2
+  result = [] of Int32
+  values.each do |value|
+    text = value.strip
+    return [] of Int32 if text.empty?
+    valid = true
+    text.each_char { |char| valid = false unless char >= '0' && char <= '9' }
+    return [] of Int32 unless valid
+    number = text.to_i64?
+    return [] of Int32 unless number && number <= 2147483647_i64
+    result << number.to_i32
+  end
+  result
+end

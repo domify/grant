@@ -112,6 +112,7 @@ iyi run schema_snapshot_test.iyi
 iyi run schema_constraints_test.iyi
 iyi run schema_catalog_test.iyi
 iyi run schema_constraint_removal_test.iyi
+iyi run schema_metadata_test.iyi
 iyi run partial_update_test.iyi
 iyi run bulk_test.iyi
 iyi run decimal_policy_test.iyi
@@ -153,14 +154,14 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, an artifact layout bug was found and fixed in iyi
 compiler commit `a03fc3438`. The fixed local compiler passes the model consumer. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 34 programs, including
+connection failure). The current SQLite-only suite has 35 programs, including
 association reads, transactional writes, dependent destruction, binary data and
 additional validators, SQLite uniqueness, model normalization, locking, timestamps,
 touch, exact scalar values, table/constraint rebuilds, schema snapshots/catalogs
 partial updates, bulk operations and decimal policies. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` retains and expands the artifact gate. Older installed
-compilers may still fail it until they include both fixes. The gate checks twenty-one
+compilers may still fail it until they include both fixes. The gate checks twenty-two
 artifact test consumers and separately compiles a generated schema factory.
 
 The current value contract is null, boolean, Int64, Float64, String, `Binary`,
@@ -186,7 +187,7 @@ alteration and main-schema snapshots are implemented. Table definitions can
 declare composite keys; repositories still use single Int64 model IDs.
 Named and unnamed CHECK/UNIQUE/foreign-key constraints can be removed by name,
 expression or ordered source columns, including inline clauses. Additional
-column type metadata, attached/temporary
+column collation/comment metadata and DDL size options, attached/temporary
 schema handling and other schema capabilities remain pending; see `doc/SCHEMA.md`.
 
 Validation, normalization, dirty tracking, callbacks, and migrations implement

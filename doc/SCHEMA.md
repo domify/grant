@@ -134,6 +134,32 @@ terms have nil column names; consult the original SQL for the expression/predica
 text. Metadata collections are copied. Reads observe schema rebuilds without a
 global cache. `schema_catalog_test.iyi` covers these APIs from source and artifacts.
 
+`Schema.columns` includes one-based table `position`, `auto_increment` for SQLite
+rowid aliases, `type_family`, character `limit` and decimal `precision`/`scale`.
+`Catalog.columns` provides the same metadata for main-schema tables, and
+`column_exists?(table, name, family)` optionally checks a declared type family.
+Unknown tables/columns return false from existence checks; SQL failures remain
+errors. `Schema.columns` additionally accepts main-schema views. All catalog
+PRAGMAs explicitly read `main`, even if a temporary table shadows that name.
+
+Type families describe declarations, separately from the `sqlite_affinity`
+storage rule. For example, `FLOATING POINT` has integer affinity in SQLite.
+Lengths/precision/scale are declarations, not enforced limits or inferred
+mapping policies. Malformed, negative or overflowing size parameters return nil;
+unrecognized declarations retain their raw `sql_type` and use family Other.
+Exact native decimals stored as TEXT report family Text; this metadata never
+converts them to floats or reconstructs a decimal policy. The affinity helper
+describes ordinary SQLite affinity; STRICT tables' special ANY behavior is not
+inferred from a type string alone.
+
+`auto_increment` means SQLite can generate the INTEGER rowid alias; it does not
+require the separate AUTOINCREMENT non-reuse clause. Inline INTEGER PRIMARY KEY
+DESC, BIGINT keys, composite keys and WITHOUT ROWID keys are not rowid aliases.
+Nullability follows SQLite's catalog plus the non-null rowid alias exception;
+ordinary non-rowid primary keys may admit NULL. `schema_metadata_test.iyi`
+verifies these differences, storage behavior, temporary shadowing and post-rebuild
+metadata, and also runs against source-free artifacts.
+
 ## DDL transaction ownership
 
 SQLite cannot disable foreign keys inside an already open transaction.
@@ -216,7 +242,7 @@ generated snapshot factory without the Grant source tree.
 Virtual tables require module-specific snapshot/rebuild support and are rejected.
 Attached and temporary database schemas, selected-table dumps, arbitrary SQL-file
 loading, environment metadata/protection, reversible command recording,
-additional column type/limit metadata, broader index options and
+column collation/comment metadata, DDL size/precision options, broader index options and
 a composite-key repository API remain pending. Creating or preserving a composite
 table key is not the same as supporting composite model IDs. PostgreSQL schema development and live
 verification remain deferred.

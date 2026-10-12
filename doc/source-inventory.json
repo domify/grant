@@ -60,7 +60,16 @@
     {
       "path": "adapter/sqlite.cr",
       "sha256": "fa45b409f2de6b94c40e3a9ff13804128c81393298855f0104eae9ccc1544f02",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/schema.iyi",
+        "grant/schema_types.iyi",
+        "grant/schema_catalog.iyi"
+      ],
+      "native_parity_tests": [
+        "schema_metadata_test.iyi"
+      ],
+      "porting_notes": "doc/SCHEMA.md"
     },
     {
       "path": "adapter/sqlite_test_helpers.cr",
@@ -908,7 +917,16 @@
     {
       "path": "grant/schema/column_info.cr",
       "sha256": "9c71f93a13619bbf709c9be823a09c423651c8bdcb5b835fcff6b77d27b49efb",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/schema.iyi",
+        "grant/schema_types.iyi",
+        "grant/schema_catalog.iyi"
+      ],
+      "native_parity_tests": [
+        "schema_metadata_test.iyi"
+      ],
+      "porting_notes": "doc/SCHEMA.md"
     },
     {
       "path": "grant/schema/command_recorder.cr",
@@ -953,7 +971,16 @@
     {
       "path": "grant/schema/introspection.cr",
       "sha256": "12fd35ae9304d2da763eda8d6c045aa2759fe85e8c6a75375383edd25618cbd2",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/schema.iyi",
+        "grant/schema_types.iyi",
+        "grant/schema_catalog.iyi"
+      ],
+      "native_parity_tests": [
+        "schema_metadata_test.iyi"
+      ],
+      "porting_notes": "doc/SCHEMA.md"
     },
     {
       "path": "grant/schema/loader.cr",
@@ -1361,6 +1388,7 @@
     "grant/schema_constraints.iyi",
     "grant/schema_snapshot.iyi",
     "grant/schema_transaction.iyi",
+    "grant/schema_types.iyi",
     "grant/sql/constraint_editor.iyi",
     "grant/sql/definition_scanner.iyi",
     "grant/sql/placeholder_scanner.iyi",

@@ -7,6 +7,7 @@ import grant/value::{Value, Row, Binary}
 import grant/scalars::{Decimal, Date, DateTime}
 import grant/errors::{DatabaseError}
 import grant/schema_constraints::{Constraint, constraint_sql, validate_columns, quoted_columns}
+import grant/schema_types::{TypeFamily, Affinity, classify, sqlite_affinity, type_parameters}
 
 pub enum ColumnType
   Integer
@@ -95,8 +96,36 @@ pub struct ColumnInfo
   getter generated : Bool
   getter hidden : Bool
   getter primary_position : Int32
+  getter position : Int32
+  getter auto_increment : Bool
 
-  def initialize(@name : String, @sql_type : String, @nullable : Bool, @default_sql : String?, @generated : Bool = false, @hidden : Bool = false, @primary_position : Int32 = 0)
+  def initialize(@name : String, @sql_type : String, @nullable : Bool, @default_sql : String?, @generated : Bool = false, @hidden : Bool = false, @primary_position : Int32 = 0, @position : Int32 = 0, @auto_increment : Bool = false)
+  end
+
+  def type_family : TypeFamily
+    Grant::SchemaTypes.classify(@sql_type)
+  end
+
+  def sqlite_affinity : Affinity
+    Grant::SchemaTypes.sqlite_affinity(@sql_type)
+  end
+
+  def limit : Int32?
+    return nil unless type_family == TypeFamily::String
+    values = Grant::SchemaTypes.type_parameters(@sql_type)
+    values.size == 1 ? values[0] : nil
+  end
+
+  def precision : Int32?
+    return nil unless type_family == TypeFamily::Decimal
+    values = Grant::SchemaTypes.type_parameters(@sql_type)
+    values.empty? ? nil : values[0]
+  end
+
+  def scale : Int32?
+    return nil unless type_family == TypeFamily::Decimal
+    values = Grant::SchemaTypes.type_parameters(@sql_type)
+    values.size == 2 ? values[1] : nil
   end
 end
 
@@ -222,19 +251,25 @@ pub class Schema
 
   def columns(table : String) : Array(ColumnInfo) | DatabaseError
     rows = if @database.dialect == Dialect::SQLite
-             quoted = identifier(table)!
-             @database.query("PRAGMA table_xinfo(#{quoted})", [] of Value)!
+             identifier(table)!
+             @database.query("SELECT * FROM pragma_table_xinfo(?, 'main') ORDER BY cid", [table] of Value)!
            else
              @database.query("SELECT column_name AS name, data_type AS type, is_nullable AS nullable, column_default AS default_sql FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position", [table] of Value)!
            end
     return DatabaseError.new(21, "schema", "table or view does not exist: #{table}") if rows.empty? && @database.dialect == Dialect::SQLite
     columns = [] of ColumnInfo
-    rows.each do |row|
+    rowid_table = false
+    if @database.dialect == Dialect::SQLite
+      backing = @database.query("SELECT name FROM pragma_index_list(?, 'main') WHERE origin='pk'", [table] of Value)!
+      rowid_table = backing.empty? && rows.count { |row| row["pk"] != 0_i64 } == 1
+    end
+    rows.each_with_index do |row, ordinal|
       name = row["name"]
       type = row["type"]
       return DatabaseError.new(20, "schema", "invalid column metadata") unless name.is_a?(String) && type.is_a?(String)
+      rowid_alias = @database.dialect == Dialect::SQLite && rowid_table && row["pk"] == 1_i64 && type.upcase == "INTEGER"
       nullable = if @database.dialect == Dialect::SQLite
-                   row["notnull"] == 0_i64 && row["pk"] == 0_i64
+                   row["notnull"] == 0_i64 && !rowid_alias
                  else
                    row["nullable"] == "YES"
                  end
@@ -246,7 +281,7 @@ pub class Schema
         return DatabaseError.new(20, "schema", "invalid primary key metadata") unless primary.is_a?(Int64) && primary >= 0_i64 && primary <= 2147483647_i64
         position = primary.to_i32
       end
-      columns << ColumnInfo.new(name, type, nullable, default.is_a?(String) ? default : nil, hidden == 2_i64 || hidden == 3_i64, hidden == 1_i64, position)
+      columns << ColumnInfo.new(name, type, nullable, default.is_a?(String) ? default : nil, hidden == 2_i64 || hidden == 3_i64, hidden == 1_i64, position, ordinal + 1, rowid_alias)
     end
     columns
   end

@@ -5,7 +5,8 @@ import grant/database::{Database, Dialect}
 import grant/errors::{DatabaseError}
 import grant/value::{Value}
 import grant/query::{identifier}
-import grant/schema::{Schema}
+import grant/schema::{Schema, ColumnInfo}
+import grant/schema_types::{TypeFamily}
 import grant/schema_constraints::{Action}
 import grant/cstring::{cstring}
 import grant/sql/definition_scanner::{Token, Kind, tokens, table_body, column_name}
@@ -119,6 +120,18 @@ pub class Catalog
     columns.select { |column| column.primary_position > 0 }.sorted_by { |column| column.primary_position }.map { |column| column.name }
   end
 
+  def columns(table : String) : Array(ColumnInfo) | DatabaseError
+    definition(table)!
+    Schema.new(@database).columns(table)
+  end
+
+  def column_exists?(table : String, name : String, family : TypeFamily? = nil) : Bool | DatabaseError
+    identifier(name)!
+    return false unless table_exists?(table)!
+    fields = columns(table)!
+    fields.any? { |field| field.name.downcase == name.downcase && (family.nil? || field.type_family == family) }
+  end
+
   def checks(table : String) : Array(CheckInfo) | DatabaseError
     sql = definition(table)!
     parsed = Grant::Sql::DefinitionScanner.table_body(sql)!
@@ -172,7 +185,7 @@ pub class Catalog
 
   def foreign_keys(table : String) : Array(ForeignKeyInfo) | DatabaseError
     definition(table)!
-    rows = @database.query("SELECT * FROM pragma_foreign_key_list(?) ORDER BY id, seq", [table] of Value)!
+    rows = @database.query("SELECT * FROM pragma_foreign_key_list(?, 'main') ORDER BY id, seq", [table] of Value)!
     result = [] of ForeignKeyInfo
     previous = nil.as(Int64?)
     rows.each do |row|
@@ -198,13 +211,13 @@ pub class Catalog
 
   def indexes(table : String) : Array(IndexInfo) | DatabaseError
     definition(table)!
-    rows = @database.query("SELECT * FROM pragma_index_list(?) WHERE origin <> 'pk' ORDER BY name", [table] of Value)!
+    rows = @database.query("SELECT * FROM pragma_index_list(?, 'main') WHERE origin <> 'pk' ORDER BY name", [table] of Value)!
     result = [] of IndexInfo
     rows.each do |row|
       name = row["name"]
       origin = row["origin"]
       return DatabaseError.new(20, "schema", "invalid index metadata") unless name.is_a?(String) && origin.is_a?(String)
-      fields = @database.query("SELECT * FROM pragma_index_xinfo(?) WHERE \"key\"=1 ORDER BY seqno", [name] of Value)!
+      fields = @database.query("SELECT * FROM pragma_index_xinfo(?, 'main') WHERE \"key\"=1 ORDER BY seqno", [name] of Value)!
       terms = [] of IndexTerm
       fields.each do |field|
         column = field["name"]
