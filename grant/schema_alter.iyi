@@ -1,0 +1,356 @@
+module grant/schema_alter
+
+import std/text
+import std/indexable
+import grant/database::{Database, Dialect}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+import grant/query::{identifier}
+import grant/schema::{Schema, Column, ColumnType, Unset, literal}
+import grant/schema_transaction::{ddl_transaction}
+import grant/schema_constraints::{Constraint, constraint_sql, validate_columns}
+import grant/sql/constraint_editor::{Removal, ConstraintKind, remove_constraints}
+import grant/sql/definition_scanner::{table_body, column_name, mentions?, primary_constraint?, change_type, without_default, without_not_null}
+
+enum ChangeKind
+  Add
+  Remove
+  Type
+  Nullability
+  Default
+  RemoveDefault
+  DefaultSQL
+  AddConstraint
+  RemoveConstraint
+end
+
+struct Change
+  getter kind : ChangeKind
+  getter name : String
+  getter column : Column?
+  getter nullable : Bool
+  getter value : Value | Unset
+  getter sql : String?
+  getter guarded : Bool
+  getter constraint : Constraint?
+  getter removal : Removal?
+
+  def initialize(@kind : ChangeKind, @name : String, @column : Column? = nil,
+                 @nullable : Bool = true, @value : Value | Unset = Unset.new, @sql : String? = nil, @guarded : Bool = false,
+                 @constraint : Constraint? = nil, @removal : Removal? = nil)
+  end
+end
+
+# A configured plan reads the current catalog only when applying. One rebuild
+# preserves original SQL constraints, indexes and unmodified column clauses.
+pub class AlterTable
+  @database : Database
+  @table : String
+  @changes : Array(Change)
+
+  def initialize(@database : Database, @table : String)
+    @changes = [] of Change
+  end
+
+  def add(column : Column, if_not_exists : Bool = false, default_sql : String? = nil) : AlterTable
+    @changes << Change.new(ChangeKind::Add, column.name, column, sql: default_sql, guarded: if_not_exists)
+    self
+  end
+
+  def remove(name : String, if_exists : Bool = false) : AlterTable
+    @changes << Change.new(ChangeKind::Remove, name, guarded: if_exists)
+    self
+  end
+
+  def change_type(name : String, type : ColumnType) : AlterTable
+    @changes << Change.new(ChangeKind::Type, name, Column.new(name, type))
+    self
+  end
+
+  def change_null(name : String, nullable : Bool, backfill : Value | Unset = Unset.new) : AlterTable
+    @changes << Change.new(ChangeKind::Nullability, name, nullable: nullable, value: backfill)
+    self
+  end
+
+  def change_default(name : String, value : Value) : AlterTable
+    @changes << Change.new(ChangeKind::Default, name, value: value)
+    self
+  end
+
+  def change_default_sql(name : String, expression : String) : AlterTable
+    @changes << Change.new(ChangeKind::DefaultSQL, name, sql: expression)
+    self
+  end
+
+  def remove_default(name : String) : AlterTable
+    @changes << Change.new(ChangeKind::RemoveDefault, name)
+    self
+  end
+
+  def add_constraint(constraint : Constraint) : AlterTable
+    @changes << Change.new(ChangeKind::AddConstraint, constraint.name, constraint: constraint)
+    self
+  end
+
+  def remove_constraint(name : String, if_exists : Bool = false) : AlterTable
+    @changes << Change.new(ChangeKind::RemoveConstraint, name, guarded: if_exists, removal: Removal.new(name: name))
+    self
+  end
+
+  def remove_check(expression : String, if_exists : Bool = false) : AlterTable
+    @changes << Change.new(ChangeKind::RemoveConstraint, "", guarded: if_exists, removal: Removal.new(kind: ConstraintKind::Check, expression: expression))
+    self
+  end
+
+  def remove_unique(columns : Array(String), if_exists : Bool = false) : AlterTable
+    @changes << Change.new(ChangeKind::RemoveConstraint, "", guarded: if_exists, removal: Removal.new(kind: ConstraintKind::Unique, columns: columns))
+    self
+  end
+
+  def remove_foreign_key(columns : Array(String), if_exists : Bool = false) : AlterTable
+    @changes << Change.new(ChangeKind::RemoveConstraint, "", guarded: if_exists, removal: Removal.new(kind: ConstraintKind::Reference, columns: columns))
+    self
+  end
+
+  def apply : Nil | DatabaseError | Panicked | Cancelled
+    return DatabaseError.new(21, "schema", "table rebuilds are implemented only for SQLite") unless @database.dialect == Dialect::SQLite
+    identifier(@table)!
+    return nil if @changes.empty?
+    legacy = setting("legacy_alter_table")!
+    outcome = ddl_transaction(@database, rebuilds: true) { rebuild.as(Nil | DatabaseError) }
+    restored_legacy = @database.execute("PRAGMA legacy_alter_table = #{legacy}", [] of Value)
+    if restored_legacy.is_a?(DatabaseError)
+      return DatabaseError.new(21, "schema", "failed to restore SQLite settings after rebuild; outcome: #{outcome}")
+    end
+    outcome
+  end
+
+  private def setting(name : String) : Int64 | DatabaseError
+    rows = @database.query("PRAGMA #{name}", [] of Value)!
+    return DatabaseError.new(20, "schema", "missing SQLite setting: #{name}") if rows.empty?
+    value = rows[0][name]
+    value.is_a?(Int64) ? value : DatabaseError.new(20, "schema", "invalid SQLite setting: #{name}")
+  end
+
+  private def rebuild : Nil | DatabaseError
+    quoted_table = identifier(@table)!
+    rows = @database.query("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?", [@table] of Value)!
+    return DatabaseError.new(21, "schema", "table does not exist: #{@table}") if rows.empty?
+    original = rows[0]["sql"]
+    return DatabaseError.new(20, "schema", "table has no SQL definition") unless original.is_a?(String)
+    sequence = nil.as(Int64?)
+    original_tokens = Grant::Sql::DefinitionScanner.tokens(original)!
+    if original_tokens.any? { |token| token.keyword?("AUTOINCREMENT") }
+      stored = @database.query("SELECT seq FROM sqlite_sequence WHERE name = ?", [@table] of Value)!
+      unless stored.empty?
+        value = stored[0]["seq"]
+        return DatabaseError.new(20, "schema", "invalid SQLite AUTOINCREMENT sequence") unless value.is_a?(Int64)
+        sequence = value
+      end
+    end
+    parsed = Grant::Sql::DefinitionScanner.table_body(original)!
+    items = parsed[0]
+    suffix = parsed[1]
+    indexes = @database.query("SELECT name, sql FROM sqlite_schema WHERE tbl_name = ? AND type = 'index' AND sql IS NOT NULL ORDER BY name", [@table] of Value)!
+    triggers = @database.query("SELECT name, sql FROM sqlite_schema WHERE tbl_name = ? AND type = 'trigger' AND sql IS NOT NULL ORDER BY name", [@table] of Value)!
+    fields = @database.query("PRAGMA table_xinfo(#{quoted_table})", [] of Value)!
+    original_names = [] of String
+    fields.each do |field|
+      name = field["name"]
+      return DatabaseError.new(20, "schema", "invalid column metadata") unless name.is_a?(String)
+      original_names << name
+    end
+    removed = [] of String
+    backfills = [] of Change
+    changed = false
+    schema = Schema.new(@database)
+    @changes.each do |change|
+      identifier(change.name)! unless change.name.empty? && change.kind == ChangeKind::RemoveConstraint
+      if change.kind == ChangeKind::RemoveConstraint
+        removal = change.removal
+        return DatabaseError.new(20, "schema", "missing constraint selector") unless removal
+        if name = removal.name
+          identifier(name)!
+        end
+        if columns = removal.columns
+          return DatabaseError.new(21, "schema", "constraint selector needs nonempty distinct columns") if columns.empty? || columns.uniq.size != columns.size
+          columns.each { |name| identifier(name)! }
+        end
+        edited = Grant::Sql::ConstraintEditor.remove_constraints(items, removal)!
+        if edited[1] == 0
+          next if change.guarded
+          return DatabaseError.new(21, "schema", "constraint does not exist for the supplied selector")
+        end
+        items = edited[0]
+        changed = true
+        next
+      end
+      if change.kind == ChangeKind::AddConstraint
+        found_constraint = nil.as(Int32?)
+        inline_constraint = false
+        available = [] of String
+        items.each_with_index do |item, index|
+          constraint_name = Grant::Sql::DefinitionScanner.constraint_name(item)!
+          found_constraint = index if constraint_name && constraint_name.downcase == change.name.downcase
+          named = Grant::Sql::DefinitionScanner.named_constraints(item)!
+          inline_constraint = true if constraint_name.nil? && named.any? { |name| name.downcase == change.name.downcase }
+          name = Grant::Sql::DefinitionScanner.column_name(item)!
+          available << name if name
+        end
+        return DatabaseError.new(21, "schema", "constraint already exists: #{change.name}") if found_constraint || inline_constraint
+        constraint = change.constraint
+        return DatabaseError.new(20, "schema", "missing constraint definition") unless constraint
+        Grant::SchemaConstraints.validate_columns(constraint, available)!
+        sql = Grant::SchemaConstraints.constraint_sql(constraint)!
+        items << sql
+        changed = true
+        next
+      end
+      found = nil.as(Int32?)
+      items.each_with_index do |item, index|
+        name = Grant::Sql::DefinitionScanner.column_name(item)!
+        found = index if name && name.downcase == change.name.downcase
+      end
+      if change.kind == ChangeKind::Add
+        next if found && change.guarded
+        return DatabaseError.new(21, "schema", "column already exists: #{change.name}") if found
+        column = change.column
+        return DatabaseError.new(20, "schema", "missing added column definition") unless column
+        definition = schema.column_definition(column)!
+        if expression = change.sql
+          return DatabaseError.new(21, "schema", "default value and default SQL cannot both be supplied") unless column.default.is_a?(Unset)
+          return DatabaseError.new(21, "schema", "default SQL expression is empty") if expression.strip.empty?
+          Grant::Sql::DefinitionScanner.tokens(expression)!
+          definition += " DEFAULT (#{expression})"
+        end
+        position = items.size
+        items.each_with_index do |item, index|
+          item_name = Grant::Sql::DefinitionScanner.column_name(item)!
+          if item_name.nil?
+            position = index
+            break
+          end
+        end
+        expanded = [] of String
+        items.each_with_index do |item, index|
+          expanded << definition if index == position
+          expanded << item
+        end
+        expanded << definition if position == items.size
+        items = expanded
+      else
+        next if found.nil? && change.kind == ChangeKind::Remove && change.guarded
+        return DatabaseError.new(21, "schema", "column does not exist: #{change.name}") unless found
+        item = items[found]
+        case change.kind
+        when ChangeKind::Remove
+          kept = [] of String
+          items.each_with_index do |other, index|
+            next if index == found
+            name = Grant::Sql::DefinitionScanner.column_name(other)!
+            mentions_removed = Grant::Sql::DefinitionScanner.mentions?(other, change.name)!
+            if name.nil? && mentions_removed
+              primary = Grant::Sql::DefinitionScanner.primary_constraint?(other)!
+              return DatabaseError.new(21, "schema", "cannot remove a column from a table primary key") if primary
+            else
+              kept << other
+            end
+          end
+          items = kept
+          removed << change.name
+          # A later addition with the same name is a new column, not a
+          # retained source column. Its rows must receive its new default.
+          original_names = original_names.reject { |name| name.downcase == change.name.downcase }
+          backfills = backfills.reject { |previous| previous.name.downcase == change.name.downcase }
+        when ChangeKind::Type
+          column = change.column
+          return DatabaseError.new(20, "schema", "missing changed column type") unless column
+          definition = schema.column_definition(column)!
+          quoted = identifier(column.name)!
+          type = definition[quoted.bytesize + 1, definition.bytesize - quoted.bytesize - 1]
+          changed_definition = Grant::Sql::DefinitionScanner.change_type(item, type)!
+          items[found] = changed_definition
+        when ChangeKind::Nullability
+          text = Grant::Sql::DefinitionScanner.without_not_null(item)!
+          items[found] = change.nullable ? text : text + " NOT NULL"
+          backfills << change unless change.nullable || change.value.is_a?(Unset)
+        else
+          text = Grant::Sql::DefinitionScanner.without_default(item)!
+          if change.kind == ChangeKind::Default
+            value = change.value
+            return DatabaseError.new(20, "schema", "missing default value") if value.is_a?(Unset)
+            text += " DEFAULT #{Grant::Schema.literal(value)}"
+          elsif change.kind == ChangeKind::DefaultSQL
+            expression = change.sql
+            return DatabaseError.new(21, "schema", "default SQL expression is empty") unless expression && !expression.strip.empty?
+            Grant::Sql::DefinitionScanner.tokens(expression)!
+            text += " DEFAULT (#{expression})"
+          end
+          items[found] = text
+        end
+      end
+      changed = true
+    end
+    return nil unless changed
+    backfills.each do |change|
+      value = change.value
+      next if value.is_a?(Unset)
+      next unless original_names.any? { |name| name.downcase == change.name.downcase }
+      column = identifier(change.name)!
+      @database.execute("UPDATE #{quoted_table} SET #{column} = ? WHERE #{column} IS NULL", [value] of Value)!
+    end
+    scratch = identifier("__grant_rebuild_#{@database.savepoint_name}")!
+    @database.execute("CREATE TABLE #{scratch} (#{items.join(", ")}) #{suffix}", [] of Value)!
+    quoted_fields = [] of String
+    expressions = [] of String
+    parameters = [] of Value
+    rebuilt_fields = @database.query("PRAGMA table_xinfo(#{scratch})", [] of Value)!
+    rebuilt_fields.each do |field|
+      next unless field["hidden"] == 0_i64
+      name = field["name"]
+      return DatabaseError.new(20, "schema", "invalid rebuilt column metadata") unless name.is_a?(String)
+      quoted = identifier(name)!
+      quoted_fields << quoted
+      if original_names.any? { |original_name| original_name.downcase == name.downcase }
+        expressions << quoted
+      else
+        default = field["dflt_value"]
+        expression = default.is_a?(String) ? default : "NULL"
+        backfills.each do |change|
+          next unless change.name.downcase == name.downcase
+          value = change.value
+          next if value.is_a?(Unset)
+          expression = "COALESCE(#{expression}, ?)"
+          parameters << value
+        end
+        expressions << expression
+      end
+    end
+    return DatabaseError.new(21, "schema", "rebuild has no writable columns") if quoted_fields.empty?
+    @database.execute("INSERT INTO #{scratch} (#{quoted_fields.join(", ")}) SELECT #{expressions.join(", ")} FROM #{quoted_table}", parameters)!
+    @database.execute("DROP TABLE #{quoted_table}", [] of Value)!
+    # Views keep referencing the original table name across its replacement.
+    @database.execute("PRAGMA legacy_alter_table = ON", [] of Value)!
+    @database.execute("ALTER TABLE #{scratch} RENAME TO #{quoted_table}", [] of Value)!
+    if sequence
+      stored = @database.query("SELECT seq FROM sqlite_sequence WHERE name = ?", [@table] of Value)!
+      unless stored.empty?
+        value = stored[0]["seq"]
+        return DatabaseError.new(20, "schema", "invalid rebuilt AUTOINCREMENT sequence") unless value.is_a?(Int64)
+        @database.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = ?", [sequence, @table] of Value)! if value < sequence
+      end
+    end
+    (indexes + triggers).each do |object|
+      sql = object["sql"]
+      return DatabaseError.new(20, "schema", "invalid dependent catalog SQL") unless sql.is_a?(String)
+      referenced = false
+      removed.each do |column|
+        mentioned = Grant::Sql::DefinitionScanner.mentions?(sql, column)!
+        referenced = true if mentioned
+      end
+      next if referenced
+      @database.execute(sql, [] of Value)!
+    end
+    nil
+  end
+end

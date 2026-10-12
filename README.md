@@ -16,6 +16,10 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/adapters/sqlite.iyi`: native SQLite C interface and adapter.
 - `grant/adapters/postgresql.iyi`: native libpq adapter.
 - `grant/value.iyi`: explicit scalar values, attributes, and database rows.
+- `grant/scalars.iyi`: exact decimal, checked calendar date and UTC datetime
+  values for SQLite. See `doc/SCALARS.md`.
+- `grant/decimal_policy.iyi`: explicit decimal assignment scale/precision policies
+  with separate exact hydration.
 - `grant/errors.iyi`: error values implementing iyi's `Error` trait.
 - `grant/query.iyi`: immutable chained predicates, lazy query execution,
   identifier validation, parameter binding, pagination, and CRUD.
@@ -25,6 +29,8 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/associations.iyi`: explicit typed `BelongsTo(T)`, `HasMany(T)` and
   `HasOne(T)` readers and batch preloading with preserved scopes. See
   `doc/ASSOCIATIONS.md` for usage and limits.
+- `grant/belongs_to_writes.iyi`: typed references and explicit staged assignments,
+  target-only creation and atomic owner/target saves.
 - `grant/association_writes.iyi`: direct collection append, ID replacement and
   nullify/delete/destroy removal with typed link transformations and atomic
   savepoints. Repository-based saves and destruction run model callbacks.
@@ -32,12 +38,16 @@ The original ORM's full feature set has **not** been ported yet.
   nullify/delete/destroy/restrict actions and cycle detection.
 - `grant/locking.iyi`: typed optimistic version policies with atomic SQL guards,
   stale-object errors and nested rollback. See `doc/LOCKING.md`.
+- `grant/timestamps.iyi`: explicit create/update stamping with a typed clock,
+  UTC date/text storage and precision 0–9. See `doc/TIMESTAMPS.md`.
 - `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
   sessions and ordered validation/save/destroy/commit/rollback callbacks.
 - `grant/validation.iyi`: structured errors and presence, absence, length,
   inclusion, exclusion, and confirmation rules.
+- `grant/dynamic_validation.iyi`: typed attribute/context operands and checked
+  numericality comparisons.
 - `grant/validators.iyi`: numericality/comparison bounds, odd/even, format,
   acceptance and typed conditional rule wrappers. See `doc/VALIDATION.md`.
 - `grant/database_validation.iyi`: scoped SQLite uniqueness with self exclusion,
@@ -45,8 +55,20 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/normalization.iyi`: mapping-based save normalization, conditional plans
   and automatic predicate normalization. See `doc/NORMALIZATION.md`.
 - `grant/dirty.iyi`: snapshot-based change tracking with fixed attribute names.
-- `grant/schema.iyi` and `grant/migrations.iyi`: table/index definitions, column
-  introspection, and ordered checksum-verified transactional SQL migrations.
+- `Repository.update_changed`: explicit baseline/dirty-state partial updates,
+  clean-save callback execution, timestamp suppression and readonly fields.
+  See `doc/PARTIAL-UPDATES.md`.
+- `grant/bulk.iyi`: SQLite insert/skip/upsert batches, actual affected/returned
+  rows, atomic chunking, explicit scope guards and timestamps. See `doc/BULK.md`.
+- `grant/schema.iyi`, `grant/schema_constraints.iyi` and `grant/migrations.iyi`:
+  table/index definitions, explicit composite keys, typed check/unique/foreign-key
+  constraints, column introspection and checksum-verified transactional migrations.
+- `grant/schema_alter.iyi` and `grant/schema_transaction.iyi`: atomic SQLite
+  column/constraint edits and explicit DDL transaction ownership.
+- `grant/schema_snapshot.iyi`: SQLite catalog snapshots, atomic restoration and
+  native iyi source factories. See `doc/SCHEMA.md` for scope and usage.
+- `grant/schema_catalog.iyi`: SQLite table/key/check/unique/foreign-key/index
+  metadata, including inline constraints and expression-index terms.
 - `grant/sql/placeholder_scanner.iyi`: port of Grant's quote/comment-aware
   placeholder rewriter, including PostgreSQL dollar quotes and JSON operators.
 - `UPSTREAM.md`: source repository, reviewed commit, and update workflow.
@@ -63,7 +85,8 @@ complete typed record mapping and CRUD example.
 
 `./scripts/check.sh` runs the SQLite native checks and the source-free artifact
 consumer checks. Set `IYI` to the desired compiler executable. Source-free
-consumers currently require iyi compiler fix `a03fc3438`; the local fixed
+consumers currently require iyi compiler fix `a03fc3438` plus the local compound
+witness-reference fix in `scripts/compiler-witness-union.patch`; the local fixed
 checkout can be selected with `IYI=/home/priit/contribute/iyi/bin/iyi`.
 Current development scope is SQLite only; PostgreSQL work is
 deferred and its existing adapter/test are retained.
@@ -77,6 +100,22 @@ iyi run sqlite_test.iyi
 iyi run query_test.iyi
 iyi run model_test.iyi
 iyi run transaction_test.iyi
+iyi run nested_transaction_test.iyi
+iyi run lifecycle_test.iyi
+iyi run validation_test.iyi
+iyi run normalization_test.iyi
+iyi run dirty_test.iyi
+iyi run schema_test.iyi
+iyi run migrations_test.iyi
+iyi run schema_alter_test.iyi
+iyi run schema_snapshot_test.iyi
+iyi run schema_constraints_test.iyi
+iyi run schema_catalog_test.iyi
+iyi run schema_constraint_removal_test.iyi
+iyi run partial_update_test.iyi
+iyi run bulk_test.iyi
+iyi run decimal_policy_test.iyi
+iyi run binary_test.iyi
 iyi run placeholder_test.iyi
 iyi run association_test.iyi
 iyi run association_write_test.iyi
@@ -84,13 +123,20 @@ iyi run dependent_test.iyi
 iyi run validators_test.iyi
 iyi run uniqueness_test.iyi
 iyi run normalization_model_test.iyi
+iyi run locking_test.iyi
+iyi run timestamps_test.iyi
+iyi run touch_test.iyi
+iyi run scalars_test.iyi
+iyi run dynamic_validation_test.iyi
+iyi run around_test.iyi
+iyi run belongs_to_write_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
 `IYI_CACHE_DIR=/tmp/iyi-grant-native-cache`.
 
-`transaction_test.iyi` deliberately triggers one panic; its diagnostic appears
-on stderr and the program succeeds only if rollback preserved the database.
+`transaction_test.iyi`, `around_test.iyi`, `schema_alter_test.iyi` and `bulk_test.iyi` deliberately trigger contained panics; their diagnostics appear
+on stderr and the programs succeed only if rollback preserved the database.
 `postgresql_test.iyi` checks only a failed connection to a nonexistent local
 socket. PostgreSQL live CRUD has not been verified in this session.
 
@@ -107,14 +153,19 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, an artifact layout bug was found and fixed in iyi
 compiler commit `a03fc3438`. The fixed local compiler passes the model consumer. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 20 programs, including
+connection failure). The current SQLite-only suite has 34 programs, including
 association reads, transactional writes, dependent destruction, binary data and
-additional validators, SQLite uniqueness, model normalization and locking. See
+additional validators, SQLite uniqueness, model normalization, locking, timestamps,
+touch, exact scalar values, table/constraint rebuilds, schema snapshots/catalogs
+partial updates, bulk operations and decimal policies. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` retains and expands the artifact gate. Older installed
-compilers may still fail it until they include the fix.
+compilers may still fail it until they include both fixes. The gate checks twenty-one
+artifact test consumers and separately compiles a generated schema factory.
 
-The current value contract is null, boolean, Int64, Float64, String and `Binary`.
+The current value contract is null, boolean, Int64, Float64, String, `Binary`,
+`Decimal`, `Date` and `DateTime`. Exact scalars bind as text on SQLite and
+are decoded explicitly by mappings; see `doc/SCALARS.md`.
 SQLite BLOB binding/decoding preserves arbitrary bytes, including NUL and empty
 payloads. `Binary.from_bytes` snapshots its input; `bytes` returns a fresh copy.
 Decoded BLOBs own their data independently of the statement/connection.
@@ -130,16 +181,23 @@ A connection/transaction must be used by one owner at a time; it must not be
 shared across concurrent request tasks. The synchronous C calls can block the
 native scheduler. Nested transactions join the outer transaction by default; `requires_new` uses
 a savepoint. Share one `UnitOfWork` between repositories to defer commit hooks
-until the outer transaction commits. SQL migrations and basic schema operations
-are implemented; schema alteration, dumping, and composite keys are pending.
+until the outer transaction commits. SQL migrations, SQLite column/constraint
+alteration and main-schema snapshots are implemented. Table definitions can
+declare composite keys; repositories still use single Int64 model IDs.
+Named and unnamed CHECK/UNIQUE/foreign-key constraints can be removed by name,
+expression or ordered source columns, including inline clauses. Additional
+column type metadata, attached/temporary
+schema handling and other schema capabilities remain pending; see `doc/SCHEMA.md`.
 
 Validation, normalization, dirty tracking, callbacks, and migrations implement
 a subset of the original behavior. Mapping-declared normalization runs before
-validation and coerces query predicates; dirty-state integration is still pending.
-Around callbacks and several
-validators remain pending. Belongs-to assignment helpers, through/polymorphic associations,
-encrypted/serialized columns, locking,
-sharding, bulk operations, and the remaining original features still need native
+validation and coerces query predicates. Partial updates consume explicit dirty
+snapshots; automatic record/state checkpointing and rollback reconciliation remain
+pending.
+Around callbacks wrap validation/save/create/update/destroy with typed single-use
+continuations; see `doc/LIFECYCLE.md`. Several validators remain pending. Association caches/inverses, through/polymorphic associations,
+encrypted/serialized columns, pessimistic locking,
+sharding, advanced bulk operations, and the remaining original features still need native
 implementations and parity cases.
 The original parity percentages do not apply to this port. `doc/PORTING.md`
 and `doc/source-inventory.json` record the conversion status.

@@ -3,14 +3,13 @@ module grant/database_validation
 import grant/query::{Query}
 import grant/value::{Value, Attributes}
 import grant/errors::{DatabaseError, ValidationError}
-import grant/validation::{Errors, Rules, Context, Options}
+pub import grant/validation
+import grant/validation::{Errors, Rules, Context, Options, CheckedValidator, CheckedRules}
 import grant/validators::{Condition}
 
 # Database rules return SQL failures as errors, never as a fabricated successful
 # validation or a user-facing "taken" issue.
-pub trait DatabaseValidator
-  abstract def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
-end
+pub alias DatabaseValidator = CheckedValidator
 
 pub struct Uniqueness
   @attribute : String
@@ -80,30 +79,4 @@ impl DatabaseValidator for DatabaseWhen
   end
 end
 
-pub class DatabaseRules
-  @scalar_rules : Rules
-  @validators : Array(DatabaseValidator)
-
-  def initialize(@scalar_rules : Rules = Rules.new)
-    @validators = [] of DatabaseValidator
-  end
-
-  def add(validator : DatabaseValidator) : DatabaseRules
-    @validators << validator
-    self
-  end
-
-  def validate(attributes : Attributes, context : Context = Context.new) : Errors | DatabaseError
-    errors = @scalar_rules.validate(attributes, context)
-    @validators.each do |validator|
-      result = validator.validate(attributes, errors, context)
-      return result if result.is_a?(DatabaseError)
-    end
-    errors
-  end
-
-  def check(attributes : Attributes, context : Context = Context.new) : Nil | ValidationError | DatabaseError
-    errors = validate(attributes, context)!
-    errors.result
-  end
-end
+pub alias DatabaseRules = CheckedRules

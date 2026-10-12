@@ -1,0 +1,271 @@
+module grant/sql/constraint_editor
+
+import std/text
+import grant/errors::{DatabaseError}
+import grant/cstring::{cstring}
+import grant/sql/definition_scanner::{Token, Kind, tokens, column_name}
+
+pub enum ConstraintKind
+  Check
+  Unique
+  Reference
+  Primary
+  Other
+end
+
+pub struct Removal
+  getter name : String?
+  getter kind : ConstraintKind?
+  getter expression : String?
+  getter columns : Array(String)?
+
+  def initialize(@name : String? = nil, @kind : ConstraintKind? = nil, @expression : String? = nil, columns : Array(String)? = nil)
+    @columns = columns ? columns.map { |value| value.downcase } : nil
+  end
+end
+
+struct Clause
+  getter start : Int32
+  getter finish : Int32
+  getter kind : ConstraintKind
+  getter name : String?
+  getter expression : String?
+  getter columns : Array(String)
+
+  def initialize(@start : Int32, @finish : Int32, @kind : ConstraintKind, @name : String?, @expression : String?, @columns : Array(String))
+  end
+end
+
+# Catalog SQL is trusted SQLite syntax. Token offsets preserve literals,
+# quoted identifiers and every surviving clause rather than applying regexes.
+pub def remove_constraints(items : Array(String), removal : Removal) : Tuple(Array(String), Int32) | DatabaseError
+  result = [] of String
+  removed = 0
+  wanted_expression = removal.expression
+  normalized = nil.as(String?)
+  if wanted_expression
+    normalized = expression_key(wanted_expression)!
+  end
+  items.each do |item|
+    column = Grant::Sql::DefinitionScanner.column_name(item)!
+    clauses = read_clauses(item, column)!
+    cursor = 0
+    kept = ""
+    clauses.each do |clause|
+      matches = if name = removal.name
+                  actual_name = clause.name
+                  actual_name ? actual_name.downcase == name.downcase : false
+                elsif clause.kind == removal.kind
+                  expression = clause.expression
+                  if normalized && expression
+                    actual = expression_key(expression)!
+                    actual == normalized
+                  else
+                    clause.columns == removal.columns
+                  end
+                else
+                  false
+                end
+      next unless matches
+      return DatabaseError.new(21, "schema", "cannot remove a primary key through constraint removal") if clause.kind == ConstraintKind::Primary
+      return DatabaseError.new(21, "schema", "use the dedicated column API for this named clause") if clause.kind == ConstraintKind::Other
+      kept += part(item, cursor, clause.start - cursor)
+      cursor = clause.finish
+      removed += 1
+    end
+    kept += part(item, cursor, item.bytesize - cursor)
+    result << kept.strip unless kept.strip.empty? || (column.nil? && cursor > 0)
+  end
+  {result, removed}
+end
+
+def read_clauses(sql : String, column : String?) : Array(Clause) | DatabaseError
+  all = Grant::Sql::DefinitionScanner.tokens(sql)!
+  result = [] of Clause
+  index = column ? 1 : 0
+  if column
+    # Skip the declared type, including its optional precision parentheses.
+    while index < all.size && !(all[index].depth == 0 && clause_keyword?(all[index]))
+      index += 1
+    end
+  end
+  while index < all.size
+    start = all[index].start
+    name = nil.as(String?)
+    if all[index].keyword?("CONSTRAINT")
+      return invalid if index + 2 >= all.size
+      name = all[index + 1].text
+      index += 2
+    end
+    token = all[index]
+    kind = ConstraintKind::Other
+    expression = nil.as(String?)
+    columns = [] of String
+    if token.keyword?("CHECK")
+      kind = ConstraintKind::Check
+      closing = closing_index(all, index + 1)!
+      opening = all[index + 1]
+      expression = part(sql, opening.finish, all[closing].start - opening.finish)
+      index = closing + 1
+      index = conflict_end(all, index)! unless column
+    elsif token.keyword?("UNIQUE") || token.keyword?("PRIMARY") || token.keyword?("FOREIGN") || token.keyword?("REFERENCES")
+      kind = token.keyword?("UNIQUE") ? ConstraintKind::Unique : (token.keyword?("PRIMARY") ? ConstraintKind::Primary : ConstraintKind::Reference)
+      index += 1
+      if token.keyword?("PRIMARY") || token.keyword?("FOREIGN")
+        return invalid if index >= all.size || !all[index].keyword?("KEY")
+        index += 1
+      end
+      if column
+        columns << column.downcase
+      else
+        closing = closing_index(all, index)!
+        next_column = true
+        (index + 1...closing).each do |position|
+          candidate = all[position]
+          next unless candidate.depth == 1
+          if candidate.kind == Kind::Symbol && candidate.text == ","
+            next_column = true
+          elsif next_column
+            columns << candidate.text.downcase
+            next_column = false
+          end
+        end
+        index = closing + 1
+      end
+      if kind == ConstraintKind::Reference
+        unless token.keyword?("REFERENCES")
+          return invalid if index >= all.size || !all[index].keyword?("REFERENCES")
+          index += 1
+        end
+        index = reference_end(all, index)!
+      else
+        if index < all.size && (all[index].keyword?("ASC") || all[index].keyword?("DESC"))
+          index += 1
+        end
+        index = conflict_end(all, index)!
+        index += 1 if index < all.size && all[index].keyword?("AUTOINCREMENT")
+      end
+    elsif token.keyword?("NOT") || token.keyword?("NULL")
+      index += 1
+      if token.keyword?("NOT")
+        return invalid if index >= all.size || !all[index].keyword?("NULL")
+        index += 1
+      end
+      index = conflict_end(all, index)!
+    elsif token.keyword?("DEFAULT")
+      index += 1
+      return invalid if index >= all.size
+      if all[index].kind == Kind::Symbol && all[index].text == "("
+        closing = closing_index(all, index)!
+        index = closing + 1
+      else
+        index += 1 if all[index].kind == Kind::Symbol && (all[index].text == "+" || all[index].text == "-")
+        return invalid if index >= all.size
+        index += 1 if all[index].keyword?("X") && index + 1 < all.size && all[index + 1].kind == Kind::Literal
+        index += 1
+      end
+    elsif token.keyword?("COLLATE")
+      index += 2
+      return invalid if index > all.size
+    elsif token.keyword?("GENERATED") || token.keyword?("AS")
+      index += 1
+      if token.keyword?("GENERATED")
+        index += 1 if index < all.size && all[index].keyword?("ALWAYS")
+        return invalid if index >= all.size || !all[index].keyword?("AS")
+        index += 1
+      end
+      closing = closing_index(all, index)!
+      index = closing + 1
+      index += 1 if index < all.size && (all[index].keyword?("STORED") || all[index].keyword?("VIRTUAL"))
+    else
+      return invalid
+    end
+    result << Clause.new(start, all[index - 1].finish, kind, name, expression, columns)
+  end
+  result
+end
+
+def reference_end(all : Array(Token), index : Int32) : Int32 | DatabaseError
+  return invalid if index >= all.size
+  index += 1 # target table
+  if index < all.size && all[index].kind == Kind::Symbol && all[index].text == "("
+    closing = closing_index(all, index)!
+    index = closing + 1
+  end
+  while index < all.size
+    token = all[index]
+    if token.keyword?("MATCH")
+      index += 2
+      return invalid if index > all.size
+    elsif token.keyword?("ON")
+      return invalid if index + 2 >= all.size || !(all[index + 1].keyword?("DELETE") || all[index + 1].keyword?("UPDATE"))
+      index += 2
+      if all[index].keyword?("SET") || all[index].keyword?("NO")
+        index += 2
+      else
+        index += 1
+      end
+      return invalid if index > all.size
+    elsif token.keyword?("DEFERRABLE") || (token.keyword?("NOT") && index + 1 < all.size && all[index + 1].keyword?("DEFERRABLE"))
+      index += token.keyword?("NOT") ? 2 : 1
+      if index < all.size && all[index].keyword?("INITIALLY")
+        index += 2
+        return invalid if index > all.size
+      end
+    else
+      break
+    end
+  end
+  index
+end
+
+def conflict_end(all : Array(Token), index : Int32) : Int32 | DatabaseError
+  if index < all.size && all[index].keyword?("ON")
+    return invalid if index + 2 >= all.size || !all[index + 1].keyword?("CONFLICT")
+    index += 3
+  end
+  index
+end
+
+def closing_index(all : Array(Token), index : Int32) : Int32 | DatabaseError
+  return invalid if index >= all.size || all[index].kind != Kind::Symbol || all[index].text != "("
+  opening = all[index]
+  position = index + 1
+  while position < all.size
+    token = all[position]
+    return position if token.depth == opening.depth && token.kind == Kind::Symbol && token.text == ")"
+    position += 1
+  end
+  invalid
+end
+
+def clause_keyword?(token : Token) : Bool
+  ["CONSTRAINT", "PRIMARY", "NOT", "NULL", "UNIQUE", "CHECK", "DEFAULT", "COLLATE", "REFERENCES", "GENERATED", "AS"].any? { |name| token.keyword?(name) }
+end
+
+# Ignore whitespace/comments and redundant enclosing parentheses, but keep
+# literal case and quoted-identifier contents. 'A' and 'a' are different checks.
+def expression_key(sql : String) : String | DatabaseError
+  all = Grant::Sql::DefinitionScanner.tokens(sql)!
+  return DatabaseError.new(21, "schema", "check expression is empty") if all.empty?
+  while all.size >= 2 && all[0].text == "(" && all[0].kind == Kind::Symbol
+    closing = closing_index(all, 0)!
+    break unless closing == all.size - 1
+    inner = part(sql, all[0].finish, all[closing].start - all[0].finish)
+    sql = inner
+    all = Grant::Sql::DefinitionScanner.tokens(sql)!
+  end
+  return DatabaseError.new(21, "schema", "check expression is empty") if all.empty?
+  all.map do |token|
+    text = token.kind == Kind::Word ? token.text.downcase : token.text
+    "#{token.kind}:#{text.bytesize}:#{text}"
+  end.join("|")
+end
+
+def part(sql : String, start : Int32, count : Int32) : String
+  cstring(sql.to_unsafe + start, count)
+end
+
+def invalid : DatabaseError
+  DatabaseError.new(20, "schema", "cannot parse SQLite constraint clause")
+end

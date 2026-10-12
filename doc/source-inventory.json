@@ -165,7 +165,10 @@
     {
       "path": "grant/associations/singular_builders.cr",
       "sha256": "3a486d3b77b8df6c6f2946b297e1cdaa955ed5233c384dad98a8ea274beff632",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_module": "grant/belongs_to_writes.iyi",
+      "native_parity_test": "belongs_to_write_test.iyi",
+      "porting_notes": "doc/ASSOCIATIONS.md"
     },
     {
       "path": "grant/associations/through.cr",
@@ -255,7 +258,14 @@
     {
       "path": "grant/callbacks.cr",
       "sha256": "abae1d65c32bcb2559cd642a7339abc6d86dccdd81cd330ac455a01036f5006f",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_module": "grant/lifecycle.iyi",
+      "native_parity_tests": [
+        "lifecycle_test.iyi",
+        "around_test.iyi",
+        "touch_test.iyi"
+      ],
+      "porting_notes": "doc/LIFECYCLE.md"
     },
     {
       "path": "grant/collection.cr",
@@ -345,7 +355,10 @@
     {
       "path": "grant/converters/decimal.cr",
       "sha256": "0b261fe96ab4ac224f5dbfd76fd921688c07f788b18cf33e5daa70c66362f677",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_module": "grant/scalars.iyi",
+      "native_parity_test": "scalars_test.iyi",
+      "porting_notes": "doc/SCALARS.md"
     },
     {
       "path": "grant/converters.cr",
@@ -990,7 +1003,18 @@
     {
       "path": "grant/schema/table_rebuild.cr",
       "sha256": "cc892ba6afa3d773169ba4435df629854f3b76eb549809d0b18bed297b6dc910",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/schema_alter.iyi",
+        "grant/sql/definition_scanner.iyi",
+        "grant/sql/constraint_editor.iyi"
+      ],
+      "native_parity_tests": [
+        "schema_alter_test.iyi",
+        "schema_constraints_test.iyi",
+        "schema_constraint_removal_test.iyi"
+      ],
+      "porting_notes": "doc/SCHEMA.md"
     },
     {
       "path": "grant/schema/verify.cr",
@@ -1170,7 +1194,14 @@
     {
       "path": "grant/timestamps.cr",
       "sha256": "e5b0799e7231d67d715e23fbfd051a3df0e95f4b30fe6e00efe6edeb3dd87a46",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_module": "grant/timestamps.iyi",
+      "native_parity_test": "timestamps_test.iyi",
+      "porting_notes": "doc/TIMESTAMPS.md",
+      "native_parity_tests": [
+        "timestamps_test.iyi",
+        "touch_test.iyi"
+      ]
     },
     {
       "path": "grant/token_for.cr",
@@ -1250,7 +1281,16 @@
     {
       "path": "grant/validators/numericality.cr",
       "sha256": "54a11b4cfd70a97b9d79a82317edcf1e02c2202d2488c5e9ef456292ea8f29b3",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/validators.iyi",
+        "grant/dynamic_validation.iyi"
+      ],
+      "native_parity_tests": [
+        "validators_test.iyi",
+        "dynamic_validation_test.iyi"
+      ],
+      "porting_notes": "doc/VALIDATION.md"
     },
     {
       "path": "grant/validators/uniqueness.cr",
@@ -1298,11 +1338,15 @@
     "grant/adapters/sqlite.iyi",
     "grant/association_writes.iyi",
     "grant/associations.iyi",
+    "grant/belongs_to_writes.iyi",
+    "grant/bulk.iyi",
     "grant/cstring.iyi",
     "grant/database.iyi",
     "grant/database_validation.iyi",
+    "grant/decimal_policy.iyi",
     "grant/dependent.iyi",
     "grant/dirty.iyi",
+    "grant/dynamic_validation.iyi",
     "grant/errors.iyi",
     "grant/lifecycle.iyi",
     "grant/locking.iyi",
@@ -1310,8 +1354,17 @@
     "grant/model.iyi",
     "grant/normalization.iyi",
     "grant/query.iyi",
+    "grant/scalars.iyi",
     "grant/schema.iyi",
+    "grant/schema_alter.iyi",
+    "grant/schema_catalog.iyi",
+    "grant/schema_constraints.iyi",
+    "grant/schema_snapshot.iyi",
+    "grant/schema_transaction.iyi",
+    "grant/sql/constraint_editor.iyi",
+    "grant/sql/definition_scanner.iyi",
     "grant/sql/placeholder_scanner.iyi",
+    "grant/timestamps.iyi",
     "grant/transaction.iyi",
     "grant/unit_of_work.iyi",
     "grant/validation.iyi",

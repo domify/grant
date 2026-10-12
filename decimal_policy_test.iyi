@@ -1,0 +1,124 @@
+module decimal_policy_test
+
+import grant/decimal_policy::{DecimalPolicy}
+import grant/scalars::{Decimal}
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Attributes, Value, Row}
+import grant/validation::{Context}
+import grant/errors::{DatabaseError, ValidationError}
+
+policy = DecimalPolicy.new(scale: 2)
+assert policy.assign("1.005").or_panic == Decimal.parse("1.01").or_panic
+assert policy.assign("-1.005").or_panic == Decimal.parse("-1.01").or_panic
+assert policy.assign("1e-100000000").or_panic == Decimal.from_integer(0_i64)
+assert policy.assign("-1e-100000000").or_panic == Decimal.from_integer(0_i64)
+assert DecimalPolicy.new(scale: 0).assign(".4999").or_panic == Decimal.from_integer(0_i64)
+assert DecimalPolicy.new(scale: 0).assign(".5").or_panic == Decimal.from_integer(1_i64)
+assert policy.assign("2.994").or_panic == Decimal.parse("2.99").or_panic
+assert policy.assign(9007199254740993_i64).or_panic == Decimal.from_integer(9007199254740993_i64)
+assert policy.assign("123456789012345678901234567890.125").or_panic == Decimal.parse("123456789012345678901234567890.13").or_panic
+assert policy.assign(1.005).is_a?(DatabaseError)
+assert policy.assign("bad decimal").is_a?(DatabaseError)
+assert policy.assign(nil).is_a?(DatabaseError)
+assert DecimalPolicy.new(scale: 2, nullable: true).assign(nil).or_panic.nil?
+assert DecimalPolicy.new(scale: -1).assign("1").is_a?(DatabaseError)
+assert DecimalPolicy.new(precision: 4).assign("1").is_a?(DatabaseError)
+assert DecimalPolicy.new(scale: 2, precision: 1).assign("1").is_a?(DatabaseError)
+assert DecimalPolicy.new(scale: 0, precision: 0).assign("1").is_a?(DatabaseError)
+bounded = DecimalPolicy.new(scale: 2, precision: 4)
+assert bounded.assign("99.994").or_panic == Decimal.parse("99.99").or_panic
+assert bounded.assign("99.995").is_a?(DatabaseError)
+assert bounded.assign("-99.995").is_a?(DatabaseError)
+assert bounded.assign("1e2").is_a?(DatabaseError)
+fraction = DecimalPolicy.new(scale: 2, precision: 2)
+assert fraction.assign("0").or_panic == Decimal.from_integer(0_i64)
+assert fraction.assign(".995").is_a?(DatabaseError)
+assert fraction.assign(".994").or_panic == Decimal.parse(".99").or_panic
+assert policy.hydrate("1.005").or_panic == Decimal.parse("1.005").or_panic
+assert bounded.hydrate("100.123").or_panic == Decimal.parse("100.123").or_panic
+assert policy.hydrate(1.005).is_a?(DatabaseError)
+
+struct Price
+  getter id : Int64?
+  getter amount : Decimal
+  getter discount : Decimal?
+
+  def initialize(@amount : Decimal, @discount : Decimal? = nil, @id : Int64? = nil)
+  end
+end
+
+struct PriceMapping
+  @amount : DecimalPolicy
+  @discount : DecimalPolicy
+
+  def initialize
+    @amount = DecimalPolicy.new(scale: 2)
+    @discount = DecimalPolicy.new(scale: 2, nullable: true)
+  end
+end
+
+impl Mapping(Price) for PriceMapping
+  def table : Table
+    Table.new("prices")
+  end
+
+  def attributes(record : Price) : Attributes
+    {"id" => record.id, "amount" => record.amount, "discount" => record.discount} of String => Value
+  end
+
+  def with_attributes(record : Price, attributes : Attributes) : Price | DatabaseError
+    id = attributes["id"]
+    return DatabaseError.new(20, "assignment", "invalid ID") unless id.nil? || id.is_a?(Int64)
+    amount = @amount.assign(attributes["amount"])!
+    return DatabaseError.new(20, "assignment", "amount is required") unless amount
+    discount = @discount.assign(attributes["discount"])!
+    Price.new(amount, discount, id)
+  end
+
+  def normalize(record : Price, context : Context) : Price | DatabaseError
+    with_attributes(record, attributes(record))
+  end
+
+  def from_row(row : Row) : Price | DatabaseError
+    id = row["id"]
+    return DatabaseError.new(20, "hydration", "invalid stored ID") unless id.is_a?(Int64)
+    amount = @amount.hydrate(row["amount"])!
+    return DatabaseError.new(20, "hydration", "amount is required") unless amount
+    discount = @discount.hydrate(row["discount"])!
+    Price.new(amount, discount, id)
+  end
+
+  def validate(record : Price) : Nil | ValidationError
+    nil
+  end
+end
+
+database = Connection.open(":memory:").or_panic
+database.execute("CREATE TABLE prices(id INTEGER PRIMARY KEY, amount TEXT NOT NULL, discount TEXT)").or_panic
+repository = Repository(Price).new(database, PriceMapping.new)
+original = Price.new(Decimal.parse("1.005").or_panic, Decimal.parse(".505").or_panic)
+saved = repository.insert(original).or_panic
+assert saved.amount == Decimal.parse("1.01").or_panic && saved.discount == Decimal.parse(".51").or_panic
+assert original.amount == Decimal.parse("1.005").or_panic
+assert database.query("SELECT amount, typeof(amount) AS kind FROM prices").or_panic[0]["kind"] == "text"
+attributes = repository.attributes(saved)
+attributes["amount"] = "19.999"
+attributes["discount"] = nil
+assigned = repository.with_attributes(saved, attributes).or_panic
+assert assigned.amount == Decimal.from_integer(20_i64) && assigned.discount.nil?
+repository.update_changed(repository.query, saved.id || 0_i64, assigned, repository.attributes(saved)).or_panic
+loaded = repository.find(saved.id || 0_i64).or_panic
+assert !loaded.nil?
+assert loaded.amount == Decimal.from_integer(20_i64) && loaded.discount.nil? if loaded
+
+# Existing database values bypass assignment: hydration is neither an unsaved
+# record constructor nor an opportunity to round/alter previously stored data.
+database.execute("INSERT INTO prices(id,amount,discount) VALUES(100,'1.005','0.505')").or_panic
+legacy = repository.find(100_i64).or_panic
+assert !legacy.nil?
+assert legacy.amount == Decimal.parse("1.005").or_panic && legacy.discount == Decimal.parse(".505").or_panic if legacy
+database.execute("INSERT INTO prices(id,amount) VALUES(101,'not decimal')").or_panic
+assert repository.find(101_i64).is_a?(DatabaseError)
+database.close.or_panic

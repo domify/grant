@@ -1,0 +1,249 @@
+module grant/bulk
+
+import std/text
+import grant/database::{Database, Dialect}
+import grant/value::{Attributes, Value, Row}
+import grant/errors::{DatabaseError}
+import grant/query::{Table, identifier}
+import grant/schema::{Schema}
+import grant/schema_catalog::{Catalog}
+import grant/transaction::{transaction}
+import grant/timestamps::{Clock, SystemClock}
+
+pub enum Mode
+  Raise
+  Skip
+  Update
+end
+
+pub struct Result
+  @rows : Array(Row)
+  getter affected : Int64
+
+  def initialize(rows : Array(Row), @affected : Int64)
+    @rows = rows.map { |row| row }
+  end
+
+  def rows : Array(Row)
+    @rows.map { |row| row }
+  end
+end
+
+# Bulk writes deliberately bypass model validation, normalization and callbacks.
+# The application supplies stored scalar values and explicit policy metadata.
+pub class Writer
+  @database : Database
+  @table : Table
+  @scope : Attributes
+  @readonly : Array(String)
+  @created : Array(String)
+  @updated : Array(String)
+  @clock : Clock
+  @precision : Int32
+  @batch_parameters : Int32
+
+  def initialize(@database : Database, @table : Table, scope : Attributes = Attributes.new,
+                 readonly : Array(String) = [] of String, created : Array(String) = [] of String,
+                 updated : Array(String) = [] of String, @clock : Clock = SystemClock.new,
+                 @precision : Int32 = 6, @batch_parameters : Int32 = 32766)
+    @scope = Attributes.new
+    scope.each { |name, value| @scope[name] = value }
+    @readonly = readonly.map { |name| name }
+    @created = created.map { |name| name }
+    @updated = updated.map { |name| name }
+  end
+
+  def insert_all(rows : Array(Attributes), returning : Array(String)? = nil,
+                 unique_by : Array(String) | String | Nil = nil, stamp : Bool = true) : Result | DatabaseError | Panicked | Cancelled
+    write(rows, Mode::Skip, returning, unique_by, nil, stamp)
+  end
+
+  def insert_raise(rows : Array(Attributes), returning : Array(String)? = nil, stamp : Bool = true) : Result | DatabaseError | Panicked | Cancelled
+    write(rows, Mode::Raise, returning, nil, nil, stamp)
+  end
+
+  def upsert_all(rows : Array(Attributes), returning : Array(String)? = nil,
+                 unique_by : Array(String) | String | Nil = nil, update_only : Array(String)? = nil,
+                 stamp : Bool = true) : Result | DatabaseError | Panicked | Cancelled
+    write(rows, Mode::Update, returning, unique_by, update_only, stamp)
+  end
+
+  private def write(input : Array(Attributes), mode : Mode, returning : Array(String)?,
+                    unique_by : Array(String) | String | Nil, update_only : Array(String)?, stamp : Bool) : Result | DatabaseError | Panicked | Cancelled
+    return DatabaseError.new(21, "bulk", "bulk writes are implemented only for SQLite") unless @database.dialect == Dialect::SQLite
+    identifier(@table.name)!
+    if input.empty?
+      @database.parameter_limit!
+      return Result.new([] of Row, 0_i64)
+    end
+    transaction(@database, requires_new: true) do
+      prepare_write(input, mode, returning, unique_by, update_only, stamp).as(Result | DatabaseError)
+    end
+  end
+
+  private def prepare_write(input : Array(Attributes), mode : Mode, returning : Array(String)?,
+                            unique_by : Array(String) | String | Nil, update_only : Array(String)?, stamp : Bool) : Result | DatabaseError
+    return DatabaseError.new(21, "bulk", "bulk writes are implemented only for SQLite") unless @database.dialect == Dialect::SQLite
+    table = identifier(@table.name)!
+    available_limit = @database.parameter_limit!
+    return DatabaseError.new(21, "bulk", "bind parameter limits must be positive") if available_limit <= 0 || @batch_parameters <= 0
+    return Result.new([] of Row, 0_i64) if input.empty?
+    fields = Schema.new(@database).columns(@table.name)!
+    available = fields.map { |field| field.name }
+    exists = Catalog.new(@database).table_exists?(@table.name)!
+    return DatabaseError.new(21, "bulk", "bulk writes require a table") unless exists
+    keys = input[0].keys.sorted
+    input.each do |row|
+      return DatabaseError.new(21, "bulk", "all bulk rows must have the same keys") unless row.keys.sorted == keys
+    end
+    (@readonly + @created + @updated + @scope.keys).each do |name|
+      return DatabaseError.new(21, "bulk", "configured column is not declared: #{name}") unless available.includes?(name)
+    end
+    return DatabaseError.new(21, "bulk", "scoped timestamp columns cannot be automatically stamped") if stamp && (@created + @updated).any? { |name| @scope.has_key?(name) }
+    values = [] of Attributes
+    input.each do |row|
+      copy = Attributes.new
+      row.each do |name, value|
+        return DatabaseError.new(21, "bulk", "unknown bulk column: #{name}") unless available.includes?(name)
+        return DatabaseError.new(21, "bulk", "bulk writes cannot assign generated/hidden columns: #{name}") if fields.any? { |field| field.name == name && (field.generated || field.hidden) }
+        copy[name] = value
+      end
+      @scope.each do |name, value|
+        return DatabaseError.new(21, "bulk", "bulk row conflicts with scope: #{name}") if copy.has_key?(name) && copy[name] != value
+        copy[name] = value
+      end
+      values << copy
+    end
+    if stamp && !(@created + @updated).empty?
+      return DatabaseError.new(21, "bulk", "timestamp precision must be between 0 and 9") if @precision < 0 || @precision > 9
+      instant = @clock.now.to_rfc3339(9)
+      date = instant.split("T")[0]
+      text = @precision == 0 ? instant[0, instant.bytesize - 11] + "Z" : instant[0, instant.bytesize - 10 + @precision] + "Z"
+      values.each do |row|
+        @created.each { |name| row[name] = name.ends_with?("_on") ? date : text if !row.has_key?(name) || row[name].nil? }
+        @updated.each { |name| row[name] = name.ends_with?("_on") ? date : text if mode == Mode::Update || !row.has_key?(name) || row[name].nil? }
+      end
+    end
+    columns = values[0].keys.sorted
+    return DatabaseError.new(21, "bulk", "bulk rows require explicit stored columns") if columns.empty?
+    columns.each do |name|
+      return DatabaseError.new(21, "bulk", "bulk writes cannot assign generated/hidden columns: #{name}") if fields.any? { |field| field.name == name && (field.generated || field.hidden) }
+    end
+    primary = Catalog.new(@database).primary_key(@table.name)!
+    target = conflict_target(unique_by, mode, primary)!
+    target.each do |name|
+      return DatabaseError.new(21, "bulk", "unknown unique_by column: #{name}") unless available.includes?(name)
+    end
+    selected_returning = returning || primary
+    validate_columns(selected_returning, available, "returning")!
+    updates = [] of String
+    if mode == Mode::Update
+      protected_names = primary + target + @readonly + @created + @scope.keys
+      if requested = update_only
+        validate_columns(requested, columns, "update_only")!
+        requested.each do |name|
+          return DatabaseError.new(21, "bulk", "update_only includes a protected column: #{name}") if protected_names.includes?(name)
+        end
+        updates = requested.map { |name| name }
+        if stamp
+          @updated.each { |name| updates << name unless updates.includes?(name) || protected_names.includes?(name) }
+        end
+      else
+        updates = columns.reject { |name| protected_names.includes?(name) }
+      end
+    end
+    quoted = [] of String
+    columns.each { |name| quoted << identifier(name)! }
+    conflict = conflict_sql(mode, target, updates, table)!
+    return_clause = ""
+    unless selected_returning.empty?
+      names = [] of String
+      selected_returning.each { |name| names << identifier(name)! }
+      return_clause = " RETURNING #{names.join(", ")}"
+    end
+    limit = available_limit < @batch_parameters ? available_limit : @batch_parameters
+    per_chunk = limit // columns.size
+    return DatabaseError.new(21, "bulk", "one row exceeds the bind parameter limit") if per_chunk == 0
+    execute_chunks(values, columns, quoted, table, conflict, return_clause, per_chunk)
+  end
+
+  private def conflict_target(unique_by : Array(String) | String | Nil, mode : Mode, primary : Array(String)) : Array(String) | DatabaseError
+    if unique_by.is_a?(Array(String))
+      return DatabaseError.new(21, "bulk", "unique_by must not be empty") if unique_by.empty?
+      validate_columns(unique_by, unique_by, "unique_by")!
+      return unique_by.map { |name| name }
+    elsif unique_by.is_a?(String)
+      indexes = Catalog.new(@database).indexes(@table.name)!
+      index = indexes.find { |index| index.name == unique_by && index.unique }
+      return DatabaseError.new(21, "bulk", "unique index does not exist: #{unique_by}") unless index
+      return DatabaseError.new(21, "bulk", "partial/expression unique index targets are not implemented") if index.partial || index.terms.any? { |term| term.expression || term.column.nil? }
+      columns = [] of String
+      index.terms.each do |term|
+        name = term.column
+        return DatabaseError.new(20, "bulk", "unique index column is missing") unless name
+        columns << name
+      end
+      return columns
+    end
+    return DatabaseError.new(21, "bulk", "upsert requires a primary key or explicit unique_by") if mode == Mode::Update && primary.empty?
+    mode == Mode::Update ? primary : [] of String
+  end
+
+  private def conflict_sql(mode : Mode, target : Array(String), updates : Array(String), table : String) : String | DatabaseError
+    return "" if mode == Mode::Raise
+    names = [] of String
+    target.each { |name| names << identifier(name)! }
+    selection = names.empty? ? "" : " (#{names.join(", ")})"
+    return " ON CONFLICT#{selection} DO NOTHING" if mode == Mode::Skip || updates.empty?
+    assignments = [] of String
+    updates.each do |name|
+      column = identifier(name)!
+      assignments << "#{column} = excluded.#{column}"
+    end
+    guards = [] of String
+    @scope.each do |name, _value|
+      column = identifier(name)!
+      guards << "#{table}.#{column} IS excluded.#{column}"
+    end
+    guard = guards.empty? ? "" : " WHERE #{guards.join(" AND ")}"
+    " ON CONFLICT#{selection} DO UPDATE SET #{assignments.join(", ")}#{guard}"
+  end
+
+  private def execute_chunks(values : Array(Attributes), columns : Array(String), quoted : Array(String), table : String,
+                             conflict : String, return_clause : String, per_chunk : Int32) : Result | DatabaseError
+    result = [] of Row
+    affected = 0_i64
+    start = 0
+    while start < values.size
+      count = per_chunk < values.size - start ? per_chunk : values.size - start
+      parameters = [] of Value
+      groups = [] of String
+      count.times do |offset|
+        columns.each { |name| parameters << values[start + offset][name] }
+        groups << "(#{columns.map { |_| "?" }.join(", ")})"
+      end
+      sql = "INSERT INTO #{table} (#{quoted.join(", ")}) VALUES #{groups.join(", ")}#{conflict}#{return_clause}"
+      if return_clause.empty?
+        outcome = @database.execute(sql, parameters)!
+        affected += outcome.changes
+      else
+        rows = @database.query(sql, parameters)!
+        affected += rows.size.to_i64
+        result += rows
+      end
+      start += count
+    end
+    Result.new(result, affected)
+  end
+end
+
+def validate_columns(names : Array(String), available : Array(String), operation : String) : Nil | DatabaseError
+  seen = [] of String
+  names.each do |name|
+    identifier(name)!
+    return DatabaseError.new(21, "bulk", "unknown #{operation} column: #{name}") unless available.includes?(name)
+    return DatabaseError.new(21, "bulk", "duplicate #{operation} column: #{name}") if seen.includes?(name)
+    seen << name
+  end
+  nil
+end

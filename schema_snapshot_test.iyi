@@ -1,0 +1,99 @@
+module schema_snapshot_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/schema_snapshot::{Dumper, Snapshot, CatalogObject, ObjectKind}
+import grant/migrations::{SQLMigration, Migration, Runner}
+import grant/errors::{DatabaseError}
+import grant/unit_of_work::{UnitOfWork}
+
+source = Connection.open(":memory:").or_panic
+migration = SQLMigration.new(7_i64, [
+  "CREATE TABLE z_parent(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT COLLATE NOCASE NOT NULL DEFAULT 'literal \#{escaped} \"quotes\" \\ slash', score INTEGER CHECK(score >= 0), doubled INTEGER GENERATED ALWAYS AS (score * 2) STORED, UNIQUE(name))",
+  "CREATE TABLE a_child(parent_id INTEGER REFERENCES z_parent(id) ON DELETE CASCADE, seq INTEGER, PRIMARY KEY(parent_id,seq)) WITHOUT ROWID",
+  "CREATE TABLE cycle_a(id INTEGER PRIMARY KEY, b_id INTEGER REFERENCES cycle_b(id))",
+  "CREATE TABLE cycle_b(id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES cycle_a(id))",
+  "CREATE TABLE audit(message TEXT)",
+  "CREATE UNIQUE INDEX parent_lower ON z_parent(lower(name)) WHERE name IS NOT NULL",
+  "CREATE VIEW scores AS SELECT id, doubled FROM z_parent",
+  "CREATE TRIGGER parent_audit AFTER INSERT ON z_parent BEGIN INSERT INTO audit(message) VALUES('trigger; one'); INSERT INTO audit(message) VALUES('trigger; two'); END",
+  "CREATE TABLE \"õ table\"(\"quote\"\"field\" TEXT DEFAULT 'õ, comma')",
+] of String, ["DROP TABLE a_child", "DROP TABLE z_parent", "DROP TABLE cycle_a", "DROP TABLE cycle_b", "DROP TABLE audit", "DROP TABLE \"õ table\""] of String)
+Runner.new(source, [migration] of Migration).migrate.or_panic
+source.execute("INSERT INTO z_parent(name,score) VALUES('original',5)").or_panic
+source.execute("INSERT INTO a_child(parent_id,seq) VALUES(1,2)").or_panic
+source.execute("CREATE TABLE schema_migrations(version TEXT PRIMARY KEY)").or_panic
+source.execute("CREATE TABLE ar_internal_metadata(key TEXT PRIMARY KEY, value TEXT)").or_panic
+
+dump = Dumper.new(source).snapshot.or_panic
+assert dump.version == 7_i64
+assert dump.versions[7_i64] == migration.checksum
+assert !dump.objects.any? { |object| object.table == "grant_schema_migrations" || object.table == "schema_migrations" || object.table == "ar_internal_metadata" }
+assert dump.objects.any? { |object| object.kind == ObjectKind::View }
+assert dump.objects.any? { |object| object.kind == ObjectKind::Trigger }
+assert dump.objects.any? { |object| object.kind == ObjectKind::Index }
+objects = dump.objects
+objects.clear
+versions = dump.versions
+versions[7_i64] = "changed copy"
+assert !dump.objects.empty? && dump.version == 7_i64 && dump.versions[7_i64] == migration.checksum
+
+target = Connection.open(":memory:").or_panic
+dump.apply(target).or_panic
+reloaded = Dumper.new(target).snapshot.or_panic
+assert reloaded.to_iyi.or_panic == dump.to_iyi.or_panic
+assert Runner.new(target, [migration] of Migration).migrate.or_panic == 0
+assert target.query("SELECT COUNT(*) AS count FROM z_parent").or_panic[0]["count"] == 0_i64
+assert target.query("SELECT COUNT(*) AS count FROM audit").or_panic[0]["count"] == 0_i64
+target.execute("INSERT INTO z_parent(score) VALUES(3)").or_panic
+assert target.query("SELECT scores.doubled, name FROM scores JOIN z_parent USING(id)").or_panic[0]["doubled"] == 6_i64
+assert target.query("SELECT name FROM z_parent").or_panic[0]["name"] == "literal \#{escaped} \"quotes\" \\ slash"
+assert target.query("SELECT COUNT(*) AS count FROM audit").or_panic[0]["count"] == 2_i64
+assert target.execute("INSERT INTO z_parent(name,score) VALUES('bad',-1)").is_a?(DatabaseError)
+assert target.execute("INSERT INTO a_child(parent_id,seq) VALUES(999,1)").is_a?(DatabaseError)
+target.execute("INSERT INTO a_child(parent_id,seq) VALUES(1,1)").or_panic
+assert target.execute("INSERT INTO a_child(parent_id,seq) VALUES(1,1)").is_a?(DatabaseError)
+assert dump.apply(target).is_a?(DatabaseError)
+assert target.query("SELECT COUNT(*) AS count FROM z_parent").or_panic[0]["count"] == 1_i64
+
+# Replacement is explicit and transactional. Replaying a broken later object
+# restores all previously dropped schema objects, data and migration versions.
+broken_objects = dump.objects
+broken_objects << CatalogObject.new(ObjectKind::Table, "broken", "broken", "CREATE TABLE broken(")
+broken = Snapshot.new(broken_objects, dump.versions, dump.tracking_table)
+broken_objects.clear
+assert broken.apply(target, replace: true).is_a?(DatabaseError)
+assert target.query("SELECT COUNT(*) AS count FROM z_parent").or_panic[0]["count"] == 1_i64
+assert Runner.new(target, [migration] of Migration).versions.or_panic[7_i64] == migration.checksum
+assert target.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+
+# Replacing referenced data cannot strand rows outside the snapshot. The final
+# foreign-key check rejects the load and rolls it back.
+target.execute("CREATE TABLE outside_dump(parent_id INTEGER REFERENCES z_parent(id))").or_panic
+target.execute("INSERT INTO outside_dump(parent_id) VALUES(1)").or_panic
+assert dump.apply(target, replace: true).is_a?(DatabaseError)
+assert target.query("SELECT COUNT(*) AS count FROM z_parent").or_panic[0]["count"] == 1_i64
+target.execute("DROP TABLE outside_dump").or_panic
+dump.apply(target, replace: true).or_panic
+assert target.query("SELECT COUNT(*) AS count FROM z_parent").or_panic[0]["count"] == 0_i64
+assert Dumper.new(target).snapshot.or_panic.to_iyi.or_panic == dump.to_iyi.or_panic
+
+assert dump.to_iyi("bad;module").is_a?(DatabaseError)
+assert dump.to_iyi("/missing").is_a?(DatabaseError)
+outer = UnitOfWork.new(target).run do
+  assert dump.apply(target, replace: true).is_a?(DatabaseError)
+  nil
+end
+outer.or_panic
+empty = Connection.open(":memory:").or_panic
+empty_dump = Dumper.new(empty).snapshot.or_panic
+assert empty_dump.version == 0_i64 && empty_dump.tracking_table.nil? && empty_dump.objects.empty?
+empty_dump.apply(empty).or_panic
+assert empty.query("SELECT name FROM sqlite_schema WHERE name='grant_schema_migrations'").or_panic.empty?
+empty.close.or_panic
+assert Dumper.new(empty).snapshot.is_a?(DatabaseError)
+source.close.or_panic
+target.close.or_panic
+
+# The gate captures this factory and compiles a separate native consumer. The
+# embedded interpolation, quotes, Unicode and trigger semicolons must survive.
+puts dump.to_iyi("snapshot_fixture/schema").or_panic

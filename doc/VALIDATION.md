@@ -107,7 +107,31 @@ SQL's usual NULL semantics; it does not include NULL rows. `where_case_insensiti
 accepts text values. `exists?` honors offset and zero limit, rejecting negative
 pagination, and queries only the first matching row.
 
-Still pending: dynamic comparison operands,
+## Dynamic numericality operands
+
+`DynamicNumericality` from `grant/dynamic_validation` evaluates typed Operand
+policies with the attributes and Context. `AttributeOperand` reads a named
+attribute; application Operand implementations replace Crystal Proc/method
+lookup. Each failed comparison carries the resolved bound as `count`, preserving
+Int64 precision. Constraint arrays are copied; policies are evaluated afresh for
+each eligible validation. Non-numeric values and only_integer failures stop
+before operand evaluation, and options/conditions retain their usual meaning.
+
+Use `CheckedRules` from `grant/validation` for rules whose evaluation may fail.
+`DatabaseRules` and `DatabaseValidator` are compatibility aliases for CheckedRules
+and CheckedValidator; SQLite uniqueness uses the same checked contract. This
+allows one collection to combine scalar rules, dynamic operands and SQL rules.
+A missing, nil or non-finite operand returns DatabaseError, adapting Crystal's
+configuration exception. It does not become a fabricated validation failure or
+a passing constraint. Ordinary failed comparisons remain ValidationError values.
+Mappings return checked evaluation errors directly to Repository.
+
+`dynamic_validation_test.iyi` verifies attribute/context operands, details and
+ordering, nil/options/conditions, integer precision, SQLite writes with uniqueness
+and validation, and savepoint rollback after caught operand errors. It is also a
+source-free artifact consumer.
+
+Still pending:
 associated-record validation, strict error policies, translation/message
 callbacks and the remaining imported behavior cases. Native rule coverage is
 partial, not a claim of complete Crystal validator parity.

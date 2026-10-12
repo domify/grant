@@ -1,0 +1,178 @@
+module bulk_test
+
+import std/time::{Time}
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/bulk::{Writer}
+import grant/query::{Table, Query}
+import grant/value::{Value, Attributes, Binary, Row}
+import grant/scalars::{Decimal}
+import grant/timestamps::{Clock}
+import grant/errors::{DatabaseError, CallbackAbort}
+import grant/unit_of_work::{UnitOfWork}
+
+def item(sku : String, name : String, stock : Int64 = 1_i64) : Attributes
+  {"sku" => sku, "name" => name, "stock" => stock} of String => Value
+end
+
+def required(query : Query) : Row | DatabaseError
+  row = query.first!
+  row || DatabaseError.new(20, "test", "expected an existing item")
+end
+
+class FixedClock
+  getter calls : Int32
+
+  def initialize
+    @calls = 0
+  end
+end
+
+impl Clock for FixedClock
+  def now : Time
+    @calls += 1
+    Time.utc(2026, 10, 12, 12, 0, @calls, nanosecond: 123456789)
+  end
+end
+
+struct PanicClock
+end
+
+impl Clock for PanicClock
+  def now : Time
+    raise "deliberate bulk timestamp panic"
+  end
+end
+
+database = Connection.open(":memory:").or_panic
+database.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, sku TEXT NOT NULL, name TEXT NOT NULL UNIQUE, stock INTEGER NOT NULL CHECK(stock >= 0), tenant TEXT, created_at TEXT, updated_at TEXT, payload BLOB, amount TEXT, code TEXT GENERATED ALWAYS AS (lower(sku)) STORED)").or_panic
+database.execute("CREATE UNIQUE INDEX item_sku ON items(sku)").or_panic
+query = Query.new(database, Table.new("items"))
+writer = Writer.new(database, Table.new("items"), batch_parameters: 6)
+assert database.parameter_limit.or_panic > 0
+assert writer.insert_all([] of Attributes).or_panic.affected == 0_i64
+input = [item("A", "Original"), item("B", "Second")]
+result = writer.insert_all(input).or_panic
+assert result.affected == 2_i64 && result.rows.size == 2
+result.rows.clear
+assert result.rows.size == 2
+assert input[0].keys.sorted == ["name", "sku", "stock"]
+assert query.count.or_panic == 2_i64
+skipped = writer.insert_all([item("A", "Changed"), item("C", "Third")], returning: ["id", "sku", "code"]).or_panic
+assert skipped.affected == 1_i64 && skipped.rows[0]["sku"] == "C" && skipped.rows[0]["code"] == "c"
+assert required(query.where("sku", "A")).or_panic["name"] == "Original"
+assert writer.insert_raise([item("D", "Fourth"), item("A", "Clash")]).is_a?(DatabaseError)
+assert query.where("sku", "D").count.or_panic == 0_i64
+assert writer.insert_all([item("A", "Scoped duplicate")], unique_by: ["sku"]).or_panic.affected == 0_i64
+assert writer.insert_all([item("A", "Named duplicate")], unique_by: "item_sku").or_panic.affected == 0_i64
+assert writer.insert_all([item("other", "Original")], unique_by: ["sku"]).is_a?(DatabaseError)
+
+upsert = writer.upsert_all([item("A", "Updated", 5_i64), item("E", "Fifth")], unique_by: "item_sku", returning: ["sku", "stock"]).or_panic
+assert upsert.affected == 2_i64 && upsert.rows.size == 2
+assert required(query.where("sku", "A")).or_panic["name"] == "Updated"
+writer.upsert_all([item("A", "Not written", 7_i64)], unique_by: ["sku"], update_only: ["stock"]).or_panic
+assert required(query.where("sku", "A")).or_panic["name"] == "Updated"
+assert required(query.where("sku", "A")).or_panic["stock"] == 7_i64
+protected_writer = Writer.new(database, Table.new("items"), readonly: ["name"])
+protected_writer.upsert_all([item("A", "Readonly change", 8_i64)], unique_by: ["sku"]).or_panic
+assert required(query.where("sku", "A")).or_panic["name"] == "Updated"
+assert protected_writer.upsert_all([item("A", "Readonly change")], unique_by: ["sku"], update_only: ["name"]).is_a?(DatabaseError)
+row = required(query.where("sku", "A")).or_panic
+by_id = item("A", "By primary", 9_i64)
+by_id["id"] = row["id"]
+writer.upsert_all([by_id]).or_panic
+assert required(query.where("sku", "A")).or_panic["name"] == "By primary"
+assert writer.upsert_all([{"sku" => "A"} of String => Value], unique_by: ["sku"]).is_a?(DatabaseError)
+
+# Every chunk is one atomic operation, including caught failures within an outer
+# unit of work. The tiny budget forces two-row statements for three columns.
+many = [] of Attributes
+7.times { |index| many << item("chunk#{index}", "chunk name #{index}") }
+all_chunks = writer.insert_raise(many, returning: [] of String).or_panic
+assert all_chunks.affected == 7_i64 && all_chunks.rows.empty?
+failed_chunks = [item("rollback1", "rollback one"), item("rollback2", "rollback two"), item("A", "late duplicate")]
+assert writer.insert_raise(failed_chunks).is_a?(DatabaseError)
+assert query.where("sku", "rollback1").count.or_panic == 0_i64 && query.where("sku", "rollback2").count.or_panic == 0_i64
+unit = UnitOfWork.new(database)
+unit.run do
+  assert writer.insert_raise(failed_chunks).is_a?(DatabaseError)
+  writer.insert_raise([item("outer", "outer success")])
+end.or_panic
+assert query.where("sku", "outer").count.or_panic == 1_i64
+rollback = unit.run do
+  writer.insert_raise([item("outer_rollback", "rolled back outer")]).or_panic
+  CallbackAbort.new("rollback bulk")
+end
+assert rollback.is_a?(CallbackAbort) && query.where("sku", "outer_rollback").count.or_panic == 0_i64
+
+# Inputs are stored values, without floating-point coercion or text BLOB bridges.
+amount = Decimal.parse("123456789012345678901234567890.125").or_panic
+payload = Binary.from_bytes([0_u8, 255_u8, 128_u8])
+scalar = item("exact", "quote ' ; DROP TABLE items; --", 9007199254740993_i64)
+scalar["amount"] = amount
+scalar["payload"] = payload
+scalar_writer = Writer.new(database, Table.new("items"))
+exact = scalar_writer.insert_raise([scalar], returning: ["stock", "payload", "amount"]).or_panic.rows[0]
+assert exact["stock"] == 9007199254740993_i64 && exact["amount"] == amount.to_s && exact["payload"] == payload
+assert database.query("SELECT typeof(payload) AS p, typeof(amount) AS a FROM items WHERE sku='exact'").or_panic[0]["p"] == "blob"
+
+# Explicit scope fields are enforced on inserts and guard conflict updates; a
+# globally unique key cannot be used to overwrite a row from another tenant.
+scope = {"tenant" => "tenant one"} of String => Value
+scoped = Writer.new(database, Table.new("items"), scope: scope)
+scope["tenant"] = "mutated configuration"
+scoped.insert_raise([item("tenant", "tenant original")]).or_panic
+other = Writer.new(database, Table.new("items"), scope: {"tenant" => "tenant two"} of String => Value)
+guarded = other.upsert_all([item("tenant", "cross tenant", 99_i64)], unique_by: ["sku"]).or_panic
+assert guarded.affected == 0_i64 && guarded.rows.empty?
+assert required(query.where("sku", "tenant")).or_panic["name"] == "tenant original"
+scoped.upsert_all([item("tenant", "tenant updated", 2_i64)], unique_by: ["sku"]).or_panic
+assert required(query.where("sku", "tenant")).or_panic["tenant"] == "tenant one"
+wrong_scope = item("wrong_tenant", "wrong tenant")
+wrong_scope["tenant"] = "tenant two"
+assert scoped.insert_raise([wrong_scope]).is_a?(DatabaseError)
+
+clock = FixedClock.new
+stamped = Writer.new(database, Table.new("items"), created: ["created_at"], updated: ["updated_at"], clock: clock, batch_parameters: 10)
+timestamped = [item("stamp1", "stamp one"), item("stamp2", "stamp two"), item("stamp3", "stamp three")]
+stamped.insert_raise(timestamped).or_panic
+assert clock.calls == 1
+old = required(query.where("sku", "stamp1")).or_panic
+assert old["created_at"] == "2026-10-12T12:00:01.123456Z" && old["updated_at"] == old["created_at"]
+assert !timestamped[0].has_key?("created_at")
+stamped.upsert_all([item("stamp1", "not updated by update_only", 4_i64)], unique_by: ["sku"], update_only: ["stock"]).or_panic
+next_row = required(query.where("sku", "stamp1")).or_panic
+assert next_row["created_at"] == old["created_at"] && next_row["updated_at"] == "2026-10-12T12:00:02.123456Z"
+assert next_row["name"] == "stamp one"
+stamped.insert_raise([item("unstamped", "no stamp")], stamp: false).or_panic
+assert clock.calls == 2 && required(query.where("sku", "unstamped")).or_panic["created_at"].nil?
+explicit = item("explicit", "explicit timestamps")
+explicit["created_at"] = "2000-01-01T00:00:00Z"
+explicit["updated_at"] = "2001-01-01T00:00:00Z"
+stamped.insert_raise([explicit]).or_panic
+assert required(query.where("sku", "explicit")).or_panic["created_at"] == "2000-01-01T00:00:00Z"
+
+# Invalid/unsupported options return errors, never a manufactured write result.
+assert writer.insert_raise([item("bad1", "bad one"), {"sku" => "bad2"} of String => Value]).is_a?(DatabaseError)
+assert writer.insert_raise([{"unknown" => 1_i64} of String => Value]).is_a?(DatabaseError)
+assert writer.insert_raise([{"code" => "generated"} of String => Value]).is_a?(DatabaseError)
+assert Writer.new(database, Table.new("items"), batch_parameters: 2).insert_raise([item("small", "small cap")]).is_a?(DatabaseError)
+assert writer.insert_all([item("unknown_index", "unknown index")], unique_by: "missing").is_a?(DatabaseError)
+assert writer.insert_all([item("nonunique", "nonunique")], unique_by: ["stock"]).is_a?(DatabaseError)
+assert writer.insert_all([item("empty_target", "empty target")], unique_by: [] of String).is_a?(DatabaseError)
+assert writer.upsert_all([item("bad_update", "bad update")], update_only: ["missing"]).is_a?(DatabaseError)
+assert writer.insert_raise([item("bad_returning", "bad returning")], returning: ["missing"]).is_a?(DatabaseError)
+database.execute("CREATE UNIQUE INDEX partial_name ON items(name) WHERE stock > 0").or_panic
+assert writer.insert_all([item("partial_target", "partial target")], unique_by: "partial_name").is_a?(DatabaseError)
+database.execute("CREATE UNIQUE INDEX expression_sku ON items(lower(sku))").or_panic
+assert writer.insert_all([item("expression_target", "expression target")], unique_by: "expression_sku").is_a?(DatabaseError)
+assert Writer.new(database, Table.new("items"), created: ["created_at"], precision: 10).insert_raise([item("bad_precision", "bad precision")]).is_a?(DatabaseError)
+assert query.where("sku", "bad1").count.or_panic == 0_i64
+before_panic = query.count.or_panic
+panicked = Writer.new(database, Table.new("items"), created: ["created_at"], clock: PanicClock.new).insert_raise([item("clock_panic", "clock panic")])
+assert panicked.is_a?(Panicked) && query.count.or_panic == before_panic
+assert !database.in_transaction?
+assert database.query("PRAGMA foreign_key_check").or_panic.empty?
+database.close.or_panic
+assert writer.insert_raise([item("closed", "closed")]).is_a?(DatabaseError)
+assert database.parameter_limit.is_a?(DatabaseError)

@@ -1,0 +1,132 @@
+module schema_constraint_removal_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/schema::{Schema, Column, ColumnType}
+import grant/schema_alter::{AlterTable}
+import grant/schema_catalog::{Catalog}
+import grant/schema_constraints::{Check}
+import grant/schema_transaction::{ddl_transaction}
+import grant/errors::{DatabaseError}
+
+database = Connection.open(":memory:").or_panic
+catalog = Catalog.new(database)
+database.execute("CREATE TABLE parent(id INTEGER PRIMARY KEY, a TEXT, b INTEGER, UNIQUE(a,b))").or_panic
+database.execute("INSERT INTO parent VALUES(1,'A',2)").or_panic
+database.execute("CREATE TABLE child(id INTEGER CONSTRAINT child_pk PRIMARY KEY AUTOINCREMENT, parent_id INTEGER CONSTRAINT child_fk REFERENCES parent(id) ON DELETE SET NULL ON UPDATE CASCADE NOT DEFERRABLE INITIALLY IMMEDIATE CONSTRAINT required_parent NOT NULL ON CONFLICT ABORT, code TEXT COLLATE NOCASE CONSTRAINT code_unique UNIQUE ON CONFLICT FAIL DEFAULT 'CHECK UNIQUE REFERENCES', score INTEGER CONSTRAINT positive CHECK(score > 0) CHECK(score < 100) DEFAULT +5, note TEXT DEFAULT NULL CHECK(note <> 'A'), bytes BLOB DEFAULT X'00ff', doubled INTEGER GENERATED ALWAYS AS (score*2) STORED, CONSTRAINT pair_unique UNIQUE(parent_id,score), CHECK((score <> 9)))").or_panic
+database.execute("INSERT INTO child(parent_id,code,note) VALUES(1,'kept','B')").or_panic
+database.execute("CREATE INDEX child_score ON child(score DESC)").or_panic
+database.execute("CREATE TABLE audit(id INTEGER)").or_panic
+database.execute("CREATE TRIGGER child_insert AFTER INSERT ON child BEGIN INSERT INTO audit VALUES(new.id); END").or_panic
+database.execute("CREATE VIEW child_view AS SELECT code,doubled FROM child").or_panic
+
+# Removing one named inline check leaves adjacent unnamed checks intact.
+AlterTable.new(database, "child").remove_constraint("POSITIVE").apply.or_panic
+assert catalog.checks("child").or_panic.size == 3
+database.execute("UPDATE child SET score=-2").or_panic
+assert database.execute("UPDATE child SET score=100").is_a?(DatabaseError)
+assert database.query("SELECT doubled FROM child_view").or_panic[0]["doubled"] == -4_i64
+
+# Check matching ignores comments/whitespace/outer parentheses and word case,
+# while preserving the case and content of string literals.
+assert AlterTable.new(database, "child").remove_check("note <> 'a'").apply.is_a?(DatabaseError)
+AlterTable.new(database, "child").remove_check("(( SCORE /* not a clause */ < 100 ))").remove_check("score <> 9").apply.or_panic
+assert catalog.checks("child").or_panic.size == 1
+assert database.execute("UPDATE child SET note='A'").is_a?(DatabaseError)
+database.execute("UPDATE child SET score=100").or_panic
+AlterTable.new(database, "child").remove_check("note <> 'A'").apply.or_panic
+assert catalog.checks("child").or_panic.empty?
+
+# The full REFERENCES clause, including actions/deferral, is removed, but the
+# following NOT NULL remains. Defaults with NULL/SET/keyword literals survive.
+AlterTable.new(database, "child").remove_constraint("child_fk").apply.or_panic
+assert catalog.foreign_keys("child").or_panic.empty?
+assert database.execute("UPDATE child SET parent_id=NULL").is_a?(DatabaseError)
+database.execute("UPDATE child SET parent_id=999").or_panic
+fields = Schema.new(database).columns("child").or_panic
+assert fields.any? { |field| field.name == "parent_id" && !field.nullable }
+assert fields.any? { |field| field.name == "note" && field.default_sql == "NULL" }
+assert fields.any? { |field| field.name == "bytes" && field.default_sql == "X'00ff'" }
+assert fields.any? { |field| field.name == "doubled" && field.generated }
+
+# Inline unique removal preserves collation/default and explicit indexes.
+assert database.execute("INSERT INTO child(parent_id,code) VALUES(999,'KEPT')").is_a?(DatabaseError)
+AlterTable.new(database, "child").remove_unique(["CODE"]).apply.or_panic
+database.execute("INSERT INTO child(parent_id,code,score) VALUES(999,'KEPT',7)").or_panic
+assert database.query("SELECT COUNT(*) AS count FROM child WHERE code='kept'").or_panic[0]["count"] == 2_i64
+assert catalog.indexes("child").or_panic.any? { |index| index.name == "child_score" }
+assert database.query("SELECT COUNT(*) AS count FROM audit").or_panic[0]["count"] == 1_i64
+assert catalog.uniques("child").or_panic.size == 1
+assert AlterTable.new(database, "child").remove_unique(["score", "parent_id"]).apply.is_a?(DatabaseError)
+AlterTable.new(database, "child").remove_unique(["parent_id", "score"]).apply.or_panic
+database.execute("INSERT INTO child(parent_id,code,score) VALUES(999,'KEPT',7)").or_panic
+assert catalog.uniques("child").or_panic.empty?
+
+# Composite foreign keys and unnamed inline references use ordered source keys.
+database.execute("CREATE TABLE composite(x TEXT, y INTEGER, z INTEGER REFERENCES parent ON DELETE SET DEFAULT DEFERRABLE INITIALLY DEFERRED DEFAULT -1, FOREIGN KEY(x,y) REFERENCES parent(a,b) ON UPDATE NO ACTION)").or_panic
+assert AlterTable.new(database, "composite").remove_foreign_key(["y", "x"]).apply.is_a?(DatabaseError)
+AlterTable.new(database, "composite").remove_foreign_key(["x", "y"]).remove_foreign_key(["z"]).apply.or_panic
+assert catalog.foreign_keys("composite").or_panic.empty?
+database.execute("INSERT INTO composite(x,y) VALUES('missing',99)").or_panic
+assert database.query("SELECT z FROM composite").or_panic[0]["z"] == -1_i64
+
+# Selector arrays are copied and guarded misses don't hide invalid selectors.
+database.execute("CREATE TABLE copied(a INTEGER UNIQUE,b INTEGER UNIQUE)").or_panic
+selected = ["a"]
+plan = AlterTable.new(database, "copied").remove_unique(selected)
+selected[0] = "b"
+plan.apply.or_panic
+assert catalog.uniques("copied").or_panic[0].columns == ["b"]
+assert AlterTable.new(database, "copied").remove_unique([] of String, if_exists: true).apply.is_a?(DatabaseError)
+assert AlterTable.new(database, "copied").remove_foreign_key(["a", "A"], if_exists: true).apply.is_a?(DatabaseError)
+assert AlterTable.new(database, "copied").remove_check(" ", if_exists: true).apply.is_a?(DatabaseError)
+assert AlterTable.new(database, "copied").remove_check("( )", if_exists: true).apply.is_a?(DatabaseError)
+assert AlterTable.new(database, "copied").remove_constraint("", if_exists: true).apply.is_a?(DatabaseError)
+AlterTable.new(database, "copied").remove_check("a > 0", if_exists: true).remove_unique(["a"], if_exists: true).remove_foreign_key(["b"], if_exists: true).apply.or_panic
+
+# Protected named clauses and primary keys cannot be removed through this API.
+assert AlterTable.new(database, "child").remove_constraint("child_pk", if_exists: true).apply.is_a?(DatabaseError)
+assert AlterTable.new(database, "child").remove_constraint("required_parent").apply.is_a?(DatabaseError)
+database.execute("CREATE TABLE primary_pair(a INTEGER,b INTEGER,CONSTRAINT pair_key PRIMARY KEY(a,b)) WITHOUT ROWID").or_panic
+assert AlterTable.new(database, "primary_pair").remove_constraint("pair_key").apply.is_a?(DatabaseError)
+
+# One failing step restores all preceding removals, data, indexes and settings.
+database.execute("CREATE TABLE atomic(id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER CHECK(value > 0) UNIQUE)").or_panic
+database.execute("INSERT INTO atomic(value) VALUES(1)").or_panic
+assert AlterTable.new(database, "atomic").remove_unique(["value"]).add_constraint(Check.new("impossible", "value < 0")).apply.is_a?(DatabaseError)
+assert catalog.uniques("atomic").or_panic.size == 1
+assert catalog.checks("atomic").or_panic.size == 1
+assert database.execute("INSERT INTO atomic(value) VALUES(1)").is_a?(DatabaseError)
+assert database.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+rolled_back = ddl_transaction(database, rebuilds: true) do
+  AlterTable.new(database, "atomic").remove_check("value > 0").remove_unique(["value"]).apply.or_panic
+  DatabaseError.new(21, "test", "rollback removals")
+end
+assert rolled_back.is_a?(DatabaseError)
+assert catalog.uniques("atomic").or_panic.size == 1
+assert catalog.checks("atomic").or_panic.size == 1
+
+# Names in quoted identifiers/literals/default expressions aren't clauses.
+database.execute("CREATE TABLE lexical(\"CHECK\" TEXT DEFAULT 'CONSTRAINT fake UNIQUE', value TEXT DEFAULT ('a' || 'CHECK') CONSTRAINT real_check CHECK(value <> 'CHECK'), nullable INTEGER DEFAULT NULL, number REAL DEFAULT -1e-3)").or_panic
+AlterTable.new(database, "lexical").remove_constraint("real_check").apply.or_panic
+database.execute("INSERT INTO lexical DEFAULT VALUES").or_panic
+assert database.query("SELECT value FROM lexical").or_panic[0]["value"] == "aCHECK"
+
+# All matching clauses are removed, including trailing table comments; quoted
+# keyword names are consumed as names and never mistaken for clause starts.
+database.execute("CREATE TABLE repeated(value INTEGER CHECK(value > 0) CHECK(value > 0), CONSTRAINT \"check\" CHECK(value > 0) ON CONFLICT FAIL /* retained comment */)").or_panic
+AlterTable.new(database, "repeated").remove_check("value > 0").apply.or_panic
+assert catalog.checks("repeated").or_panic.empty?
+database.execute("INSERT INTO repeated VALUES(-1)").or_panic
+database.execute("CREATE TABLE named_quoted(value INTEGER CONSTRAINT \"unique\" UNIQUE DEFAULT 4)").or_panic
+AlterTable.new(database, "named_quoted").remove_constraint("unique").apply.or_panic
+database.execute("INSERT INTO named_quoted DEFAULT VALUES").or_panic
+database.execute("INSERT INTO named_quoted DEFAULT VALUES").or_panic
+
+# Deleted high IDs survive a successful constraint-removal rebuild.
+database.execute("INSERT INTO atomic(id,value) VALUES(50,2)").or_panic
+database.execute("DELETE FROM atomic WHERE id=50").or_panic
+AlterTable.new(database, "atomic").remove_check("value > 0").apply.or_panic
+database.execute("INSERT INTO atomic(value) VALUES(-1)").or_panic
+assert database.query("SELECT id FROM atomic WHERE value=-1").or_panic[0]["id"] == 51_i64
+
+database.close.or_panic

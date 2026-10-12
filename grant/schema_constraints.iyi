@@ -1,0 +1,111 @@
+module grant/schema_constraints
+
+import std/text
+import grant/errors::{DatabaseError}
+import grant/query::{identifier}
+import grant/sql/definition_scanner::{tokens}
+
+pub enum Action
+  Restrict
+  Cascade
+  SetNull
+  SetDefault
+  NoAction
+end
+
+pub struct Check
+  getter name : String
+  getter expression : String
+
+  def initialize(@name : String, @expression : String)
+  end
+end
+
+pub struct Unique
+  getter name : String
+  @columns : Array(String)
+
+  def initialize(@name : String, columns : Array(String))
+    @columns = columns.map { |column| column }
+  end
+
+  def columns : Array(String)
+    @columns.map { |column| column }
+  end
+end
+
+pub struct Reference
+  getter name : String
+  getter target_table : String
+  getter on_delete : Action
+  getter on_update : Action
+  @columns : Array(String)
+  @target_columns : Array(String)
+
+  def initialize(@name : String, columns : Array(String), @target_table : String,
+                 target_columns : Array(String), @on_delete : Action = Action::NoAction,
+                 @on_update : Action = Action::NoAction)
+    @columns = columns.map { |column| column }
+    @target_columns = target_columns.map { |column| column }
+  end
+
+  def columns : Array(String)
+    @columns.map { |column| column }
+  end
+
+  def target_columns : Array(String)
+    @target_columns.map { |column| column }
+  end
+end
+
+pub alias Constraint = Check | Unique | Reference
+
+pub def constraint_sql(constraint : Constraint) : String | DatabaseError
+  name = identifier(constraint.name)!
+  case constraint
+  when Check
+    return DatabaseError.new(21, "schema", "check expression is empty") if constraint.expression.strip.empty?
+    Grant::Sql::DefinitionScanner.tokens(constraint.expression)!
+    "CONSTRAINT #{name} CHECK (#{constraint.expression})"
+  when Unique
+    columns = quoted_columns(constraint.columns)!
+    "CONSTRAINT #{name} UNIQUE (#{columns})"
+  else
+    columns = quoted_columns(constraint.columns)!
+    target_columns = quoted_columns(constraint.target_columns)!
+    return DatabaseError.new(21, "schema", "foreign key column counts differ") unless constraint.columns.size == constraint.target_columns.size
+    table = identifier(constraint.target_table)!
+    "CONSTRAINT #{name} FOREIGN KEY (#{columns}) REFERENCES #{table} (#{target_columns}) ON DELETE #{action_sql(constraint.on_delete)} ON UPDATE #{action_sql(constraint.on_update)}"
+  end
+end
+
+pub def validate_columns(constraint : Constraint, available : Array(String)) : Nil | DatabaseError
+  unless constraint.is_a?(Check)
+    constraint.columns.each do |column|
+      return DatabaseError.new(21, "schema", "constraint column is missing: #{column}") unless available.any? { |name| name.downcase == column.downcase }
+    end
+  end
+  nil
+end
+
+pub def quoted_columns(columns : Array(String)) : String | DatabaseError
+  return DatabaseError.new(21, "schema", "key needs at least one column") if columns.empty?
+  names = [] of String
+  quoted = [] of String
+  columns.each do |column|
+    return DatabaseError.new(21, "schema", "duplicate key column: #{column}") if names.includes?(column.downcase)
+    names << column.downcase
+    quoted << identifier(column)!
+  end
+  quoted.join(", ")
+end
+
+def action_sql(action : Action) : String
+  case action
+  when Action::Restrict   then "RESTRICT"
+  when Action::Cascade    then "CASCADE"
+  when Action::SetNull    then "SET NULL"
+  when Action::SetDefault then "SET DEFAULT"
+  else                         "NO ACTION"
+  end
+end

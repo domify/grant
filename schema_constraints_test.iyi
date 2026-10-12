@@ -1,0 +1,115 @@
+module schema_constraints_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/schema::{Schema, Definition, Column, ColumnType}
+import grant/schema_constraints::{Constraint, Check, Unique, Reference, Action}
+import grant/schema_alter::{AlterTable}
+import grant/schema_snapshot::{Dumper}
+import grant/errors::{DatabaseError}
+
+database = Connection.open(":memory:").or_panic
+schema = Schema.new(database)
+columns = [Column.new("a", ColumnType::Integer), Column.new("b", ColumnType::Integer), Column.new("name", ColumnType::Text), Column.new("amount", ColumnType::Integer)]
+keys = ["a", "b"]
+unique_columns = ["a", "name"]
+unique = Unique.new("pair_name", unique_columns)
+constraints = [unique, Check.new("positive_amount", "amount > 0 AND (name IS NULL OR name <> 'CHECK, DEFAULT')")] of Constraint
+definition = Definition.new("pairs", columns, primary_key: keys, constraints: constraints, without_rowid: true)
+columns.clear
+keys.clear
+unique_columns.clear
+constraints.clear
+definition.columns.clear
+definition.constraints.clear
+assert definition.primary_key == ["a", "b"]
+assert unique.columns == ["a", "name"]
+schema.create_table(definition).or_panic
+fields = schema.columns("pairs").or_panic
+assert fields[0].primary_position == 1 && fields[1].primary_position == 2 && fields[2].primary_position == 0
+assert !fields[0].nullable && !fields[1].nullable
+database.execute("INSERT INTO pairs(a,b,name,amount) VALUES(1,2,'first',5)").or_panic
+assert database.execute("INSERT INTO pairs(a,b,name,amount) VALUES(1,2,'second',5)").is_a?(DatabaseError)
+assert database.execute("INSERT INTO pairs(a,b,name,amount) VALUES(1,3,'first',5)").is_a?(DatabaseError)
+assert database.execute("INSERT INTO pairs(a,b,name,amount) VALUES(1,3,'second',0)").is_a?(DatabaseError)
+assert database.execute("INSERT INTO pairs(a,b,name,amount) VALUES(NULL,3,'second',5)").is_a?(DatabaseError)
+
+schema.create_table(Definition.new("flagged", [Column.new("x", ColumnType::Integer, primary_key: true), Column.new("y", ColumnType::Integer, primary_key: true)])).or_panic
+assert schema.columns("flagged").or_panic.map { |field| field.primary_position } == [1, 2]
+assert database.execute("INSERT INTO flagged(x,y) VALUES(NULL,1)").is_a?(DatabaseError)
+assert schema.create_table(Definition.new("mixed_keys", [Column.new("x", ColumnType::Integer, primary_key: true)], primary_key: ["x"])).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("missing_key", [Column.new("x", ColumnType::Integer)], primary_key: ["missing"])).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("duplicate_key", [Column.new("x", ColumnType::Integer)], primary_key: ["x", "X"])).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("no_key", [Column.new("x", ColumnType::Integer)], without_rowid: true)).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("auto_pair", [Column.new("x", ColumnType::Integer, primary_key: true, auto: true), Column.new("y", ColumnType::Integer, primary_key: true)])).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("bad_unique", [Column.new("x", ColumnType::Integer)], constraints: [Unique.new("bad", ["missing"])] of Constraint)).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("bad_check", [Column.new("x", ColumnType::Integer)], constraints: [Check.new("bad", " ")] of Constraint)).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("duplicate_constraints", [Column.new("x", ColumnType::Integer)], constraints: [Check.new("same", "x >= 0"), Unique.new("SAME", ["x"])] of Constraint)).is_a?(DatabaseError)
+
+source_keys = ["parent_a", "parent_b"]
+target_keys = ["a", "b"]
+reference = Reference.new("child_pair", source_keys, "pairs", target_keys, on_delete: Action::Cascade, on_update: Action::Cascade)
+source_keys.clear
+target_keys.clear
+schema.create_table(Definition.new("children", [Column.new("parent_a", ColumnType::Integer), Column.new("parent_b", ColumnType::Integer), Column.new("tag", ColumnType::Text)], constraints: [reference] of Constraint)).or_panic
+database.execute("INSERT INTO children(parent_a,parent_b,tag) VALUES(1,2,'child')").or_panic
+assert database.execute("INSERT INTO children(parent_a,parent_b,tag) VALUES(9,9,'invalid')").is_a?(DatabaseError)
+database.execute("UPDATE pairs SET a=3,b=4 WHERE a=1 AND b=2").or_panic
+row = database.query("SELECT parent_a,parent_b FROM children").or_panic[0]
+assert row["parent_a"] == 3_i64 && row["parent_b"] == 4_i64
+assert schema.create_table(Definition.new("bad_fk", [Column.new("x", ColumnType::Integer)], constraints: [Reference.new("bad", ["x"], "pairs", ["a", "b"])] of Constraint)).is_a?(DatabaseError)
+
+# Named checks/unique/foreign keys are edited through the same atomic rebuild.
+AlterTable.new(database, "pairs").remove_constraint("positive_amount").add_constraint(Check.new("nonnegative_amount", "amount >= 0")).apply.or_panic
+database.execute("UPDATE pairs SET amount=0").or_panic
+before_sql = database.query("SELECT sql FROM sqlite_schema WHERE name='pairs'").or_panic[0]["sql"]
+assert AlterTable.new(database, "pairs").add_constraint(Check.new("positive_again", "amount > 0")).apply.is_a?(DatabaseError)
+assert database.query("SELECT sql FROM sqlite_schema WHERE name='pairs'").or_panic[0]["sql"] == before_sql
+assert AlterTable.new(database, "pairs").add_constraint(Unique.new("pair_name", ["b"])).apply.is_a?(DatabaseError)
+assert AlterTable.new(database, "pairs").remove_constraint("absent").apply.is_a?(DatabaseError)
+AlterTable.new(database, "pairs").remove_constraint("absent", if_exists: true).apply.or_panic
+assert AlterTable.new(database, "pairs").add_constraint(Unique.new("unknown", ["missing"])).apply.is_a?(DatabaseError)
+AlterTable.new(database, "pairs").remove_constraint("pair_name").apply.or_panic
+database.execute("INSERT INTO pairs(a,b,name,amount) VALUES(3,5,'first',0)").or_panic
+assert AlterTable.new(database, "pairs").add_constraint(Unique.new("unique_again", ["a", "name"])).apply.is_a?(DatabaseError)
+assert database.query("SELECT COUNT(*) AS count FROM pairs").or_panic[0]["count"] == 2_i64
+AlterTable.new(database, "children").remove_constraint("child_pair").apply.or_panic
+database.execute("INSERT INTO children(parent_a,parent_b,tag) VALUES(9,9,'unconstrained')").or_panic
+assert AlterTable.new(database, "children").add_constraint(reference).apply.is_a?(DatabaseError)
+assert database.query("SELECT COUNT(*) AS count FROM children").or_panic[0]["count"] == 2_i64
+database.execute("DELETE FROM children WHERE parent_a=9").or_panic
+AlterTable.new(database, "children").add_constraint(reference).apply.or_panic
+database.execute("DELETE FROM pairs WHERE a=3 AND b=4").or_panic
+assert database.query("SELECT COUNT(*) AS count FROM children").or_panic[0]["count"] == 0_i64
+
+schema.create_table(Definition.new("null_children", [Column.new("a", ColumnType::Integer), Column.new("b", ColumnType::Integer)], constraints: [Reference.new("null_pair", ["a", "b"], "pairs", ["a", "b"], on_delete: Action::SetNull)] of Constraint)).or_panic
+schema.create_table(Definition.new("default_children", [Column.new("a", ColumnType::Integer, default: 0_i64), Column.new("b", ColumnType::Integer, default: 0_i64)], constraints: [Reference.new("default_pair", ["a", "b"], "pairs", ["a", "b"], on_delete: Action::SetDefault)] of Constraint)).or_panic
+schema.create_table(Definition.new("restrict_children", [Column.new("a", ColumnType::Integer), Column.new("b", ColumnType::Integer)], constraints: [Reference.new("restrict_pair", ["a", "b"], "pairs", ["a", "b"], on_delete: Action::Restrict)] of Constraint)).or_panic
+database.execute("INSERT INTO pairs(a,b,amount) VALUES(0,0,0)").or_panic
+database.execute("INSERT INTO null_children(a,b) VALUES(3,5)").or_panic
+database.execute("INSERT INTO default_children(a,b) VALUES(3,5)").or_panic
+database.execute("INSERT INTO restrict_children(a,b) VALUES(3,5)").or_panic
+assert database.execute("DELETE FROM pairs WHERE a=3 AND b=5").is_a?(DatabaseError)
+assert database.query("SELECT a FROM null_children").or_panic[0]["a"] == 3_i64
+database.execute("DELETE FROM restrict_children").or_panic
+database.execute("DELETE FROM pairs WHERE a=3 AND b=5").or_panic
+null_row = database.query("SELECT a,b FROM null_children").or_panic[0]
+assert null_row["a"].nil? && null_row["b"].nil?
+default_row = database.query("SELECT a,b FROM default_children").or_panic[0]
+assert default_row["a"] == 0_i64 && default_row["b"] == 0_i64
+
+# Existing inline names cannot be duplicated or silently treated as absent.
+database.execute("CREATE TABLE inline_named(value INTEGER CONSTRAINT inline_positive CHECK(value > 0))").or_panic
+assert AlterTable.new(database, "inline_named").add_constraint(Check.new("inline_positive", "value >= 0")).apply.is_a?(DatabaseError)
+AlterTable.new(database, "inline_named").remove_constraint("inline_positive").apply.or_panic
+database.execute("INSERT INTO inline_named VALUES(-1)").or_panic
+
+# Removing a named table primary key is deliberately outside constraint edits.
+database.execute("CREATE TABLE protected(a INTEGER, b INTEGER, CONSTRAINT protected_key PRIMARY KEY(a,b))").or_panic
+assert AlterTable.new(database, "protected").remove_constraint("protected_key").apply.is_a?(DatabaseError)
+dump = Dumper.new(database).snapshot.or_panic
+copy = Connection.open(":memory:").or_panic
+dump.apply(copy).or_panic
+assert Dumper.new(copy).snapshot.or_panic.to_iyi.or_panic == dump.to_iyi.or_panic
+assert copy.query("PRAGMA foreign_key_check").or_panic.empty?
+copy.close.or_panic
+database.close.or_panic

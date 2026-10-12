@@ -56,6 +56,14 @@ pub class State(T)
     copy_values(@values)
   end
 
+  def baseline_attributes : Hash(String, T)
+    copy_values(@baseline)
+  end
+
+  def forced_changes : Array(String)
+    @forced.map { |name| name }
+  end
+
   def changes_to_save : Hash(String, Tuple(T, T))
     changes = {} of String => Tuple(T, T)
     @values.each do |name, value|

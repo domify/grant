@@ -1,0 +1,261 @@
+module grant/schema_catalog
+
+import std/text
+import grant/database::{Database, Dialect}
+import grant/errors::{DatabaseError}
+import grant/value::{Value}
+import grant/query::{identifier}
+import grant/schema::{Schema}
+import grant/schema_constraints::{Action}
+import grant/cstring::{cstring}
+import grant/sql/definition_scanner::{Token, Kind, tokens, table_body, column_name}
+
+pub struct CheckInfo
+  getter table : String
+  getter name : String?
+  getter expression : String
+
+  def initialize(@table : String, @name : String?, @expression : String)
+  end
+end
+
+pub struct UniqueInfo
+  getter table : String
+  getter name : String?
+  @columns : Array(String)
+
+  def initialize(@table : String, @name : String?, columns : Array(String))
+    @columns = columns.map { |column| column }
+  end
+
+  def columns : Array(String)
+    @columns.map { |column| column }
+  end
+end
+
+pub struct ForeignKeyInfo
+  getter table : String
+  getter target_table : String
+  getter on_delete : Action
+  getter on_update : Action
+  @columns : Array(String)
+  @target_columns : Array(String?)
+
+  def initialize(@table : String, columns : Array(String), @target_table : String,
+                 target_columns : Array(String?), @on_delete : Action, @on_update : Action)
+    @columns = columns.map { |column| column }
+    @target_columns = target_columns.map { |column| column }
+  end
+
+  def columns : Array(String)
+    @columns.map { |column| column }
+  end
+
+  # nil means REFERENCES parent omitted the target-column list: SQLite uses
+  # that table's primary key, whose schema may not exist yet.
+  def target_columns : Array(String?)
+    @target_columns.map { |column| column }
+  end
+end
+
+pub struct IndexTerm
+  getter column : String?
+  getter expression : Bool
+  getter descending : Bool
+  getter collation : String?
+
+  def initialize(@column : String?, @expression : Bool, @descending : Bool, @collation : String?)
+  end
+end
+
+pub struct IndexInfo
+  getter table : String
+  getter name : String
+  getter unique : Bool
+  getter partial : Bool
+  getter origin : String
+  getter sql : String?
+  @terms : Array(IndexTerm)
+
+  def initialize(@table : String, @name : String, terms : Array(IndexTerm), @unique : Bool,
+                 @partial : Bool, @origin : String, @sql : String?)
+    @terms = terms.map { |term| term }
+  end
+
+  def terms : Array(IndexTerm)
+    @terms.map { |term| term }
+  end
+end
+
+# Read current main-schema metadata. No global schema cache or mutable registry.
+pub class Catalog
+  @database : Database
+
+  def initialize(@database : Database)
+  end
+
+  def tables : Array(String) | DatabaseError
+    supported!
+    rows = @database.query("SELECT name FROM main.sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' ORDER BY name", [] of Value)!
+    names = [] of String
+    rows.each do |row|
+      name = row["name"]
+      return DatabaseError.new(20, "schema", "invalid table metadata") unless name.is_a?(String)
+      names << name
+    end
+    names
+  end
+
+  def table_exists?(table : String) : Bool | DatabaseError
+    supported!
+    identifier(table)!
+    rows = @database.query("SELECT name FROM main.sqlite_schema WHERE type='table' AND name=? COLLATE NOCASE", [table] of Value)!
+    !rows.empty?
+  end
+
+  def primary_key(table : String) : Array(String) | DatabaseError
+    definition(table)!
+    columns = Schema.new(@database).columns(table)!
+    columns.select { |column| column.primary_position > 0 }.sorted_by { |column| column.primary_position }.map { |column| column.name }
+  end
+
+  def checks(table : String) : Array(CheckInfo) | DatabaseError
+    sql = definition(table)!
+    parsed = Grant::Sql::DefinitionScanner.table_body(sql)!
+    result = [] of CheckInfo
+    parsed[0].each do |item|
+      all = Grant::Sql::DefinitionScanner.tokens(item)!
+      all.each_with_index do |token, index|
+        next unless token.depth == 0 && token.keyword?("CHECK")
+        pair = parentheses(all, index + 1)!
+        opening = pair[0]
+        closing = pair[1]
+        expression = cstring(item.to_unsafe + opening.finish, closing.start - opening.finish).strip
+        result << CheckInfo.new(table, preceding_name(all, index), expression)
+      end
+    end
+    result
+  end
+
+  def uniques(table : String) : Array(UniqueInfo) | DatabaseError
+    sql = definition(table)!
+    parsed = Grant::Sql::DefinitionScanner.table_body(sql)!
+    result = [] of UniqueInfo
+    parsed[0].each do |item|
+      all = Grant::Sql::DefinitionScanner.tokens(item)!
+      column = Grant::Sql::DefinitionScanner.column_name(item)!
+      all.each_with_index do |token, index|
+        next unless token.depth == 0 && token.keyword?("UNIQUE")
+        columns = [] of String
+        if column
+          columns << column
+        else
+          pair = parentheses(all, index + 1)!
+          opening = pair[0]
+          closing = pair[1]
+          next_column = true
+          all.each do |candidate|
+            next unless candidate.start >= opening.finish && candidate.start < closing.start && candidate.depth == 1
+            if candidate.kind == Kind::Symbol && candidate.text == ","
+              next_column = true
+            elsif next_column
+              columns << candidate.text
+              next_column = false
+            end
+          end
+        end
+        result << UniqueInfo.new(table, preceding_name(all, index), columns)
+      end
+    end
+    result
+  end
+
+  def foreign_keys(table : String) : Array(ForeignKeyInfo) | DatabaseError
+    definition(table)!
+    rows = @database.query("SELECT * FROM pragma_foreign_key_list(?) ORDER BY id, seq", [table] of Value)!
+    result = [] of ForeignKeyInfo
+    previous = nil.as(Int64?)
+    rows.each do |row|
+      id = row["id"]
+      column = row["from"]
+      target = row["table"]
+      target_column = row["to"]
+      delete_text = row["on_delete"]
+      update_text = row["on_update"]
+      return DatabaseError.new(20, "schema", "invalid foreign key metadata") unless id.is_a?(Int64) && column.is_a?(String) && target.is_a?(String) && (target_column.nil? || target_column.is_a?(String)) && delete_text.is_a?(String) && update_text.is_a?(String)
+      on_delete = action(delete_text)!
+      on_update = action(update_text)!
+      if previous == id
+        last = result[result.size - 1]
+        result[result.size - 1] = ForeignKeyInfo.new(table, last.columns + [column], target, last.target_columns + [target_column] of String?, on_delete, on_update)
+      else
+        result << ForeignKeyInfo.new(table, [column], target, [target_column] of String?, on_delete, on_update)
+      end
+      previous = id
+    end
+    result
+  end
+
+  def indexes(table : String) : Array(IndexInfo) | DatabaseError
+    definition(table)!
+    rows = @database.query("SELECT * FROM pragma_index_list(?) WHERE origin <> 'pk' ORDER BY name", [table] of Value)!
+    result = [] of IndexInfo
+    rows.each do |row|
+      name = row["name"]
+      origin = row["origin"]
+      return DatabaseError.new(20, "schema", "invalid index metadata") unless name.is_a?(String) && origin.is_a?(String)
+      fields = @database.query("SELECT * FROM pragma_index_xinfo(?) WHERE \"key\"=1 ORDER BY seqno", [name] of Value)!
+      terms = [] of IndexTerm
+      fields.each do |field|
+        column = field["name"]
+        collation = field["coll"]
+        cid = field["cid"]
+        return DatabaseError.new(20, "schema", "invalid index term metadata") unless (column.nil? || column.is_a?(String)) && (collation.nil? || collation.is_a?(String)) && cid.is_a?(Int64)
+        terms << IndexTerm.new(column, cid == -2_i64, field["desc"] == 1_i64, collation)
+      end
+      statements = @database.query("SELECT sql FROM main.sqlite_schema WHERE type='index' AND name=?", [name] of Value)!
+      return DatabaseError.new(20, "schema", "index disappeared while reading its definition") if statements.empty?
+      sql = statements[0]["sql"]
+      return DatabaseError.new(20, "schema", "invalid index SQL metadata") unless sql.nil? || sql.is_a?(String)
+      result << IndexInfo.new(table, name, terms, row["unique"] == 1_i64, row["partial"] == 1_i64, origin, sql)
+    end
+    result
+  end
+
+  private def supported : Nil | DatabaseError
+    return DatabaseError.new(21, "schema", "schema catalogs are implemented only for SQLite") unless @database.dialect == Dialect::SQLite
+    nil
+  end
+
+  private def definition(table : String) : String | DatabaseError
+    supported!
+    identifier(table)!
+    rows = @database.query("SELECT sql FROM main.sqlite_schema WHERE type='table' AND name=? COLLATE NOCASE", [table] of Value)!
+    return DatabaseError.new(21, "schema", "table does not exist: #{table}") if rows.empty?
+    sql = rows[0]["sql"]
+    sql.is_a?(String) ? sql : DatabaseError.new(20, "schema", "table has no SQL definition")
+  end
+end
+
+def preceding_name(all : Array(Token), index : Int32) : String?
+  index >= 2 && all[index - 2].keyword?("CONSTRAINT") ? all[index - 1].text : nil
+end
+
+def parentheses(all : Array(Token), index : Int32) : Tuple(Token, Token) | DatabaseError
+  return DatabaseError.new(20, "schema", "constraint has no parenthesized body") if index >= all.size
+  opening = all[index]
+  return DatabaseError.new(20, "schema", "constraint has no parenthesized body") unless opening.kind == Kind::Symbol && opening.text == "("
+  closing = all.find { |token| token.start > opening.start && token.depth == opening.depth && token.kind == Kind::Symbol && token.text == ")" }
+  closing ? {opening, closing} : DatabaseError.new(20, "schema", "constraint body is not closed")
+end
+
+def action(text : String) : Action | DatabaseError
+  case text
+  when "RESTRICT"    then Action::Restrict
+  when "CASCADE"     then Action::Cascade
+  when "SET NULL"    then Action::SetNull
+  when "SET DEFAULT" then Action::SetDefault
+  when "NO ACTION"   then Action::NoAction
+  else                    DatabaseError.new(20, "schema", "unknown foreign key action: #{text}")
+  end
+end

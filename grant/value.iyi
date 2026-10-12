@@ -1,5 +1,9 @@
 module grant/value
 
+pub import grant/scalars
+import grant/scalars::{Decimal, Date, DateTime}
+import grant/errors::{DatabaseError}
+
 pub struct Binary
   getter data : String
 
@@ -41,8 +45,35 @@ pub struct Binary
   end
 end
 
-pub alias Value = Nil | Bool | Int64 | Float64 | String | Binary
+pub alias Value = Nil | Bool | Int64 | Float64 | String | Binary | Decimal | Date | DateTime
 pub alias Attributes = Hash(String, Value)
+
+# Hydration is explicit because SQLite TEXT alone does not carry a model type.
+# A REAL cannot be reconstructed as an exact decimal; reject that conversion.
+pub def decode_decimal(value : Value) : Decimal | DatabaseError
+  case value
+  when Decimal then value
+  when String  then Decimal.parse(value)
+  when Int64   then Decimal.from_integer(value)
+  else              DatabaseError.new(20, "decimal", "expected exact decimal text or integer; floating-point input is not exact")
+  end
+end
+
+pub def decode_date(value : Value) : Date | DatabaseError
+  case value
+  when Date   then value
+  when String then Date.parse(value)
+  else             DatabaseError.new(20, "date", "expected ISO date text")
+  end
+end
+
+pub def decode_datetime(value : Value) : DateTime | DatabaseError
+  case value
+  when DateTime then value
+  when String   then DateTime.parse(value)
+  else               DatabaseError.new(20, "datetime", "expected RFC3339 text")
+  end
+end
 
 # The row is data; mapping it into an application record is an explicit API.
 pub struct Row

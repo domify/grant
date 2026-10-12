@@ -141,8 +141,44 @@ successful scoped update hydrates the updated record by primary key even if a
 changed column no longer matches the original filter; the mutation itself
 still uses every original scope predicate.
 
-Belongs-to assignment helpers, autosave, nested attributes, through/polymorphic
+## Belongs-to assignments and staged saves
+
+`BelongsToWriter(O, T)` uses an application Reference(O) implementation to rebuild
+the owner's sealed record with a nullable target key. `assign(owner, target)`
+returns an explicit Assignment containing the rebuilt owner and target; it
+writes nothing. An unsaved target is retained with a nil key until save. This
+replaces the source's mutable loaded-association cache. Original records stay
+unchanged.
+
+The two repositories must share one UnitOfWork and database. `save(assignment)`
+saves a new target, reconstructs the owner's foreign key and saves the owner in
+one atomic savepoint. Existing targets are hydrated within their permitted scope
+and are not written by default; `autosave: true` explicitly saves their pending
+fields. Model validation and lifecycle callbacks run on every repository write.
+Commit callbacks wait for the outer commit. A target or owner outside its scope,
+validation/SQL/callback error or changed reference key rolls back both writes.
+
+`create_target(owner, new_target)` mirrors the source create_<association> helper:
+only the target is persisted, and the returned Assignment's owner remains
+unsaved with its new foreign key. It requires an unsaved target. `assign(owner,
+nil)` clears the staged foreign key; saving it clears the persisted association
+without deleting the old parent.
+
+Owner/target Int64 keys and foreign key transformations are verified against the
+mapping. Missing persisted owners are rejected before creating targets. Target
+and owner scopes preserve tenant predicates; paginated writes and different
+sessions are rejected. This writer uses plain repositories and does not install
+an optimistic version policy implicitly. Association-wide locking, inverse
+caches and general recursive autosave require separate integration.
+
+`belongs_to_write_test.iyi` covers staging, nil assignment, target-only creation,
+new/saved target behavior, autosave, callback order, tenant scopes, invalid links,
+session rejection and failures caught inside an outer transaction. It is included
+in the source-free artifact gate.
+
+General recursive autosave, nested attributes, through/polymorphic
 relations, composite/string keys, asynchronous destruction and counter caches
 remain pending. Database
 foreign-key actions implemented in `Schema` are separate from model callbacks.
-The source-free artifact compiler issue remains unresolved.
+The source-free artifact compiler issue is fixed by iyi commit a03fc3438;
+the gate verifies these APIs with the local fixed compiler.

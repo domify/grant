@@ -186,7 +186,7 @@ impl Validator for When
   end
 end
 
-def numeric_value(value : Value) : Numeric?
+pub def numeric_value(value : Value) : Numeric?
   case value
   when Int64 then value
   when Float64

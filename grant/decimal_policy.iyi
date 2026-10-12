@@ -1,0 +1,58 @@
+module grant/decimal_policy
+
+import std/text
+import grant/scalars::{Decimal}
+import grant/value::{Value, decode_decimal}
+import grant/errors::{DatabaseError}
+
+# Assignment policy belongs to a mapping, never to a globally reopened model.
+# Hydration decodes stored values without assignment rounding/precision changes.
+pub struct DecimalPolicy
+  getter scale : Int32?
+  getter precision : Int32?
+  getter nullable : Bool
+
+  def initialize(@scale : Int32? = nil, @precision : Int32? = nil, @nullable : Bool = false)
+  end
+
+  def assign(value : Value) : Decimal | Nil | DatabaseError
+    configured!
+    if value.nil?
+      return nil if @nullable
+      return DatabaseError.new(20, "decimal assignment", "decimal value must not be nil")
+    end
+    number = Grant::Value.decode_decimal(value)!
+    if scale = @scale
+      number = number.rounded(scale)!
+    end
+    if precision = @precision
+      scale = @scale
+      return DatabaseError.new(20, "decimal assignment", "precision requires a declared scale") unless scale
+      exact = number.number
+      digits = exact.value.abs.to_s.bytesize.to_i64 - exact.scale.to_i64
+      digits = 0_i64 if digits < 0_i64 || exact.value.to_s == "0"
+      return DatabaseError.new(20, "decimal assignment", "rounded decimal exceeds declared precision") if digits > precision.to_i64 - scale.to_i64
+    end
+    number
+  end
+
+  def hydrate(value : Value) : Decimal | Nil | DatabaseError
+    configured!
+    if value.nil?
+      return nil if @nullable
+      return DatabaseError.new(20, "decimal hydration", "stored decimal value must not be nil")
+    end
+    Grant::Value.decode_decimal(value)
+  end
+
+  private def configured : Nil | DatabaseError
+    scale = @scale
+    precision = @precision
+    return DatabaseError.new(21, "decimal policy", "scale must be non-negative") if scale && scale < 0
+    if precision
+      return DatabaseError.new(21, "decimal policy", "precision must be positive and requires a scale") unless precision > 0 && scale
+      return DatabaseError.new(21, "decimal policy", "scale must not exceed precision") if scale > precision
+    end
+    nil
+  end
+end

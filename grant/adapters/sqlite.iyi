@@ -2,6 +2,7 @@ module grant/adapters/sqlite
 
 import grant/cstring::{cstring}
 import grant/value::{Value, Row, Attributes, Binary}
+import grant/scalars::{Decimal, Date, DateTime}
 import grant/errors::{DatabaseError}
 import grant/database::{Database, Mutation, Dialect}
 
@@ -31,6 +32,7 @@ lib SQLite
   fun last_id = sqlite3_last_insert_rowid(database : Void*) : Int64
   fun autocommit = sqlite3_get_autocommit(database : Void*) : Int32
   fun busy_timeout = sqlite3_busy_timeout(database : Void*, milliseconds : Int32) : Int32
+  fun limit = sqlite3_limit(database : Void*, category : Int32, value : Int32) : Int32
 end
 
 pub class Connection
@@ -128,6 +130,12 @@ pub class Connection
     @handle.address
   end
 
+  def parameter_limit : Int32 | DatabaseError
+    return DatabaseError.new(21, "parameters", "connection is closed") if @closed
+    # SQLITE_LIMIT_VARIABLE_NUMBER, read without changing the connection limit.
+    SQLite.limit(@handle, 9, -1)
+  end
+
   def offset_without_limit(count : Int32) : String
     " LIMIT -1 OFFSET #{count}"
   end
@@ -175,6 +183,9 @@ pub class Connection
              when Binary
                data = value.data
                SQLite.bind_blob(statement, index, data.to_unsafe, data.bytesize, Pointer(Void).new(0xffffffffffffffff_u64))
+             when Decimal, Date, DateTime
+               text = value.to_s
+               SQLite.bind_text(statement, index, text.to_unsafe, text.bytesize, Pointer(Void).new(0xffffffffffffffff_u64))
              else
                20
              end

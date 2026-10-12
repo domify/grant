@@ -1,0 +1,39 @@
+module grant/schema_transaction
+
+import grant/database::{Database, Dialect}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+import grant/transaction::{transaction}
+
+# SQLite cannot change foreign_keys inside an existing transaction. A DDL owner
+# opts into rebuilds before opening the outer transaction and always restores
+# the previous setting, including after error values, cancellation or panic.
+pub def ddl_transaction(database : Database, rebuilds : Bool = false, &block : -> T) : T | DatabaseError | Panicked | Cancelled forall T
+  unless rebuilds && database.dialect == Dialect::SQLite
+    return transaction(database, requires_new: true) { block.call }
+  end
+  rows = database.query("PRAGMA foreign_keys", [] of Value)!
+  return DatabaseError.new(20, "schema", "missing SQLite foreign key setting") if rows.empty?
+  enforced = rows[0]["foreign_keys"]
+  return DatabaseError.new(20, "schema", "invalid SQLite foreign key setting") unless enforced.is_a?(Int64)
+  inside = database.in_transaction?
+  if inside && enforced != 0_i64
+    return DatabaseError.new(21, "schema", "rebuild transaction requires foreign keys disabled before the outer transaction")
+  end
+  database.execute("PRAGMA foreign_keys = OFF", [] of Value)! if enforced != 0_i64
+  outcome = transaction(database, requires_new: true) do
+    result = block.call
+    next result if result.is_a?(Error)
+    unless inside
+      violations = database.query("PRAGMA foreign_key_check", [] of Value)
+      next violations if violations.is_a?(DatabaseError)
+      next DatabaseError.new(19, "schema", "DDL transaction leaves a foreign-key violation") unless violations.empty?
+    end
+    result
+  end
+  restored = database.execute("PRAGMA foreign_keys = #{enforced}", [] of Value)
+  if restored.is_a?(DatabaseError)
+    return DatabaseError.new(restored.code, "schema", "#{restored.detail}; DDL outcome: #{outcome}")
+  end
+  outcome
+end

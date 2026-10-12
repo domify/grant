@@ -1,6 +1,46 @@
 module grant/lifecycle
 
 import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/value::{Attributes}
+
+# Per-operation metadata is explicit and immutable. A nil baseline denotes an
+# ordinary full update; a supplied baseline enables changed-column writes.
+pub struct WriteContext
+  @baseline : Attributes?
+  @forced : Array(String)
+  @readonly : Array(String)
+  @primary_key : String
+  getter stamp : Bool
+
+  def initialize(baseline : Attributes? = nil, forced : Array(String) = [] of String,
+                 readonly : Array(String) = [] of String, @primary_key : String = "id", @stamp : Bool = true)
+    if values = baseline
+      copy = Attributes.new
+      values.each { |name, value| copy[name] = value }
+      @baseline = copy
+    else
+      @baseline = nil
+    end
+    @forced = forced.map { |name| name }
+    @readonly = readonly.map { |name| name }
+  end
+
+  def partial : Bool
+    !@baseline.nil?
+  end
+
+  def changes(values : Attributes) : Attributes
+    result = Attributes.new
+    baseline = @baseline
+    values.each do |name, value|
+      next if name == @primary_key || @readonly.includes?(name)
+      if baseline.nil? || !baseline.has_key?(name) || baseline[name] != value || @forced.includes?(name)
+        result[name] = value
+      end
+    end
+    result
+  end
+end
 
 pub enum Event
   BeforeValidation
@@ -11,6 +51,12 @@ pub enum Event
   BeforeUpdate
   AfterUpdate
   AfterSave
+  AfterTouch
+  AroundValidation
+  AroundSave
+  AroundCreate
+  AroundUpdate
+  AroundDestroy
   BeforeDestroy
   AfterDestroy
   AfterCommit
@@ -19,6 +65,65 @@ end
 
 pub trait Callback(T)
   abstract def call(event : Event, record : T) : T | DatabaseError | ValidationError | CallbackAbort
+
+  def call(event : Event, record : T, context : WriteContext) : T | DatabaseError | ValidationError | CallbackAbort
+    call(event, record)
+  end
+
+  def readonly_attributes : Array(String)
+    [] of String
+  end
+end
+
+pub alias AroundError = DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+
+# Continuations have an operation lifetime and may be invoked once. A wrapper
+# cannot turn a skipped, missing or failed write into a successful record.
+pub class Continuation(T)
+  @operation : Proc(T, T | Nil | AroundError)
+  @called : Bool
+  @closed : Bool
+  @violation : Bool
+  @outcome : T | Nil | AroundError
+
+  def initialize(@operation : Proc(T, T | Nil | AroundError))
+    @called = false
+    @closed = false
+    @violation = false
+    @outcome = nil
+  end
+
+  def call(record : T) : T | Nil | AroundError
+    if @closed || @called
+      @violation = true
+      return CallbackAbort.new("around callback continuation is closed or already called")
+    end
+    @called = true
+    @outcome = @operation.call(record)
+  end
+
+  def complete(result : T | Nil | AroundError) : T | Nil | AroundError
+    @closed = true
+    return CallbackAbort.new("around callback called its continuation more than once") if @violation
+    return result if result.is_a?(Error)
+    return CallbackAbort.new("around callback did not call its continuation") unless @called
+    return @outcome if @outcome.is_a?(Error) || @outcome.nil?
+    return CallbackAbort.new("around callback returned no record after its operation") if result.nil?
+    result
+  end
+end
+
+pub trait Around(T)
+  abstract def call(event : Event, record : T, continuation : Continuation(T)) : T | Nil | AroundError
+end
+
+struct AroundEntry(T)
+  getter callback : Around(T)
+  getter events : Array(Event)
+
+  def initialize(@callback : Around(T), events : Array(Event))
+    @events = events.map { |event| event }
+  end
 end
 
 struct Entry(T)
@@ -34,9 +139,33 @@ end
 # strings or inherited methods. Ordering is explicit, including prepended hooks.
 pub class Pipeline(T)
   @entries : Array(Entry(T))
+  @around : Array(AroundEntry(T))
 
   def initialize
     @entries = [] of Entry(T)
+    @around = [] of AroundEntry(T)
+  end
+
+  def add_around(callback : Around(T), events : Array(Event), prepend : Bool = false) : Pipeline(T)
+    entry = AroundEntry(T).new(callback, events)
+    @around = prepend ? [entry] + @around : @around + [entry]
+    self
+  end
+
+  def wrap(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
+    selected = @around.select { |entry| entry.events.includes?(event) }
+    invoke_around(selected, 0, event, record, operation)
+  end
+
+  private def invoke_around(entries : Array(AroundEntry(T)), index : Int32, event : Event, record : T,
+                            operation : Proc(T, T | Nil | AroundError)) : T | Nil | AroundError
+    return operation.call(record) if index == entries.size
+    next_operation = ->(current : T) { invoke_around(entries, index + 1, event, current, operation) }
+    continuation = Continuation(T).new(next_operation)
+    # Containing panics here lets us close escaped continuations even if the
+    # wrapper panics. The owning repository still rolls its savepoint back.
+    result = group { |tasks| tasks.spawn { entries[index].callback.call(event, record, continuation).as(T | Nil | AroundError) }.value }
+    continuation.complete(result)
   end
 
   def add(callback : Callback(T), events : Array(Event), prepend : Bool = false) : Pipeline(T)
@@ -45,11 +174,19 @@ pub class Pipeline(T)
     self
   end
 
-  def run(event : Event, record : T) : T | DatabaseError | ValidationError | CallbackAbort
+  def readonly_attributes : Array(String)
+    result = [] of String
+    @entries.each do |entry|
+      entry.callback.readonly_attributes.each { |name| result << name unless result.includes?(name) }
+    end
+    result
+  end
+
+  def run(event : Event, record : T, context : WriteContext = WriteContext.new) : T | DatabaseError | ValidationError | CallbackAbort
     current = record
     @entries.each do |entry|
       if entry.events.includes?(event)
-        result = entry.callback.call(event, current)
+        result = entry.callback.call(event, current, context)
         return result if result.is_a?(Error)
         current = result
       end

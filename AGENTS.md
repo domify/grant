@@ -30,6 +30,28 @@ definitions and SQL migrations. These feature ports are partial; consult
 mapping. Neither a global model registry nor an inherited macro DSL is used.
 Consumer web handlers and RPC handlers should call the same model services.
 
+Repository.update_changed consumes explicit loaded attributes or State(Value)
+baselines, runs normal callbacks and skips UPDATE/timestamp reads when clean.
+Caller-owned dirty state is not automatically advanced before an outer commit.
+Mapping.readonly_attributes and timestamp creation columns protect repository
+updates. This partial API does not add optimistic version guards; keep protected
+services on Optimistic(T). See doc/PARTIAL-UPDATES.md.
+
+SQLite schema edits use AlterTable and explicit ddl_transaction(rebuilds: true)
+ownership; rebuilding inside a foreign-key-enabled outer transaction is rejected.
+Definition supports composite table keys and named Check/Unique/Reference
+constraints. These do not add composite model IDs to Repository. Named table
+constraints can be edited, including named inline removal and selection of
+CHECK/UNIQUE/foreign-key constraints by expression/ordered columns. Primary keys
+and other named column clauses require separate APIs.
+Dumper/Snapshot captures only the SQLite main schema, preserving catalog SQL and
+native migration checksums. Replacement is explicit and drops snapshot data.
+See doc/SCHEMA.md. Keep alteration, constraints, snapshots and the generated
+schema factory in the source-free artifact gate.
+Catalog provides live SQLite tables/keys/checks/uniques/foreign-key/index metadata,
+including inline constraints and expression markers. Additional type/limit
+metadata remains pending.
+
 Mappings declaring a normalization Plan must implement with_attributes to rebuild
 their sealed records. Repository normalization runs before validation; query
 arguments use only unconditional rules. Hydration bypasses normalization.
@@ -39,7 +61,9 @@ boundary and raw-query behavior.
 Additional scalar validators are in `grant/validators.iyi`: numericality, format,
 acceptance and `When` with a typed `Condition`. Conditions inspect explicit
 attributes/context. See `doc/VALIDATION.md` for semantics and unported validators;
-dynamic comparison operands are still pending. SQLite uniqueness lives in
+dynamic comparison operands use `DynamicNumericality` and typed `Operand`
+policies in `grant/dynamic_validation.iyi`. CheckedRules propagates operand
+evaluation failures separately from validation issues. SQLite uniqueness lives in
 `grant/database_validation.iyi`: propagate SQL failures as `DatabaseError` and
 back validation with an appropriate unique index. Context-aware mappings override
 `validate(record, context)`; repository update contexts supply the actual persisted
@@ -61,7 +85,7 @@ when needed; do not repurpose HOME. There are no runtime dependency shards;
 link the system SQLite/libpq libraries for the relevant adapter.
 
 A mutable connection is owned by one request/task at a time. Pooling,
-concurrent scheduling, belongs-to assignment helpers/through/polymorphism, around callbacks and the
+concurrent scheduling, association inverses/caches/through/polymorphism and the
 other remaining features listed in `doc/PORTING.md` are still pending; do not assume
 support. Do not silently coerce exact numeric values to floats or substitute
 fake successes for unsupported operations.
@@ -74,6 +98,37 @@ Optimistic locking is an explicit Optimistic(T) repository wrapper with a
 Version(T) policy and an Int64 stored column. Route protected writes through it;
 plain repository/raw writes do not have a version guard. Use bound where_stored
 predicates for stored metadata such as lock versions. See doc/LOCKING.md.
+
+Timestamps(T) is registered on BeforeCreate/BeforeUpdate with an explicit UTC
+Clock and mapping.with_attributes. It preserves explicit create timestamps,
+stamps updated fields on update, and stores exact UTC text/date values at the
+declared precision. Touch and atomic optimistic touch are implemented; deferred
+touch/no-op-save/timezone behavior is not complete yet; see
+doc/TIMESTAMPS.md. Keep timestamp and locking artifact consumers in the gate.
+
+Around(T) callbacks wrap validation/save/create/update/destroy with typed
+single-use Continuation(T) values. Halts, swallowed errors, duplicate calls and
+panics trigger rollback; escaped continuations are closed. See doc/LIFECYCLE.md.
+Exact Decimal/Date/DateTime values bind as text on SQLite. Decimal schema columns
+must use TEXT to avoid numeric affinity loss; decode scalars explicitly in the
+mapping and never reconstruct exact decimals from Float64. See doc/SCALARS.md.
+DecimalPolicy separates assignment scale/optional precision checks from exact
+hydration. Mappings invoke assignment explicitly and preserve legacy stored
+values when hydrating. Exact decimal SQL ordering/ranges/aggregation is pending.
+
+Bulk.Writer performs SQLite insert/skip/upsert batches with real returned rows,
+bind-cap-aware atomic chunking, explicit readonly/scope/timestamp metadata and
+guarded scope conflict updates. It bypasses model callbacks, validation and
+normalization; supply stored values. Partial/expression targets, custom fragments,
+model converter inference and bulk optimistic guards remain pending. See
+doc/BULK.md. Keep bulk, partial-update and decimal-policy artifact consumers in
+the gate. PostgreSQL bulk development remains deferred.
+
+BelongsToWriter(O, T) uses an application Reference(O) and explicit staged
+Assignment(O, T). New targets are saved before owners in one shared UnitOfWork;
+saved targets require autosave: true to write pending changes. create_target
+saves only the target. Association inverses and general recursive autosave are
+still pending. See doc/ASSOCIATIONS.md.
 
 Direct collection writes use `CollectionWriter(T)` and an application-owned
 `Link(T)` implementation. New records and attachments run repository callbacks;
@@ -90,7 +145,8 @@ The subtree bootstrap uses local commits on `feature/phase-0-native-iyi`, keepin
 original Crystal history. Do not push or change public default branches without
 user instructions. Keep source imports and native changes in separate commits.
 
-Source-free artifacts require the compiler fix in iyi commit a03fc3438. Use
+Source-free artifacts require iyi commit a03fc3438 plus the local compound
+witness-reference fix preserved in scripts/compiler-witness-union.patch. Use
 IYI=/home/priit/contribute/iyi/bin/iyi with scripts/check.sh until the installed
 compiler includes it. The gate must remain enabled and exercise model/lifecycle,
 normalization, uniqueness, dependency and binary consumers. Do not introduce

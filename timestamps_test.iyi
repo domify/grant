@@ -1,0 +1,226 @@
+module timestamps_test
+
+import std/time::{Time}
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Callback, Event}
+import grant/timestamps::{Clock, Timestamps}
+import grant/locking::{Optimistic, Version, StaleObjectError}
+
+struct Article
+  getter id : Int64?
+  getter title : String
+  getter created_at : String?
+  getter updated_at : String?
+  getter created_on : String?
+  getter updated_on : String?
+  getter revision : Int64
+
+  def initialize(@title : String, @created_at : String? = nil, @updated_at : String? = nil,
+                 @created_on : String? = nil, @updated_on : String? = nil, @id : Int64? = nil, @revision : Int64 = 0_i64)
+  end
+end
+
+struct ArticleMapping
+end
+
+impl Mapping(Article) for ArticleMapping
+  def table : Table
+    Table.new("articles")
+  end
+
+  def attributes(record : Article) : Attributes
+    {"id" => record.id, "title" => record.title, "created_at" => record.created_at,
+     "updated_at" => record.updated_at, "created_on" => record.created_on, "updated_on" => record.updated_on, "revision" => record.revision} of String => Value
+  end
+
+  def with_attributes(record : Article, values : Attributes) : Article | DatabaseError
+    id = values["id"]
+    title = values["title"]
+    created = values["created_at"]
+    updated = values["updated_at"]
+    created_on = values["created_on"]
+    updated_on = values["updated_on"]
+    revision = values["revision"]
+    if (id.nil? || id.is_a?(Int64)) && title.is_a?(String) && (created.nil? || created.is_a?(String)) &&
+       (updated.nil? || updated.is_a?(String)) && (created_on.nil? || created_on.is_a?(String)) && (updated_on.nil? || updated_on.is_a?(String)) && revision.is_a?(Int64)
+      Article.new(title, created, updated, created_on, updated_on, id, revision)
+    else
+      DatabaseError.new(20, "assignment", "invalid article attributes")
+    end
+  end
+
+  def from_row(row : Row) : Article | DatabaseError
+    with_attributes(Article.new(""), row.attributes)
+  end
+
+  def validate(record : Article) : Nil | ValidationError
+    record.title.empty? ? ValidationError.new({"title" => ["can't be blank"]}) : nil
+  end
+end
+
+class FixedClock
+  getter calls : Int32
+
+  def initialize(@instant : Time)
+    @calls = 0
+  end
+
+  def instant=(instant : Time) : Time
+    @instant = instant
+  end
+end
+
+impl Clock for FixedClock
+  def now : Time
+    @calls += 1
+    @instant
+  end
+end
+
+struct ArticleVersion
+end
+
+impl Version(Article) for ArticleVersion
+  def version(record : Article) : Int64
+    record.revision
+  end
+
+  def with_version(record : Article, version : Int64) : Article | DatabaseError
+    Article.new(record.title, record.created_at, record.updated_at, record.created_on, record.updated_on, record.id, version)
+  end
+end
+
+struct RejectStampedWrite
+end
+
+impl Callback(Article) for RejectStampedWrite
+  def call(event : Event, record : Article) : Article | DatabaseError | ValidationError | CallbackAbort
+    record.title == "abort" ? CallbackAbort.new("reject stamped write") : record
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, title TEXT NOT NULL CHECK(title != 'sql failure'), created_at TEXT, updated_at TEXT, created_on DATE, updated_on DATE, revision INTEGER NOT NULL DEFAULT 0)").or_panic
+pipeline = Pipeline(Article).new
+repository = Repository(Article).new(connection, ArticleMapping.new, pipeline)
+clock = FixedClock.new(Time.utc(2026, 10, 12, 13, 14, 15, nanosecond: 123456789))
+created_columns = ["created_at", "created_on"]
+updated_columns = ["updated_at", "updated_on"]
+timestamps = Timestamps(Article).new(repository, clock, created_columns, updated_columns)
+pipeline.add(timestamps, [Event::BeforeCreate, Event::BeforeUpdate])
+created_columns << "bad configuration mutation"
+updated_columns << "bad configuration mutation"
+original = Article.new("one")
+saved = repository.insert(original).or_panic
+assert original.created_at.nil?
+assert saved.created_at == "2026-10-12T13:14:15.123456Z"
+assert saved.updated_at == saved.created_at
+assert saved.created_on == "2026-10-12"
+assert saved.updated_on == saved.created_on
+assert clock.calls == 1
+clock.instant = Time.utc(2026, 10, 13, 13, 14, 16, nanosecond: 987654321)
+updated = repository.update(repository.query, saved.id || 0_i64, Article.new("changed", saved.created_at, saved.updated_at, saved.created_on, saved.updated_on)).or_panic
+assert !updated.nil?
+assert updated.created_at == saved.created_at if updated
+assert updated.created_on == saved.created_on if updated
+assert updated.updated_at == "2026-10-13T13:14:16.987654Z" if updated
+assert updated.updated_on == "2026-10-13" if updated
+assert clock.calls == 2
+explicit = repository.insert(Article.new("explicit", "2000-01-01T00:00:00Z", "2001-01-01T00:00:00Z", "2000-01-01", "2001-01-01")).or_panic
+assert explicit.created_at == "2000-01-01T00:00:00Z"
+assert explicit.updated_at == "2001-01-01T00:00:00Z"
+assert clock.calls == 2
+assert repository.insert(Article.new("")).is_a?(ValidationError)
+assert clock.calls == 2
+timestamps.enabled = false
+unstamped = repository.insert(Article.new("disabled")).or_panic
+assert unstamped.created_at.nil?
+assert clock.calls == 2
+disabled_update = repository.update(repository.query, saved.id || 0_i64, Article.new("disabled update", saved.created_at, saved.updated_at, saved.created_on, saved.updated_on)).or_panic
+assert !disabled_update.nil?
+assert disabled_update.updated_at == saved.updated_at if disabled_update
+assert clock.calls == 2
+(0..9).each do |precision|
+  policy = Timestamps(Article).new(repository, clock, precision: precision)
+  stamped = policy.apply(Event::BeforeCreate, Article.new("precision")).or_panic
+  stamp = stamped.created_at || ""
+  expected = precision == 0 ? "2026-10-13T13:14:16Z" : "2026-10-13T13:14:16." + "987654321"[0, precision] + "Z"
+  assert stamp == expected
+  precision_pipeline = Pipeline(Article).new.add(policy, [Event::BeforeCreate])
+  precision_repository = Repository(Article).new(connection, ArticleMapping.new, precision_pipeline)
+  persisted = precision_repository.insert(Article.new("precision")).or_panic
+  loaded = precision_repository.find(persisted.id || 0_i64).or_panic
+  assert !loaded.nil?
+  assert loaded.created_at == expected if loaded
+end
+assert Timestamps(Article).new(repository, clock, precision: 10).apply(Event::BeforeCreate, Article.new("invalid")).is_a?(DatabaseError)
+assert Timestamps(Article).new(repository, clock, precision: -1).apply(Event::BeforeCreate, Article.new("invalid")).is_a?(DatabaseError)
+assert Timestamps(Article).new(repository, clock, ["missing"]).apply(Event::BeforeCreate, Article.new("invalid")).is_a?(DatabaseError)
+
+# Partially supplied timestamps preserve explicit values and fill only nils.
+timestamps.enabled = true
+partial = repository.insert(Article.new("partial", "2000-01-01T00:00:00Z")).or_panic
+assert partial.created_at == "2000-01-01T00:00:00Z"
+assert partial.updated_at == "2026-10-13T13:14:16.987654Z"
+before_read = clock.calls
+loaded = repository.find(partial.id || 0_i64).or_panic
+assert !loaded.nil?
+assert loaded.updated_at == partial.updated_at if loaded
+assert timestamps.apply(Event::AfterSave, partial).or_panic.updated_at == partial.updated_at
+assert clock.calls == before_read
+
+# Parsed offsets become UTC, including a date crossing midnight. Truncating
+# from the end also works for the extended years supported by native Time.
+clock.instant = Time.parse_rfc3339("2026-01-01T00:30:00.999999999+02:00")
+utc = timestamps.apply(Event::BeforeCreate, Article.new("utc")).or_panic
+assert utc.created_at == "2025-12-31T22:30:00.999999Z"
+assert utc.created_on == "2025-12-31"
+clock.instant = Time.utc(10000, 1, 1, nanosecond: 123456789)
+extended = timestamps.apply(Event::BeforeCreate, Article.new("extended")).or_panic
+assert extended.created_at == "10000-01-01T00:00:00.123456Z"
+
+# SQL failures and callback failures restore stamped writes, including caught
+# errors within an outer unit of work and guarded optimistic updates.
+clock.instant = Time.utc(2026, 10, 14, nanosecond: 111222333)
+pipeline.add(RejectStampedWrite.new, [Event::AfterCreate, Event::AfterUpdate])
+assert repository.insert(Article.new("sql failure")).is_a?(DatabaseError)
+assert repository.query.where("title", "sql failure").count.or_panic == 0
+assert repository.insert(Article.new("abort")).is_a?(CallbackAbort)
+assert repository.query.where("title", "abort").count.or_panic == 0
+locking = Optimistic(Article).new(repository, ArticleVersion.new, "revision")
+guarded = locking.insert(Article.new("guarded")).or_panic
+clock.instant = Time.utc(2026, 10, 15, nanosecond: 444555666)
+candidate = Article.new("guarded_update", guarded.created_at, guarded.updated_at, guarded.created_on, guarded.updated_on, guarded.id, guarded.revision)
+guarded_update = locking.update(repository.query, guarded.id || 0_i64, candidate).or_panic
+assert guarded_update.created_at == guarded.created_at
+assert guarded_update.updated_at == "2026-10-15T00:00:00.444555Z"
+assert guarded_update.revision == 1_i64
+clock.instant = Time.utc(2026, 10, 16)
+outer = repository.unit_of_work.run do
+  assert locking.update(repository.query, guarded.id || 0_i64, candidate).is_a?(StaleObjectError)
+  failing = Article.new("abort", guarded_update.created_at, guarded_update.updated_at, guarded_update.created_on, guarded_update.updated_on, guarded_update.id, guarded_update.revision)
+  assert locking.update(repository.query, guarded_update.id || 0_i64, failing).is_a?(CallbackAbort)
+  restored = repository.find(guarded_update.id || 0_i64).or_panic
+  assert !restored.nil?
+  assert restored.title == "guarded_update" if restored
+  assert restored.updated_at == guarded_update.updated_at if restored
+  assert restored.revision == guarded_update.revision if restored
+  repository.insert(Article.new("outer success"))
+end
+outer.or_panic
+assert repository.query.where("title", "outer success").count.or_panic == 1
+rolled_back = repository.unit_of_work.run do
+  next_version = Article.new("rolled back", guarded_update.created_at, guarded_update.updated_at, guarded_update.created_on, guarded_update.updated_on, guarded_update.id, guarded_update.revision)
+  locking.update(repository.query, guarded_update.id || 0_i64, next_version).or_panic
+  CallbackAbort.new("rollback outer transaction")
+end
+assert rolled_back.is_a?(CallbackAbort)
+restored = repository.find(guarded_update.id || 0_i64).or_panic
+assert !restored.nil?
+assert restored.updated_at == guarded_update.updated_at if restored
+assert restored.revision == guarded_update.revision if restored
+connection.close.or_panic

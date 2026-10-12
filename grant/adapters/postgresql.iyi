@@ -3,6 +3,7 @@ module grant/adapters/postgresql
 import std/text
 import grant/cstring::{cstring}
 import grant/value::{Value, Row, Attributes, Binary}
+import grant/scalars::{Decimal, Date, DateTime}
 import grant/errors::{DatabaseError}
 import grant/database::{Database, Mutation, Dialect}
 import grant/sql/placeholder_scanner::{rewrite}
@@ -130,6 +131,7 @@ pub class Connection
     values = [] of Pointer(UInt8)
     parameters.each do |value|
       return DatabaseError.new(20, "bind", "binary parameters are implemented only for SQLite") if value.is_a?(Binary)
+      return DatabaseError.new(20, "bind", "typed scalar parameters are implemented only for SQLite") if value.is_a?(Decimal) || value.is_a?(Date) || value.is_a?(DateTime)
       if value.nil?
         values << Pointer(UInt8).new(0_u64)
       else

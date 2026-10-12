@@ -1,0 +1,146 @@
+module scalars_test
+
+import std/time::{Time}
+import std/big::{BigDecimal}
+import grant/scalars::{Decimal, Date, DateTime}
+import grant/value::{Value, Row, Attributes, decode_decimal, decode_date, decode_datetime}
+import grant/adapters/sqlite::{Connection}
+import grant/schema::{Schema, Definition, Column, ColumnType}
+import grant/query::{Table, Query}
+import grant/model::{Mapping, Repository}
+import grant/errors::{DatabaseError, ValidationError}
+
+struct Invoice
+  getter id : Int64?
+  getter total : Decimal
+  getter discount : Decimal?
+  getter due : Date
+  getter issued : DateTime
+
+  def initialize(@total : Decimal, @due : Date, @issued : DateTime, @discount : Decimal? = nil, @id : Int64? = nil)
+  end
+end
+
+struct InvoiceMapping
+end
+
+impl Mapping(Invoice) for InvoiceMapping
+  def table : Table
+    Table.new("invoices")
+  end
+
+  def attributes(record : Invoice) : Attributes
+    {"id" => record.id, "total" => record.total, "discount" => record.discount,
+     "due" => record.due, "issued" => record.issued} of String => Value
+  end
+
+  def from_row(row : Row) : Invoice | DatabaseError
+    id = row["id"]
+    return DatabaseError.new(20, "mapping", "invalid invoice key") unless id.is_a?(Int64)
+    total = Grant::Value.decode_decimal(row["total"])!
+    due = Grant::Value.decode_date(row["due"])!
+    issued = Grant::Value.decode_datetime(row["issued"])!
+    raw_discount = row["discount"]
+    discount = raw_discount.nil? ? nil : Grant::Value.decode_decimal(raw_discount)!
+    Invoice.new(total, due, issued, discount, id)
+  end
+
+  def validate(record : Invoice) : Nil | ValidationError
+    nil
+  end
+end
+
+huge = Decimal.parse("123456789012345678901234567890.1234567890123456789").or_panic
+mutable_number = BigDecimal.new("123")
+snapshot = Decimal.new(mutable_number)
+mutable_number.value.limbs[0] = 999_u64
+assert snapshot.to_s == "123"
+exposed = snapshot.number
+exposed.value.limbs[0] = 777_u64
+assert snapshot.to_s == "123"
+assert huge.to_s == "123456789012345678901234567890.1234567890123456789"
+assert Decimal.parse("0.1").or_panic + Decimal.parse("0.2").or_panic == Decimal.parse("0.3").or_panic
+assert Decimal.parse("10.10").or_panic + Decimal.parse("19.99").or_panic + Decimal.parse("30.00").or_panic == Decimal.parse("60.09").or_panic
+assert Decimal.parse("1.10").or_panic == Decimal.parse("11e-1").or_panic
+assert Decimal.parse("1.10").or_panic.hash == Decimal.parse("1.1").or_panic.hash
+assert Decimal.parse("1.005").or_panic.rounded(2).or_panic == Decimal.parse("1.01").or_panic
+assert Decimal.parse("-1.005").or_panic.rounded(2).or_panic == Decimal.parse("-1.01").or_panic
+assert Decimal.parse("2.994").or_panic.rounded(2).or_panic == Decimal.parse("2.99").or_panic
+assert Decimal.parse("999.999").or_panic.rounded(2).or_panic == Decimal.from_integer(1000_i64)
+assert Decimal.parse(".5").or_panic.to_s == "0.5"
+assert Decimal.parse(" +12.30e2 ").or_panic.to_s == "1230"
+assert Decimal.parse("-0.000").or_panic.to_s == "0"
+assert Decimal.parse("1").or_panic.rounded(-1).is_a?(DatabaseError)
+assert Decimal.parse("1e1000000000").is_a?(DatabaseError)
+assert Decimal.from_integer(1_i64).rounded(100001).or_panic == Decimal.from_integer(1_i64)
+["", "NaN", "Infinity", "1e", "1.2.3", "1' OR 1=1", "--1", "+", ".", "1e999999999999999999999999"].each do |input|
+  assert Decimal.parse(input).is_a?(DatabaseError)
+end
+assert Grant::Value.decode_decimal(0.1).is_a?(DatabaseError)
+assert Grant::Value.decode_decimal(true).is_a?(DatabaseError)
+assert Grant::Value.decode_decimal(9223372036854775807_i64).or_panic.to_s == "9223372036854775807"
+due = Date.parse("2024-02-29").or_panic
+assert due.to_s == "2024-02-29"
+assert Date.from_parts(2000, 2, 29).or_panic.to_s == "2000-02-29"
+assert Date.parse("1900-02-29").is_a?(DatabaseError)
+assert Date.parse("2023-02-29").is_a?(DatabaseError)
+assert Date.parse("2024-13-01").is_a?(DatabaseError)
+assert Date.parse("2024-04-31").is_a?(DatabaseError)
+assert Date.parse("0000-01-01").is_a?(DatabaseError)
+assert Date.parse("2024-2-01").is_a?(DatabaseError)
+assert Date.parse("2024-01-01junk").is_a?(DatabaseError)
+assert Grant::Value.decode_date(1_i64).is_a?(DatabaseError)
+issued = DateTime.parse("2024-02-29T00:30:00.123456789+02:00").or_panic
+assert issued.to_s == "2024-02-28T22:30:00.123456789Z"
+assert issued == DateTime.parse("2024-02-28t22:30:00.123456789z").or_panic
+assert issued.hash == DateTime.parse("2024-02-28T22:30:00.123456789Z").or_panic.hash
+assert DateTime.parse("2024-01-01T23:59:60Z").or_panic.to_s == "2024-01-02T00:00:00.000000000Z"
+assert DateTime.parse("2024-01-01T00:30:00-05:30").or_panic.to_s == "2024-01-01T06:00:00.000000000Z"
+["2024-01-01", "2024-01-01T24:00:00Z", "2024-02-30T00:00:00Z", "2024-01-01T00:00:00+24:00", "2024-01-01T00:00:00+01:60", "2024-01-01T00:00:00.1234567890Z", "2024-01-01T00:00:00", "2024-01-01T00:00:00Zjunk"].each do |input|
+  assert DateTime.parse(input).is_a?(DatabaseError)
+end
+assert Grant::Value.decode_datetime(0.1).is_a?(DatabaseError)
+
+connection = Connection.open(":memory:").or_panic
+schema = Schema.new(connection)
+schema.create_table(Definition.new("invoices", [
+  Column.new("id", ColumnType::Integer, primary_key: true, auto: true),
+  Column.new("total", ColumnType::Decimal, nullable: false),
+  Column.new("discount", ColumnType::Decimal),
+  Column.new("due", ColumnType::Date, nullable: false),
+  Column.new("issued", ColumnType::DateTime, nullable: false),
+])).or_panic
+repository = Repository(Invoice).new(connection, InvoiceMapping.new)
+original = Invoice.new(huge, due, issued, Decimal.parse("0.50").or_panic)
+saved = repository.insert(original).or_panic
+loaded = repository.find(saved.id || 0_i64).or_panic
+assert !loaded.nil?
+assert loaded.total == huge if loaded
+assert loaded.discount == original.discount if loaded
+assert loaded.due == due if loaded
+assert loaded.issued == issued if loaded
+assert original.id.nil?
+assert repository.query.where("total", huge).count.or_panic == 1_i64
+assert repository.query.where("discount", Decimal.parse("0.5").or_panic).count.or_panic == 1_i64
+assert repository.query.where_in("total", [huge, Decimal.from_integer(1_i64)] of Value).count.or_panic == 1_i64
+assert repository.query.where("due", due).count.or_panic == 1_i64
+assert repository.query.where("issued", issued).count.or_panic == 1_i64
+types = connection.query("SELECT typeof(total) AS total, typeof(due) AS due, typeof(issued) AS issued FROM invoices").or_panic[0]
+assert types["total"] == "text" && types["due"] == "text" && types["issued"] == "text"
+updated = repository.update(repository.query, saved.id || 0_i64, Invoice.new(Decimal.parse("3.25").or_panic, due, issued)).or_panic
+assert !updated.nil?
+assert updated.total == Decimal.parse("3.25").or_panic if updated
+assert updated.discount.nil? if updated
+
+# Defaults also stay exact text, including numbers far beyond Float64 precision.
+schema.create_table(Definition.new("scalar_defaults", [
+  Column.new("id", ColumnType::Integer, primary_key: true, auto: true),
+  Column.new("total", ColumnType::Decimal, default: huge),
+  Column.new("due", ColumnType::Date, default: due),
+  Column.new("issued", ColumnType::DateTime, default: issued),
+])).or_panic
+default_row = Query.new(connection, Table.new("scalar_defaults")).insert(Attributes.new).or_panic
+assert Grant::Value.decode_decimal(default_row["total"]).or_panic == huge
+assert Grant::Value.decode_date(default_row["due"]).or_panic == due
+assert Grant::Value.decode_datetime(default_row["issued"]).or_panic == issued
+connection.close.or_panic

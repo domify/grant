@@ -1,0 +1,232 @@
+module belongs_to_write_test
+
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Callback, Event}
+import grant/unit_of_work::{UnitOfWork}
+import grant/belongs_to_writes::{Reference, Assignment, BelongsToWriter}
+
+struct Parent
+  getter id : Int64?
+  getter name : String
+  getter tenant : Int64
+
+  def initialize(@name : String, @tenant : Int64 = 1_i64, @id : Int64? = nil)
+  end
+end
+
+struct Child
+  getter id : Int64?
+  getter name : String
+  getter parent_id : Int64?
+  getter tenant : Int64
+
+  def initialize(@name : String, @parent_id : Int64? = nil, @tenant : Int64 = 1_i64, @id : Int64? = nil)
+  end
+end
+
+struct ParentMapping
+end
+
+impl Mapping(Parent) for ParentMapping
+  def table : Table
+    Table.new("parents")
+  end
+
+  def attributes(record : Parent) : Attributes
+    {"id" => record.id, "name" => record.name, "tenant" => record.tenant} of String => Value
+  end
+
+  def from_row(row : Row) : Parent | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    tenant = row["tenant"]
+    if id.is_a?(Int64) && name.is_a?(String) && tenant.is_a?(Int64)
+      Parent.new(name, tenant, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid parent row")
+    end
+  end
+
+  def validate(record : Parent) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct ChildMapping
+end
+
+impl Mapping(Child) for ChildMapping
+  def table : Table
+    Table.new("children")
+  end
+
+  def attributes(record : Child) : Attributes
+    {"id" => record.id, "name" => record.name, "parent_id" => record.parent_id, "tenant" => record.tenant} of String => Value
+  end
+
+  def from_row(row : Row) : Child | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    parent_id = row["parent_id"]
+    tenant = row["tenant"]
+    if id.is_a?(Int64) && name.is_a?(String) && (parent_id.nil? || parent_id.is_a?(Int64)) && tenant.is_a?(Int64)
+      Child.new(name, parent_id, tenant, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid child row")
+    end
+  end
+
+  def validate(record : Child) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct ParentReference
+end
+
+impl Reference(Child) for ParentReference
+  def with_target(owner : Child, target_id : Int64?) : Child | DatabaseError
+    Child.new(owner.name, target_id, owner.tenant, owner.id)
+  end
+end
+
+struct BadReference
+end
+
+impl Reference(Child) for BadReference
+  def with_target(owner : Child, target_id : Int64?) : Child | DatabaseError
+    Child.new(owner.name, target_id, owner.tenant, 9999_i64)
+  end
+end
+
+class ParentEvents
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Callback(Parent) for ParentEvents
+  def call(event : Event, record : Parent) : Parent | DatabaseError | ValidationError | CallbackAbort
+    @log << "parent:#{event}"
+    record
+  end
+end
+
+class ChildEvents
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Callback(Child) for ChildEvents
+  def call(event : Event, record : Child) : Child | DatabaseError | ValidationError | CallbackAbort
+    @log << "child:#{event}"
+    return CallbackAbort.new("reject child") if event == Event::AfterCreate && record.name == "abort"
+    record
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE parents(id INTEGER PRIMARY KEY, name TEXT NOT NULL, tenant INTEGER NOT NULL)").or_panic
+connection.execute("CREATE TABLE children(id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(name != 'sql error'), parent_id INTEGER REFERENCES parents(id), tenant INTEGER NOT NULL)").or_panic
+unit = UnitOfWork.new(connection)
+log = [] of String
+parent_events = Pipeline(Parent).new.add(ParentEvents.new(log), [Event::AfterCreate, Event::AfterUpdate, Event::AfterCommit, Event::AfterRollback])
+child_events = Pipeline(Child).new.add(ChildEvents.new(log), [Event::AfterCreate, Event::AfterUpdate, Event::AfterCommit, Event::AfterRollback])
+parents = Repository(Parent).new(connection, ParentMapping.new, parent_events, unit)
+children = Repository(Child).new(connection, ChildMapping.new, child_events, unit)
+writer = BelongsToWriter(Child, Parent).new(children, parents, "parent_id", ParentReference.new, children.query.where("tenant", 1_i64), parents.query.where("tenant", 1_i64))
+new_child = Child.new("child")
+new_parent = Parent.new("parent")
+staged = writer.assign(new_child, new_parent).or_panic
+assert staged.owner.parent_id.nil?
+if target = staged.target
+  assert target.id.nil?
+end
+assert new_child.parent_id.nil?
+assert parents.query.count.or_panic == 0_i64
+assert children.query.count.or_panic == 0_i64
+saved = writer.save(staged).or_panic
+assert !saved.target.nil?
+if target = saved.target
+  assert saved.owner.parent_id == target.id
+end
+assert !saved.owner.id.nil?
+assert log == ["parent:AfterCreate", "child:AfterCreate", "parent:AfterCommit", "child:AfterCommit"]
+assert new_parent.id.nil? && new_child.id.nil?
+log.clear
+target_only = writer.create_target(Child.new(""), Parent.new("created target only")).or_panic
+assert target_only.owner.id.nil?
+assert !target_only.owner.parent_id.nil?
+assert children.query.count.or_panic == 1_i64
+assert parents.query.count.or_panic == 2_i64
+assert log == ["parent:AfterCreate", "parent:AfterCommit"]
+assert writer.create_target(Child.new(""), Parent.new("")).is_a?(ValidationError)
+existing_parent = saved.target
+assert !existing_parent.nil?
+if existing_parent
+  log.clear
+  pending_parent = Parent.new("unsaved edits", 1_i64, existing_parent.id)
+  assigned = writer.assign(saved.owner, pending_parent).or_panic
+  no_autosave = writer.save(assigned).or_panic
+  if target = no_autosave.target
+    assert target.name == "parent"
+  end
+  assert !log.includes?("parent:AfterUpdate")
+  autosaved = writer.save(assigned, autosave: true).or_panic
+  if target = autosaved.target
+    assert target.name == "unsaved edits"
+  end
+  assert log.includes?("parent:AfterUpdate")
+  cleared = writer.save(writer.assign(autosaved.owner, nil).or_panic).or_panic
+  assert cleared.owner.parent_id.nil?
+  assert parents.query.count.or_panic == 2_i64
+end
+
+# Every failure restores both sides, including a caught nested save failure.
+before_parents = parents.query.count.or_panic
+before_children = children.query.count.or_panic
+assert writer.save(writer.assign(Child.new(""), Parent.new("rolled back parent")).or_panic).is_a?(ValidationError)
+assert writer.save(writer.assign(Child.new("valid"), Parent.new("")).or_panic).is_a?(ValidationError)
+assert writer.save(writer.assign(Child.new("abort"), Parent.new("callback rollback")).or_panic).is_a?(CallbackAbort)
+assert writer.save(writer.assign(Child.new("sql error"), Parent.new("sql rollback")).or_panic).is_a?(DatabaseError)
+assert parents.query.count.or_panic == before_parents
+assert children.query.count.or_panic == before_children
+outer = unit.run do
+  assert writer.save(writer.assign(Child.new("abort"), Parent.new("caught rollback")).or_panic).is_a?(CallbackAbort)
+  writer.save(writer.assign(Child.new("outer success"), Parent.new("outer parent")).or_panic)
+end
+outer.or_panic
+assert parents.query.where("name", "caught rollback").count.or_panic == 0_i64
+assert children.query.where("name", "outer success").count.or_panic == 1_i64
+rollback = unit.run do
+  writer.save(writer.assign(Child.new("outer rollback child"), Parent.new("outer rollback parent")).or_panic).or_panic
+  CallbackAbort.new("rollback outer unit")
+end
+assert rollback.is_a?(CallbackAbort)
+assert parents.query.where("name", "outer rollback parent").count.or_panic == 0_i64
+assert children.query.where("name", "outer rollback child").count.or_panic == 0_i64
+foreign_parent = parents.insert(Parent.new("other tenant", 2_i64)).or_panic
+assert writer.save(writer.assign(Child.new("outside target"), foreign_parent).or_panic).is_a?(DatabaseError)
+assert writer.save(writer.assign(Child.new("outside owner", tenant: 2_i64), Parent.new("scoped rollback")).or_panic).is_a?(DatabaseError)
+assert parents.query.where("name", "scoped rollback").count.or_panic == 0_i64
+assert writer.save(writer.assign(Child.new("missing owner", id: 9999_i64), Parent.new("not saved")).or_panic).is_a?(DatabaseError)
+assert parents.query.where("name", "not saved").count.or_panic == 0_i64
+assert writer.save(writer.assign(Child.new("missing target"), Parent.new("missing", id: 9999_i64)).or_panic).is_a?(DatabaseError)
+bad = BelongsToWriter(Child, Parent).new(children, parents, "parent_id", BadReference.new)
+assert bad.assign(Child.new("bad link"), nil).is_a?(DatabaseError)
+assert bad.create_target(Child.new("bad link"), Parent.new("bad reference rollback")).is_a?(DatabaseError)
+assert parents.query.where("name", "bad reference rollback").count.or_panic == 0_i64
+wrong_session = Repository(Parent).new(connection, ParentMapping.new)
+wrong = BelongsToWriter(Child, Parent).new(children, wrong_session, "parent_id", ParentReference.new)
+assert wrong.save(wrong.assign(Child.new("wrong session"), Parent.new("wrong session")).or_panic).is_a?(DatabaseError)
+paginated = BelongsToWriter(Child, Parent).new(children, parents, "parent_id", ParentReference.new, target_scope: parents.query.limit(1))
+assert paginated.save(staged).is_a?(DatabaseError)
+connection.close.or_panic

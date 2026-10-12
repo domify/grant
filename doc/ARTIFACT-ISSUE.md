@@ -1,10 +1,12 @@
 # Artifact trait-field layout regression (resolved locally)
 
 The regression is fixed in the iyi compiler at commit `a03fc3438` in
-`/home/priit/contribute/iyi`. The fixed local compiler passes the six Grant artifact consumers (model,
-lifecycle, normalization, uniqueness, dependencies and binary data) and the
-minimal reproduction. All 125 compiler artifact tests
-pass, including a regression exercising a generic forwarding body and a
+`/home/priit/contribute/iyi`. The initial six Grant artifact consumers (model,
+lifecycle, normalization, uniqueness, dependencies and binary data) passed with
+the fixed compiler. The gate has since expanded to locking, timestamps, touch,
+exact scalars, dynamic validation, around callbacks and belongs-to writes. The
+minimal reproduction also passes. With the compound-reference regression below,
+all 126 compiler artifact tests pass, including a generic forwarding body and a
 trait-valued field. An older installed iyi binary still needs this fix.
 
 The compiler now records producer witnesses that affect trait ABI even when no
@@ -52,3 +54,46 @@ definition-typing witnesses, including generic bodies recompiled by consumers.
 The earlier core artifact check passed before the expanded transaction-session
 path. This issue does not mean source builds have full Crystal behavior parity.
 Live PostgreSQL behavior and the remaining ORM features are still pending.
+
+## Ternary error-propagation export syntax
+
+The belongs-to writer exposed a separate artifact AST-printing problem: a
+ternary branch containing error propagation (`condition ? operation! : nil`)
+was emitted as `condition ? __temp = operation`, which is not valid syntax in
+that expression position. This is not the trait-field ABI regression above.
+The native implementation uses explicit `if` branches for these operations.
+The same source-free belongs-to consumer then compiles and executes. No
+synthetic witnesses or source imports were added to consumers.
+
+## Compound witness references in schema migration artifacts
+
+The new schema migration consumer exposed another reference-resolution boundary.
+At base commit `a03fc3438`, import was rejected with:
+
+```text
+"grant/migrations" matches against (Grant::Adapters::Sqlite::Connection | IyiDefTypeWitness_Grant_Database_Database), and this build cannot name it
+```
+
+The compiler was resolving match-only compound references during its initial
+top-level pass, before restoring definition witnesses. The earlier layout fix
+handled direct witness IDs but not witnesses nested in a union or generic type.
+The local compiler now gathers these names from carried references, restores the
+needed witnesses and strictly resolves deferred match references after consumer
+typing. A missing real union member is still rejected; a whole union must not
+be replaced by an unmatchable phantom.
+
+The patch is preserved at `scripts/compiler-witness-union.patch` and applied in
+`/home/priit/contribute/iyi` on top of `a03fc3438`; it is currently a local working
+tree change. The regression fails without the patch and passes with it, covering
+union and generic references and rejection of a missing ordinary type. All 126
+compiler artifact specs pass. The rebuilt canonical compiler also passes all
+twenty-one Grant artifact test consumers and the generated schema factory consumer.
+The installed default executable is not assumed to contain these local fixes.
+
+Schema editing also exposed error-propagation AST export limitations: indexed
+assignments containing `operation!` could emit invalid source, and conditions
+such as `if operation!.nil?` could lose the condition's intended evaluation.
+The native scanner/rebuild code uses explicit local result assignments before
+index writes, conditions and interpolation. Both source and artifact programs
+exercise identical schema data and constraints. No synthetic witness declarations
+or source imports are added to application consumers.

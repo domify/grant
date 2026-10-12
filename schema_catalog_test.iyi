@@ -1,0 +1,92 @@
+module schema_catalog_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/schema::{Schema}
+import grant/schema_catalog::{Catalog}
+import grant/schema_constraints::{Action, Check}
+import grant/schema_alter::{AlterTable}
+import grant/errors::{DatabaseError}
+
+database = Connection.open(":memory:").or_panic
+database.execute("CREATE TABLE parent(a TEXT COLLATE NOCASE, b INTEGER, label TEXT CONSTRAINT inline_label UNIQUE, score INTEGER CONSTRAINT inline_positive CHECK(score > 0) CHECK(score < 100), \"CHECK\" TEXT DEFAULT 'UNIQUE CHECK (not_a_constraint)', CONSTRAINT parent_key PRIMARY KEY(b,a), CONSTRAINT table_label UNIQUE(a COLLATE NOCASE DESC,b), CONSTRAINT expression_check CHECK (length(label) > 0 AND label <> 'check, õ (value)')) WITHOUT ROWID").or_panic
+database.execute("CREATE TABLE child(y INTEGER,x TEXT, CONSTRAINT composite_parent FOREIGN KEY(y,x) REFERENCES parent(b,a) ON DELETE SET NULL ON UPDATE CASCADE)").or_panic
+database.execute("CREATE TABLE implicit_child(y INTEGER,x TEXT, FOREIGN KEY(y,x) REFERENCES parent)").or_panic
+database.execute("CREATE TABLE plain(value TEXT)").or_panic
+database.execute("CREATE TABLE sqliteZ_user(value TEXT)").or_panic
+database.execute("CREATE TABLE auto_ids(id INTEGER PRIMARY KEY AUTOINCREMENT)").or_panic
+database.execute("CREATE UNIQUE INDEX calc_index ON parent(lower(a) DESC,b COLLATE BINARY ASC) WHERE b > 0").or_panic
+database.execute("CREATE INDEX plain_index ON plain(value DESC)").or_panic
+database.execute("CREATE VIEW parent_view AS SELECT a,b FROM parent").or_panic
+catalog = Catalog.new(database)
+assert catalog.tables.or_panic.includes?("sqliteZ_user")
+assert !catalog.tables.or_panic.includes?("sqlite_sequence")
+assert !catalog.tables.or_panic.includes?("parent_view")
+assert catalog.table_exists?("parent").or_panic
+assert catalog.table_exists?("PARENT").or_panic
+assert !catalog.table_exists?("missing").or_panic
+assert !catalog.table_exists?("parent_view").or_panic
+assert catalog.table_exists?("parent;DROP TABLE plain").is_a?(DatabaseError)
+assert catalog.primary_key("parent").or_panic == ["b", "a"]
+assert catalog.primary_key("plain").or_panic.empty?
+assert catalog.primary_key("missing").is_a?(DatabaseError)
+assert Schema.new(database).columns("missing").is_a?(DatabaseError)
+
+checks = catalog.checks("parent").or_panic
+assert checks.size == 3
+assert checks[0].name == "inline_positive" && checks[0].expression == "score > 0"
+assert checks[1].name.nil? && checks[1].expression == "score < 100"
+assert checks[2].name == "expression_check" && checks[2].expression == "length(label) > 0 AND label <> 'check, õ (value)'"
+assert catalog.checks("plain").or_panic.empty?
+assert catalog.checks("missing").is_a?(DatabaseError)
+uniques = catalog.uniques("parent").or_panic
+assert uniques.size == 2
+assert uniques[0].name == "inline_label" && uniques[0].columns == ["label"]
+assert uniques[1].name == "table_label" && uniques[1].columns == ["a", "b"]
+uniques[1].columns.clear
+assert uniques[1].columns == ["a", "b"]
+assert catalog.uniques("plain").or_panic.empty?
+
+foreign = catalog.foreign_keys("child").or_panic
+assert foreign.size == 1
+assert foreign[0].columns == ["y", "x"]
+assert foreign[0].target_columns == ["b", "a"] of String?
+assert foreign[0].target_table == "parent"
+assert foreign[0].on_delete == Action::SetNull && foreign[0].on_update == Action::Cascade
+foreign[0].columns.clear
+foreign[0].target_columns.clear
+assert foreign[0].columns == ["y", "x"] && foreign[0].target_columns == ["b", "a"] of String?
+implicit = catalog.foreign_keys("implicit_child").or_panic
+assert implicit[0].target_columns == [nil, nil] of String?
+assert implicit[0].on_delete == Action::NoAction && implicit[0].on_update == Action::NoAction
+assert catalog.foreign_keys("plain").or_panic.empty?
+assert catalog.foreign_keys("missing").is_a?(DatabaseError)
+
+indexes = catalog.indexes("parent").or_panic
+assert indexes.size == 3
+assert indexes[0].name == "calc_index" && indexes[0].origin == "c"
+assert indexes[0].unique && indexes[0].partial
+assert indexes[0].sql == "CREATE UNIQUE INDEX calc_index ON parent(lower(a) DESC,b COLLATE BINARY ASC) WHERE b > 0"
+terms = indexes[0].terms
+assert terms.size == 2
+assert terms[0].column.nil? && terms[0].expression && terms[0].descending
+assert terms[1].column == "b" && !terms[1].expression && !terms[1].descending && terms[1].collation == "BINARY"
+terms.clear
+assert indexes[0].terms.size == 2
+assert indexes[1].origin == "u" && indexes[1].sql.nil?
+assert !indexes.any? { |index| index.origin == "pk" }
+plain_indexes = catalog.indexes("plain").or_panic
+assert plain_indexes.size == 1 && plain_indexes[0].terms[0].column == "value" && plain_indexes[0].terms[0].descending
+assert catalog.indexes("auto_ids").or_panic.empty?
+assert catalog.indexes("missing").is_a?(DatabaseError)
+
+# Introspection is live: a rebuild changes metadata without cache invalidation.
+AlterTable.new(database, "parent").remove_constraint("expression_check").add_constraint(Check.new("new_check", "score >= 1")).apply.or_panic
+after_checks = catalog.checks("parent").or_panic
+assert after_checks.size == 3 && after_checks[2].name == "new_check"
+AlterTable.new(database, "parent").remove_constraint("table_label").apply.or_panic
+assert catalog.uniques("parent").or_panic.size == 1
+assert catalog.indexes("parent").or_panic.size == 2
+database.close.or_panic
+assert catalog.tables.is_a?(DatabaseError)
+assert catalog.checks("parent").is_a?(DatabaseError)
+assert catalog.indexes("parent").is_a?(DatabaseError)

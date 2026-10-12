@@ -2,7 +2,7 @@ module grant/validation
 
 import std/text
 import grant/value::{Value, Attributes}
-import grant/errors::{ValidationError}
+import grant/errors::{ValidationError, DatabaseError}
 
 pub struct Issue
   getter attribute : String
@@ -117,6 +117,12 @@ end
 
 pub trait Validator
   abstract def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+end
+
+# Some rules may fail to evaluate (SQL errors or invalid dynamic operands).
+# Keep those errors distinct from a correctly evaluated validation failure.
+pub trait CheckedValidator
+  abstract def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
 end
 
 pub struct Options
@@ -250,6 +256,34 @@ pub class Rules
     errors = Errors.new
     @validators.each { |validator| validator.validate(attributes, errors, context) }
     errors
+  end
+end
+
+pub class CheckedRules
+  @scalar_rules : Rules
+  @validators : Array(CheckedValidator)
+
+  def initialize(@scalar_rules : Rules = Rules.new)
+    @validators = [] of CheckedValidator
+  end
+
+  def add(validator : CheckedValidator) : CheckedRules
+    @validators << validator
+    self
+  end
+
+  def validate(attributes : Attributes, context : Context = Context.new) : Errors | DatabaseError
+    errors = @scalar_rules.validate(attributes, context)
+    @validators.each do |validator|
+      result = validator.validate(attributes, errors, context)
+      return result if result.is_a?(DatabaseError)
+    end
+    errors
+  end
+
+  def check(attributes : Attributes, context : Context = Context.new) : Nil | ValidationError | DatabaseError
+    errors = validate(attributes, context)!
+    errors.result
   end
 end
 

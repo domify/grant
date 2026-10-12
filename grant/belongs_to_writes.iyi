@@ -1,0 +1,158 @@
+module grant/belongs_to_writes
+
+import grant/model::{Repository}
+import grant/query::{Query, identifier}
+import grant/value::{Value, Attributes}
+import grant/errors::{DatabaseError}
+import grant/association_writes::{WriteError}
+
+pub trait Reference(O)
+  abstract def with_target(owner : O, target_id : Int64?) : O | DatabaseError
+end
+
+# Explicit staging replaces the source's mutable loaded-association cache.
+pub struct Assignment(O, T)
+  getter owner : O
+  getter target : T?
+
+  def initialize(@owner : O, @target : T?)
+  end
+end
+
+pub class BelongsToWriter(O, T)
+  @owners : Repository(O)
+  @targets : Repository(T)
+  @reference : Reference(O)
+  @foreign_key : String
+  @owner_scope : Query
+  @target_scope : Query
+
+  def initialize(@owners : Repository(O), @targets : Repository(T), @foreign_key : String, @reference : Reference(O),
+                 owner_scope : Query? = nil, target_scope : Query? = nil)
+    @owner_scope = owner_scope || @owners.query
+    @target_scope = target_scope || @targets.query
+  end
+
+  # Neither assigning nil, an existing parent nor an unsaved parent writes SQL.
+  # A new parent's missing key is retained in the explicit staged assignment.
+  def assign(owner : O, target : T?) : Assignment(O, T) | DatabaseError
+    Grant::Query.identifier(@foreign_key)!
+    owner_id = key(@owners.attributes(owner), @owners.query.table.primary_key)!
+    target_id = if target
+                  key(@targets.attributes(target), @targets.query.table.primary_key)!
+                else
+                  nil
+                end
+    linked = @reference.with_target(owner, target_id)!
+    after = @owners.attributes(linked)
+    return DatabaseError.new(20, "belongs_to", "reference changed the owner primary key") unless after[@owners.query.table.primary_key]? == owner_id
+    return DatabaseError.new(20, "belongs_to", "reference did not assign the expected foreign key") unless after.has_key?(@foreign_key) && after[@foreign_key] == target_id
+    Assignment(O, T).new(linked, target)
+  end
+
+  # New targets are saved before the owner. Saved targets are written only when
+  # autosave is explicitly enabled. Both repositories own one transaction.
+  def save(assignment : Assignment(O, T), autosave : Bool = false) : Assignment(O, T) | WriteError
+    valid!
+    @owners.unit_of_work.run(requires_new: true) { save_assignment(assignment, autosave).as(Assignment(O, T) | WriteError) }
+  end
+
+  # The source create_<association> helper persists the target, not the owner.
+  def create_target(owner : O, target : T) : Assignment(O, T) | WriteError
+    valid!
+    return DatabaseError.new(21, "belongs_to", "create_target requires an unsaved target") if key(@targets.attributes(target), @targets.query.table.primary_key)!
+    @owners.unit_of_work.run(requires_new: true) { create_assignment(owner, target).as(Assignment(O, T) | WriteError) }
+  end
+
+  private def create_assignment(owner : O, target : T) : Assignment(O, T) | WriteError
+    permitted_owner(owner)!
+    saved = save_target(target, false)!
+    assign(owner, saved)
+  end
+
+  private def valid : Nil | DatabaseError
+    return DatabaseError.new(21, "belongs_to", "repositories must share one unit of work") unless @owners.unit_of_work.object_id == @targets.unit_of_work.object_id
+    return DatabaseError.new(21, "belongs_to", "repositories must share one database") unless @owners.query.database_identity == @targets.query.database_identity
+    return DatabaseError.new(21, "belongs_to", "unit of work belongs to another database") unless @owners.unit_of_work.database_identity == @owners.query.database_identity
+    return DatabaseError.new(21, "belongs_to", "pagination is not supported for assignment writes") if @owner_scope.paginated? || @target_scope.paginated?
+    Grant::Query.identifier(@foreign_key)!
+    valid_scope(@owner_scope, @owners.query)!
+    valid_scope(@target_scope, @targets.query)!
+    nil
+  end
+
+  private def valid_scope(scope : Query, expected : Query) : Nil | DatabaseError
+    return DatabaseError.new(21, "belongs_to", "scope belongs to another table") unless scope.table.name == expected.table.name && scope.table.primary_key == expected.table.primary_key
+    return DatabaseError.new(21, "belongs_to", "scope belongs to another database") unless scope.database_identity == expected.database_identity
+    nil
+  end
+
+  private def key(attributes : Attributes, name : String) : Int64 | Nil | DatabaseError
+    return DatabaseError.new(20, "belongs_to", "mapping must expose the primary key: #{name}") unless attributes.has_key?(name)
+    key(attributes[name])
+  end
+
+  private def key(value : Value) : Int64 | Nil | DatabaseError
+    value.nil? || value.is_a?(Int64) ? value : DatabaseError.new(20, "belongs_to", "primary key must be Int64 or nil")
+  end
+
+  private def save_target(target : T, autosave : Bool) : T | WriteError
+    id = key(@targets.attributes(target), @targets.query.table.primary_key)!
+    saved = if id
+              existing = @targets.first(@target_scope.where_stored(@target_scope.table.primary_key, id))!
+              return DatabaseError.new(21, "belongs_to", "target is missing from the permitted scope") unless existing
+              if autosave
+                @targets.update(@target_scope.unordered, id, target)!
+              else
+                existing
+              end
+            else
+              @targets.insert(target)!
+            end
+    return DatabaseError.new(21, "belongs_to", "target disappeared while saving") unless saved
+    saved_id = key(@targets.attributes(saved), @targets.query.table.primary_key)!
+    return DatabaseError.new(20, "belongs_to", "saved target has no primary key") unless saved_id
+    return DatabaseError.new(20, "belongs_to", "callback changed the saved target primary key") if id && saved_id != id
+    persisted = @targets.first(@target_scope.where_stored(@target_scope.table.primary_key, saved_id))!
+    persisted || DatabaseError.new(21, "belongs_to", "saved target is outside the permitted scope")
+  end
+
+  private def save_assignment(assignment : Assignment(O, T), autosave : Bool) : Assignment(O, T) | WriteError
+    permitted_owner(assignment.owner)!
+    target = assignment.target
+    saved_target = if target
+                     save_target(target, autosave)!
+                   else
+                     nil
+                   end
+    linked = assign(assignment.owner, saved_target)!
+    id = key(@owners.attributes(linked.owner), @owners.query.table.primary_key)!
+    saved = if id
+              @owners.update(@owner_scope.unordered, id, linked.owner)!
+            else
+              @owners.insert(linked.owner)!
+            end
+    return DatabaseError.new(21, "belongs_to", "owner is missing from the permitted scope") unless saved
+    saved_id = key(@owners.attributes(saved), @owners.query.table.primary_key)!
+    return DatabaseError.new(20, "belongs_to", "saved owner has no primary key") unless saved_id
+    return DatabaseError.new(20, "belongs_to", "callback changed the owner primary key") if id && saved_id != id
+    persisted = @owners.first(@owner_scope.where_stored(@owner_scope.table.primary_key, saved_id))!
+    return DatabaseError.new(21, "belongs_to", "saved owner is outside the permitted scope") unless persisted
+    target_id = if saved_target
+                  key(@targets.attributes(saved_target), @targets.query.table.primary_key)!
+                else
+                  nil
+                end
+    return DatabaseError.new(20, "belongs_to", "callback changed the assigned foreign key") unless @owners.attributes(persisted)[@foreign_key]? == target_id
+    Assignment(O, T).new(persisted, saved_target)
+  end
+
+  private def permitted_owner(owner : O) : Nil | DatabaseError
+    owner_id = key(@owners.attributes(owner), @owners.query.table.primary_key)!
+    if owner_id
+      existing = @owners.first(@owner_scope.where_stored(@owner_scope.table.primary_key, owner_id))!
+      return DatabaseError.new(21, "belongs_to", "owner is missing from the permitted scope") unless existing
+    end
+    nil
+  end
+end

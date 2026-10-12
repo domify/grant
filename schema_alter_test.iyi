@@ -1,0 +1,238 @@
+module schema_alter_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/schema::{Schema, Column, ColumnType, ColumnInfo}
+import grant/schema_alter::{AlterTable}
+import grant/schema_transaction::{ddl_transaction}
+import grant/migrations::{Migration, SQLMigration, Runner}
+import grant/database::{Database}
+import grant/query::{Query, Table}
+import grant/value::{Value, Binary, Row}
+import grant/scalars::{Decimal}
+import grant/errors::{DatabaseError, CallbackAbort}
+import grant/unit_of_work::{UnitOfWork}
+
+def required(query : Query) : Row | DatabaseError
+  row = query.first!
+  row || DatabaseError.new(20, "test", "expected an existing row")
+end
+
+def field(schema : Schema, table : String, name : String) : ColumnInfo | DatabaseError
+  columns = schema.columns(table)!
+  column = columns.find { |info| info.name == name }
+  column || DatabaseError.new(20, "test", "expected an existing column")
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY)").or_panic
+connection.execute("INSERT INTO accounts(id) VALUES(1)").or_panic
+connection.execute("CREATE TABLE records(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE, email TEXT COLLATE NOCASE DEFAULT 'DEFAULT, two (''quoted'') eesti õ', score INTEGER NOT NULL DEFAULT 1, legacy TEXT, doubled INTEGER GENERATED ALWAYS AS (score * 2) STORED, CONSTRAINT positive_score CHECK(score >= 0))").or_panic
+connection.execute("INSERT INTO records(id,account_id,email) VALUES(1000,1,'deleted highest key')").or_panic
+connection.execute("DELETE FROM records WHERE id=1000").or_panic
+connection.execute("CREATE UNIQUE INDEX records_email ON records(lower(email)) WHERE email IS NOT NULL").or_panic
+connection.execute("CREATE INDEX records_legacy ON records(legacy)").or_panic
+connection.execute("CREATE TABLE children(id INTEGER PRIMARY KEY, record_id INTEGER REFERENCES records(id) ON DELETE CASCADE)").or_panic
+connection.execute("CREATE TABLE audit(id INTEGER PRIMARY KEY, record_id INTEGER, name TEXT)").or_panic
+connection.execute("CREATE TRIGGER record_insert AFTER INSERT ON records BEGIN INSERT INTO audit(record_id, name) VALUES(NEW.id, 'score DEFAULT, callback'); END").or_panic
+connection.execute("CREATE VIEW score_view AS SELECT id, score, doubled FROM records").or_panic
+records = Query.new(connection, Table.new("records"))
+records.insert({"id" => 1_i64, "account_id" => 1_i64, "email" => nil, "score" => 7_i64, "legacy" => "old"} of String => Value).or_panic
+records.insert({"id" => 2_i64, "account_id" => 1_i64, "email" => "a@x", "score" => 8_i64, "legacy" => "old"} of String => Value).or_panic
+connection.execute("INSERT INTO children(record_id) VALUES(1)").or_panic
+schema = Schema.new(connection)
+before_sql = connection.query("SELECT sql FROM sqlite_schema WHERE name='records'").or_panic[0]["sql"]
+assert AlterTable.new(connection, "records").change_null("email", false).apply.is_a?(DatabaseError)
+assert required(records.where("id", 1_i64)).or_panic["email"].nil?
+assert connection.query("SELECT sql FROM sqlite_schema WHERE name='records'").or_panic[0]["sql"] == before_sql
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+assert connection.query("PRAGMA legacy_alter_table").or_panic[0]["legacy_alter_table"] == 0_i64
+
+# Several changes copy rows once. Dependent rows, generated columns, expression
+# indexes, checks, collations, views and triggers survive the replacement.
+plan = AlterTable.new(connection, "records")
+plan.add(Column.new("age", ColumnType::Integer, nullable: false, default: 3_i64))
+plan.remove("legacy").change_null("email", false, "nobody").change_type("score", ColumnType::Integer)
+plan.apply.or_panic
+fields = schema.columns("records").or_panic
+assert fields.map { |field| field.name } == ["id", "account_id", "email", "score", "doubled", "age"]
+assert fields[4].generated && !fields[4].hidden
+assert !fields[2].nullable
+assert fields[3].default_sql == "1" && !fields[3].nullable
+assert records.count.or_panic == 2_i64
+assert required(records.where("id", 1_i64)).or_panic["email"] == "nobody"
+assert required(records.where("id", 1_i64)).or_panic["age"] == 3_i64
+assert required(records.where("id", 1_i64)).or_panic["doubled"] == 14_i64
+assert Query.new(connection, Table.new("children")).count.or_panic == 1_i64
+assert connection.query("SELECT doubled FROM score_view WHERE id=1").or_panic[0]["doubled"] == 14_i64
+indexes = connection.query("SELECT name FROM sqlite_schema WHERE type='index' AND tbl_name='records' ORDER BY name").or_panic
+assert indexes.size == 1 && indexes[0]["name"] == "records_email"
+assert records.insert({"account_id" => 1_i64, "email" => "A@X"} of String => Value).is_a?(DatabaseError)
+assert records.insert({"account_id" => 1_i64, "email" => "negative", "score" => -1_i64} of String => Value).is_a?(DatabaseError)
+assert records.insert({"account_id" => 999_i64, "email" => "bad fk"} of String => Value).is_a?(DatabaseError)
+inserted = records.insert({"account_id" => 1_i64} of String => Value).or_panic
+assert inserted["id"] == 1001_i64
+assert inserted["email"] == "DEFAULT, two ('quoted') eesti õ"
+assert Query.new(connection, Table.new("audit")).count.or_panic == 3_i64
+
+AlterTable.new(connection, "records").change_default("email", "new ' default").apply.or_panic
+next_record = records.insert({"account_id" => 1_i64} of String => Value).or_panic
+assert next_record["email"] == "new ' default"
+assert required(records.where("id", 1_i64)).or_panic["email"] == "nobody"
+AlterTable.new(connection, "records").remove_default("email").change_null("email", true).apply.or_panic
+assert records.insert({"account_id" => 1_i64} of String => Value).or_panic["email"].nil?
+AlterTable.new(connection, "records").change_default_sql("age", "1 + (2 * 3)").apply.or_panic
+assert records.insert({"account_id" => 1_i64, "email" => "expression"} of String => Value).or_panic["age"] == 7_i64
+AlterTable.new(connection, "records").change_default_sql("age", "CURRENT_TIMESTAMP").apply.or_panic
+assert field(schema, "records", "age").or_panic.default_sql == "CURRENT_TIMESTAMP"
+AlterTable.new(connection, "records").change_default("age", 3_i64).apply.or_panic
+
+# Guards do not rebuild or fire triggers when an operation is a true no-op.
+audit_count = Query.new(connection, Table.new("audit")).count.or_panic
+AlterTable.new(connection, "records").add(Column.new("age", ColumnType::Integer), if_not_exists: true).remove("absent", if_exists: true).apply.or_panic
+assert Query.new(connection, Table.new("audit")).count.or_panic == audit_count
+assert AlterTable.new(connection, "records").add(Column.new("age", ColumnType::Integer)).apply.is_a?(DatabaseError)
+assert AlterTable.new(connection, "records").remove("missing").apply.is_a?(DatabaseError)
+assert AlterTable.new(connection, "records").change_default("missing", nil).apply.is_a?(DatabaseError)
+assert AlterTable.new(connection, "bad; DROP TABLE records").remove("age").apply.is_a?(DatabaseError)
+assert AlterTable.new(connection, "records").change_default_sql("age", "(").apply.is_a?(DatabaseError)
+assert AlterTable.new(connection, "records").add(Column.new("required", ColumnType::Text, nullable: false)).apply.is_a?(DatabaseError)
+assert !schema.columns("records").or_panic.any? { |field| field.name == "required" }
+
+# Native renaming updates index/trigger/view references without a row rewrite.
+schema.rename_column("records", "age", "years").or_panic
+assert schema.columns("records").or_panic.any? { |field| field.name == "years" }
+assert schema.rename_column("records", "years", "bad;name").is_a?(DatabaseError)
+
+# Rebuilds cannot switch FK enforcement off inside a normal outer transaction.
+unit = UnitOfWork.new(connection)
+outer = unit.run do
+  assert AlterTable.new(connection, "records").change_default("years", 4_i64).apply.is_a?(DatabaseError)
+  records.insert({"account_id" => 1_i64, "email" => "outer survives"} of String => Value)
+end
+outer.or_panic
+assert records.where("email", "outer survives").count.or_panic == 1_i64
+
+# A DDL transaction explicitly opened with FK enforcement off can rebuild via a
+# nested savepoint. Its rollback restores the table, data and dependent objects.
+connection.execute("PRAGMA foreign_keys = OFF").or_panic
+count_before = records.count.or_panic
+outcome = unit.run do
+  AlterTable.new(connection, "records").change_default("years", 9_i64).apply.or_panic
+  records.insert({"email" => "rollback"} of String => Value).or_panic
+  CallbackAbort.new("rollback DDL transaction")
+end
+assert outcome.is_a?(CallbackAbort)
+assert records.count.or_panic == count_before
+assert field(schema, "records", "years").or_panic.default_sql == "3"
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 0_i64
+connection.execute("PRAGMA foreign_keys = ON").or_panic
+ddl_result = Grant::SchemaTransaction.ddl_transaction(connection, rebuilds: true) do
+  AlterTable.new(connection, "records").change_default("years", 11_i64).apply.or_panic
+  AlterTable.new(connection, "records").change_default("years", 12_i64).apply.or_panic
+  nil
+end
+ddl_result.or_panic
+assert field(schema, "records", "years").or_panic.default_sql == "12"
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+invalid_fk = Grant::SchemaTransaction.ddl_transaction(connection, rebuilds: true) do
+  insert_outcome = connection.execute("INSERT INTO children(record_id) VALUES(999999)")
+  next insert_outcome if insert_outcome.is_a?(DatabaseError)
+  nil
+end
+assert invalid_fk.is_a?(DatabaseError)
+assert Query.new(connection, Table.new("children")).count.or_panic == 1_i64
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+
+# Cancellation and contained panic restore both DDL state and connection flags.
+cancelled_ddl = Grant::SchemaTransaction.ddl_transaction(connection, rebuilds: true) do
+  connection.execute("CREATE TABLE cancelled_ddl(id INTEGER)").or_panic
+  Cancelled.new
+end
+assert cancelled_ddl.is_a?(Cancelled)
+assert connection.query("SELECT name FROM sqlite_schema WHERE name='cancelled_ddl'").or_panic.empty?
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+panicked_ddl = Grant::SchemaTransaction.ddl_transaction(connection, rebuilds: true) do
+  AlterTable.new(connection, "records").change_default("years", 13_i64).apply.or_panic
+  raise "deliberate DDL transaction panic"
+  nil
+end
+assert panicked_ddl.is_a?(Panicked)
+assert field(schema, "records", "years").or_panic.default_sql == "12"
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+assert connection.query("PRAGMA legacy_alter_table").or_panic[0]["legacy_alter_table"] == 0_i64
+
+# Composite primary keys and WITHOUT ROWID survive; dropping a key is rejected.
+connection.execute("CREATE TABLE pairs(a INTEGER NOT NULL, b INTEGER NOT NULL, note TEXT, PRIMARY KEY(a,b)) WITHOUT ROWID").or_panic
+connection.execute("INSERT INTO pairs(a,b,note) VALUES(1,2,'kept')").or_panic
+AlterTable.new(connection, "pairs").change_default("note", "new").apply.or_panic
+assert connection.query("SELECT note FROM pairs WHERE a=1 AND b=2").or_panic[0]["note"] == "kept"
+assert AlterTable.new(connection, "pairs").remove("a").apply.is_a?(DatabaseError)
+assert connection.query("SELECT COUNT(*) AS count FROM pairs").or_panic[0]["count"] == 1_i64
+
+# Typed exact/BLOB defaults retain their storage types after column additions.
+amount = Decimal.parse("123456789012345678901234567890.125").or_panic
+payload = Binary.from_bytes([0_u8, 255_u8, 128_u8])
+AlterTable.new(connection, "pairs").add(Column.new("amount", ColumnType::Decimal, default: amount)).add(Column.new("payload", ColumnType::Binary, default: payload)).apply.or_panic
+types = connection.query("SELECT amount, payload, typeof(amount) AS amount_type, typeof(payload) AS payload_type FROM pairs").or_panic[0]
+assert types["amount"] == amount.to_s
+assert types["payload"] == payload
+assert types["amount_type"] == "text" && types["payload_type"] == "blob"
+AlterTable.new(connection, "pairs").add(Column.new("ratio", ColumnType::Float, default: -1.25e2)).apply.or_panic
+AlterTable.new(connection, "pairs").change_default("ratio", 2.5).apply.or_panic
+assert connection.query("SELECT ratio FROM pairs").or_panic[0]["ratio"] == -125.0
+AlterTable.new(connection, "pairs").remove_default("ratio").apply.or_panic
+connection.execute("INSERT INTO pairs(a,b) VALUES(3,4)").or_panic
+assert connection.query("SELECT ratio FROM pairs WHERE a=3").or_panic[0]["ratio"].nil?
+AlterTable.new(connection, "pairs").add(Column.new("seen_at", ColumnType::DateTime, nullable: false), default_sql: "CURRENT_TIMESTAMP").apply.or_panic
+assert connection.query("SELECT COUNT(seen_at) AS count FROM pairs").or_panic[0]["count"] == 2_i64
+assert AlterTable.new(connection, "pairs").add(Column.new("conflicting_default", ColumnType::Integer, default: 1_i64), default_sql: "2").apply.is_a?(DatabaseError)
+connection.execute("CREATE TABLE replaced(old TEXT)").or_panic
+connection.execute("INSERT INTO replaced(old) VALUES('one'),('two')").or_panic
+AlterTable.new(connection, "replaced").remove("old").add(Column.new("fresh", ColumnType::Integer, nullable: false, default: 7_i64)).apply.or_panic
+assert connection.query("SELECT COUNT(*) AS count FROM replaced WHERE fresh=7").or_panic[0]["count"] == 2_i64
+AlterTable.new(connection, "replaced").remove("fresh").add(Column.new("fresh", ColumnType::Text, nullable: false, default: "replacement")).apply.or_panic
+assert connection.query("SELECT COUNT(*) AS count FROM replaced WHERE fresh='replacement'").or_panic[0]["count"] == 2_i64
+AlterTable.new(connection, "replaced").add(Column.new("filled", ColumnType::Text)).change_null("filled", false, "new column fill").apply.or_panic
+assert connection.query("SELECT COUNT(*) AS count FROM replaced WHERE fresh='replacement' AND filled='new column fill'").or_panic[0]["count"] == 2_i64
+assert connection.query("PRAGMA foreign_key_check").or_panic.empty?
+assert connection.query("SELECT name FROM sqlite_schema WHERE name LIKE '__grant_rebuild_%'").or_panic.empty?
+
+struct RebuildMigration
+end
+
+impl Migration for RebuildMigration
+  def version : Int64
+    1_i64
+  end
+
+  def checksum : String
+    "reviewed-rebuild-v1"
+  end
+
+  def rebuilds : Bool
+    true
+  end
+
+  def up(database : Database) : Nil | DatabaseError | Panicked | Cancelled
+    AlterTable.new(database, "pairs").change_default("note", "migrated").apply
+  end
+
+  def down(database : Database) : Nil | DatabaseError | Panicked | Cancelled
+    AlterTable.new(database, "pairs").change_default("note", "new").apply
+  end
+end
+
+runner = Runner.new(connection, [RebuildMigration.new] of Migration)
+assert runner.migrate.or_panic == 1
+assert field(schema, "pairs", "note").or_panic.default_sql == "'migrated'"
+assert runner.versions.or_panic[1_i64] == "reviewed-rebuild-v1"
+assert runner.rollback.or_panic == 1
+assert field(schema, "pairs", "note").or_panic.default_sql == "'new'"
+assert runner.versions.or_panic.empty?
+sql_rebuild = SQLMigration.new(2_i64, ["CREATE TABLE ddl_flag(enforced INTEGER)", "INSERT INTO ddl_flag(enforced) SELECT foreign_keys FROM pragma_foreign_keys"], ["DROP TABLE ddl_flag"], rebuilds: true)
+sql_runner = Runner.new(connection, [sql_rebuild] of Migration)
+assert sql_runner.migrate.or_panic == 1
+assert connection.query("SELECT enforced FROM ddl_flag").or_panic[0]["enforced"] == 0_i64
+assert sql_runner.rollback.or_panic == 1
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+connection.close.or_panic

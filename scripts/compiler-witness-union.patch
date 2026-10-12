@@ -1,0 +1,131 @@
+diff --git a/spec/compiler/iyimod_spec.cr b/spec/compiler/iyimod_spec.cr
+index 6c59dbca3..ef577e3f6 100644
+--- a/spec/compiler/iyimod_spec.cr
++++ b/spec/compiler/iyimod_spec.cr
+@@ -5898,3 +5898,57 @@ describe "a module compiled against Crystal's library" do
+     end
+   end
+ end
++
++describe "artifact witness union matches" do
++  it "restores witnesses needed by union matches before resolving carried references" do
++    with_tempdir("iyimod_witness_match_refs") do
++      text = <<-IYI
++        module app/witness
++
++        pub trait Value
++          abstract def value : Int32
++        end
++
++        pub class Number
++          def value : Int32
++            40
++          end
++        end
++
++        impl Value for Number
++        end
++
++        pub class Box(T)
++        end
++        IYI
++      File.write "main.iyi", text
++      witness = "IyiDefTypeWitness_App_Witness_Value"
++      names = ["(App::Witness::Number | #{witness})", "App::Witness::Box(#{witness})"]
++      program = Iyi::Program.new
++      program.filename = File.expand_path("main.iyi")
++      parser = program.new_parser(text)
++      parser.filename = program.filename
++      node = program.normalize(parser.parse)
++      names.each do |name|
++        program.iyi_artifact_refs << Iyi::Program::IyiArtifactRef.new("app/carried", name, node, true)
++      end
++      program.semantic node
++      names.each { |name| program.iyi_artifact_match_types.has_key?(name).should be_true }
++      program.types.has_key?(witness).should be_true
++      program.iyi_artifact_refs.should be_empty
++
++      # The witness may be restored, but a missing real union member must
++      # still be refused; the compound type is not an unmatchable phantom.
++      rejecting = Iyi::Program.new
++      rejecting.filename = File.expand_path("main.iyi")
++      reject_parser = rejecting.new_parser(text)
++      reject_parser.filename = rejecting.filename
++      reject_node = rejecting.normalize(reject_parser.parse)
++      name = "(#{witness} | MissingRealType)"
++      rejecting.iyi_artifact_refs << Iyi::Program::IyiArtifactRef.new("app/carried", name, reject_node, true)
++      expect_raises(Iyi::CodeError, /MissingRealType/) do
++        rejecting.semantic reject_node
++      end
++    end
++  end
++end
+diff --git a/src/compiler/iyi/program.cr b/src/compiler/iyi/program.cr
+index baccf9259..a71333ac4 100644
+--- a/src/compiler/iyi/program.cr
++++ b/src/compiler/iyi/program.cr
+@@ -857,7 +857,7 @@ module Iyi
+     # scope of the question: a type id is resolved from a definition in *this
+     # program*, not from whatever had been read by the time one artifact was
+     # opened. See `IyiArtifactRef`.
+-    def resolve_iyi_artifact_refs : Nil
++    def resolve_iyi_artifact_refs(defer_witness_matches : Bool = false) : Nil
+       refs = @iyi_artifact_refs
+       return if refs.empty?
+       @iyi_artifact_refs = [] of IyiArtifactRef
+@@ -896,6 +896,13 @@ module Iyi
+         # `iyi_artifact_phantom_types`.
+         if !ref.match && ref.name.starts_with?(DefinitionTyping::WITNESS_PREFIX)
+           iyi_artifact_phantom_types << ref.name
++        elsif ref.match && defer_witness_matches && ref.name.includes?(DefinitionTyping::WITNESS_PREFIX)
++          # A carried match can name a witness as a member of a union or a
++          # generic argument. Its declaration is restored by definition typing
++          # after the ordinary imported declarations have been processed.
++          # Keep the full reference, then resolve it strictly after restoration;
++          # treating the union as a phantom would lose its real runtime members.
++          @iyi_artifact_refs << ref
+         elsif ref.match
+           ref.node.raise <<-MESSAGE
+             "#{ref.module_name}" matches against `#{ref.name}`, and this build cannot name it
+diff --git a/src/compiler/iyi/semantic.cr b/src/compiler/iyi/semantic.cr
+index 06b95abb7..12b507476 100644
+--- a/src/compiler/iyi/semantic.cr
++++ b/src/compiler/iyi/semantic.cr
+@@ -62,6 +62,11 @@ class Iyi::Program
+       end
+     end
+ 
++    # Imported match-only unions must not change overload/type specialisation
++    # while consumer bodies are being typed. Witnesses are already declared by
++    # definition typing; name the carried matches after the main typing pass.
++    Prof.span("restored artifact references") { resolve_iyi_artifact_refs }
++
+     @progress_tracker.stage("Semantic (cleanup)") do
+       Prof.span("cleanup: types + files") do
+         cleanup_types
+@@ -121,7 +126,7 @@ class Iyi::Program
+     # by name. Asked per import it was a stricter order than the question: `pg`
+     # declares `PG` and `PQ`, each names the other, and no order of two
+     # boundaries answers both. See `Program::IyiArtifactRef`.
+-    Prof.span("artifact references") { resolve_iyi_artifact_refs }
++    Prof.span("artifact references") { resolve_iyi_artifact_refs(defer_witness_matches: true) }
+ 
+     @progress_tracker.stage("Semantic (new)") do
+       Prof.span("new methods") { define_new_methods(new_expansions) }
+diff --git a/src/compiler/iyi/semantic/definition_typing.cr b/src/compiler/iyi/semantic/definition_typing.cr
+index 662a1ab0d..ef688d53e 100644
+--- a/src/compiler/iyi/semantic/definition_typing.cr
++++ b/src/compiler/iyi/semantic/definition_typing.cr
+@@ -152,8 +152,11 @@ module Iyi::DefinitionTyping
+     private def restore_artifact_witnesses : Nil
+       wanted = Set(String).new
+       @program.iyi_artifact_phantom_types.each { |name| wanted << name }
++      witness_name = Regex.new("#{Regex.escape(WITNESS_PREFIX)}[\\p{L}\\p{M}\\p{N}_]+")
+       @program.iyi_artifact_refs.each do |ref|
+-        wanted << ref.name if !ref.match && ref.name.starts_with?(WITNESS_PREFIX)
++        # Besides direct type ids, matches can carry witness names inside a
++        # union or a generic. They must be restored before naming that match.
++        ref.name.scan(witness_name) { |match| wanted << match[0] }
+       end
+       return if wanted.empty?
+       queue = [] of Type

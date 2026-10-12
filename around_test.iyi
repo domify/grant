@@ -1,0 +1,209 @@
+module around_test
+
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Callback, Around, Continuation, AroundError, Event}
+
+struct Document
+  getter id : Int64?
+  getter name : String
+
+  def initialize(@name : String, @id : Int64? = nil)
+  end
+end
+
+struct DocumentMapping
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Mapping(Document) for DocumentMapping
+  def table : Table
+    Table.new("documents")
+  end
+
+  def attributes(record : Document) : Attributes
+    {"id" => record.id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Document | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    if id.is_a?(Int64) && name.is_a?(String)
+      Document.new(name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid document row")
+    end
+  end
+
+  def validate(record : Document) : Nil | ValidationError
+    @log << "validation"
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct LogEvents
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Callback(Document) for LogEvents
+  def call(event : Event, record : Document) : Document | DatabaseError | ValidationError | CallbackAbort
+    @log << event.to_s
+    record
+  end
+end
+
+class Wrapper
+  @log : Array(String)
+  @name : String
+  property mode : String
+  property target : Event?
+  getter last : Continuation(Document)?
+
+  def initialize(@log : Array(String), @name : String)
+    @mode = "normal"
+    @target = nil
+    @last = nil
+  end
+end
+
+impl Around(Document) for Wrapper
+  def call(event : Event, record : Document, continuation : Continuation(Document)) : Document | Nil | AroundError
+    @last = continuation
+    @log << "#{@name}:#{event}:before"
+    mode = @target.nil? || @target == event ? @mode : "normal"
+    return record if mode == "halt"
+    result = continuation.call(record)
+    @log << "#{@name}:#{event}:after"
+    if mode == "double"
+      continuation.call(record)
+      return record
+    end
+    return CallbackAbort.new("abort after around operation") if mode == "abort"
+    return record if mode == "swallow"
+    return nil if mode == "nil"
+    raise "deliberate around callback panic" if mode == "panic"
+    result
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE documents(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+log = [] of String
+pipeline = Pipeline(Document).new.add(LogEvents.new(log), [
+  Event::BeforeValidation, Event::AfterValidation, Event::BeforeSave, Event::AfterSave,
+  Event::BeforeCreate, Event::AfterCreate, Event::BeforeUpdate, Event::AfterUpdate,
+  Event::BeforeDestroy, Event::AfterDestroy, Event::AfterCommit, Event::AfterRollback,
+])
+outer = Wrapper.new(log, "outer")
+inner = Wrapper.new(log, "inner")
+registration = [Event::AroundValidation, Event::AroundSave, Event::AroundCreate, Event::AroundUpdate, Event::AroundDestroy]
+pipeline.add_around(outer, registration)
+pipeline.add_around(inner, [Event::AroundSave])
+registration << Event::BeforeValidation
+repository = Repository(Document).new(connection, DocumentMapping.new(log), pipeline)
+created = repository.insert(Document.new("one")).or_panic
+assert log == [
+  "outer:AroundValidation:before", "BeforeValidation", "validation", "AfterValidation", "outer:AroundValidation:after",
+  "outer:AroundSave:before", "inner:AroundSave:before", "BeforeSave",
+  "outer:AroundCreate:before", "BeforeCreate", "AfterCreate", "outer:AroundCreate:after",
+  "AfterSave", "inner:AroundSave:after", "outer:AroundSave:after", "AfterCommit",
+]
+escaped = outer.last
+assert !escaped.nil?
+assert escaped.call(Document.new("escaped")).is_a?(CallbackAbort) if escaped
+assert repository.query.where("name", "escaped").count.or_panic == 0_i64
+log.clear
+updated = repository.update(repository.query, created.id || 0_i64, Document.new("two")).or_panic
+assert !updated.nil?
+assert log.includes?("outer:AroundUpdate:before")
+assert !log.includes?("outer:AroundCreate:before")
+assert log.last == "AfterCommit"
+log.clear
+repository.destroy(repository.query, created.id || 0_i64).or_panic
+assert log == ["outer:AroundDestroy:before", "BeforeDestroy", "AfterDestroy", "outer:AroundDestroy:after", "AfterCommit"]
+assert repository.find(created.id || 0_i64).or_panic.nil?
+
+# Not yielding is an abort, including validation. Validation and SQL do not run.
+[Event::AroundValidation, Event::AroundSave, Event::AroundCreate].each do |event|
+  outer.target = event
+  outer.mode = "halt"
+  log.clear
+  assert repository.insert(Document.new("halted")).is_a?(CallbackAbort)
+  assert !log.includes?("AfterSave")
+  assert !log.includes?("validation") if event == Event::AroundValidation
+  assert repository.query.where("name", "halted").count.or_panic == 0_i64
+end
+outer.target = Event::AroundSave
+outer.mode = "double"
+log.clear
+assert repository.insert(Document.new("double")).is_a?(CallbackAbort)
+assert log.last == "AfterRollback"
+assert repository.query.count.or_panic == 0_i64
+outer.mode = "nil"
+assert repository.insert(Document.new("nil")).is_a?(CallbackAbort)
+assert repository.query.count.or_panic == 0_i64
+outer.target = Event::AroundValidation
+outer.mode = "swallow"
+assert repository.insert(Document.new("")).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+outer.target = Event::AroundUpdate
+outer.mode = "swallow"
+assert repository.update(repository.query, 9999_i64, Document.new("missing")).or_panic.nil?
+outer.mode = "normal"
+persisted = repository.insert(Document.new("preserved")).or_panic
+outer.mode = "nil"
+assert repository.update(repository.query, persisted.id || 0_i64, Document.new("nil update")).is_a?(CallbackAbort)
+restored = repository.find(persisted.id || 0_i64).or_panic
+assert !restored.nil?
+assert restored.name == "preserved" if restored
+outer.target = Event::AroundDestroy
+outer.mode = "halt"
+assert repository.destroy(repository.query, persisted.id || 0_i64).is_a?(CallbackAbort)
+assert !repository.find(persisted.id || 0_i64).or_panic.nil?
+outer.mode = "abort"
+assert repository.destroy(repository.query, persisted.id || 0_i64).is_a?(CallbackAbort)
+assert !repository.find(persisted.id || 0_i64).or_panic.nil?
+outer.target = Event::AroundUpdate
+assert repository.update(repository.query, persisted.id || 0_i64, Document.new("aborted update")).is_a?(CallbackAbort)
+restored = repository.find(persisted.id || 0_i64).or_panic
+assert !restored.nil?
+assert restored.name == "preserved" if restored
+
+# Catching an around failure inside a transaction does not leak its SQL write.
+outer.target = Event::AroundCreate
+outer.mode = "abort"
+managed = repository.unit_of_work.run do
+  assert repository.insert(Document.new("caught failure")).is_a?(CallbackAbort)
+  outer.mode = "normal"
+  repository.insert(Document.new("outer survives"))
+end
+managed.or_panic
+assert repository.query.where("name", "caught failure").count.or_panic == 0_i64
+assert repository.query.where("name", "outer survives").count.or_panic == 1_i64
+outer.mode = "panic"
+assert repository.insert(Document.new("panicked")).is_a?(Panicked)
+assert repository.query.where("name", "panicked").count.or_panic == 0_i64
+escaped = outer.last
+assert !escaped.nil?
+assert escaped.call(Document.new("escaped after panic")).is_a?(CallbackAbort) if escaped
+assert repository.query.where("name", "escaped after panic").count.or_panic == 0_i64
+outer.mode = "normal"
+
+# Prepended wrappers become outermost without changing registration snapshots.
+head = Wrapper.new(log, "head")
+pipeline.add_around(head, [Event::AroundSave], prepend: true)
+log.clear
+repository.insert(Document.new("prepended")).or_panic
+save_log = log.select { |entry| entry.includes?("AroundSave") }
+assert save_log == ["head:AroundSave:before", "outer:AroundSave:before", "inner:AroundSave:before", "inner:AroundSave:after", "outer:AroundSave:after", "head:AroundSave:after"]
+connection.close.or_panic

@@ -1,0 +1,216 @@
+module touch_test
+
+import std/time::{Time}
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table, Query}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Callback, Event}
+import grant/timestamps::{Clock, Timestamps}
+import grant/locking::{Optimistic, Version, StaleObjectError}
+
+struct Ticket
+  getter id : Int64?
+  getter title : String
+  getter created_at : String?
+  getter updated_at : String?
+  getter reviewed_at : String?
+  getter updated_on : String?
+  getter revision : Int64
+
+  def initialize(@title : String, @created_at : String? = nil, @updated_at : String? = nil,
+                 @reviewed_at : String? = nil, @updated_on : String? = nil, @id : Int64? = nil, @revision : Int64 = 0_i64)
+  end
+end
+
+struct TicketMapping
+end
+
+impl Mapping(Ticket) for TicketMapping
+  def table : Table
+    Table.new("tickets")
+  end
+
+  def attributes(record : Ticket) : Attributes
+    {"id" => record.id, "title" => record.title, "created_at" => record.created_at,
+     "updated_at" => record.updated_at, "reviewed_at" => record.reviewed_at,
+     "updated_on" => record.updated_on, "revision" => record.revision} of String => Value
+  end
+
+  def with_attributes(record : Ticket, values : Attributes) : Ticket | DatabaseError
+    id = values["id"]
+    title = values["title"]
+    created = values["created_at"]
+    updated = values["updated_at"]
+    reviewed = values["reviewed_at"]
+    date = values["updated_on"]
+    revision = values["revision"]
+    if (id.nil? || id.is_a?(Int64)) && title.is_a?(String) && (created.nil? || created.is_a?(String)) &&
+       (updated.nil? || updated.is_a?(String)) && (reviewed.nil? || reviewed.is_a?(String)) && (date.nil? || date.is_a?(String)) && revision.is_a?(Int64)
+      Ticket.new(title, created, updated, reviewed, date, id, revision)
+    else
+      DatabaseError.new(20, "mapping", "invalid ticket attributes")
+    end
+  end
+
+  def from_row(row : Row) : Ticket | DatabaseError
+    with_attributes(Ticket.new(""), row.attributes)
+  end
+
+  def validate(record : Ticket) : Nil | ValidationError
+    record.title.empty? ? ValidationError.new({"title" => ["can't be blank"]}) : nil
+  end
+end
+
+struct TicketVersion
+end
+
+impl Version(Ticket) for TicketVersion
+  def version(record : Ticket) : Int64
+    record.revision
+  end
+
+  def with_version(record : Ticket, version : Int64) : Ticket | DatabaseError
+    Ticket.new(record.title, record.created_at, record.updated_at, record.reviewed_at, record.updated_on, record.id, version)
+  end
+end
+
+class TestClock
+  getter calls : Int32
+
+  def initialize
+    @calls = 0
+  end
+end
+
+impl Clock for TestClock
+  def now : Time
+    @calls += 1
+    Time.utc(2026, 10, 12, 13, 14, 15, nanosecond: 123456789)
+  end
+end
+
+class TouchProbe
+  getter events : Array(Event)
+  property abort_touch : Bool
+
+  def initialize
+    @events = [] of Event
+    @abort_touch = false
+  end
+end
+
+impl Callback(Ticket) for TouchProbe
+  def call(event : Event, record : Ticket) : Ticket | DatabaseError | ValidationError | CallbackAbort
+    @events << event
+    return CallbackAbort.new("abort touch") if event == Event::AfterTouch && @abort_touch
+    record
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE tickets(id INTEGER PRIMARY KEY, title TEXT NOT NULL, created_at TEXT, updated_at TEXT CHECK(updated_at != '2000-01-01T00:00:00.000000Z'), reviewed_at TEXT, updated_on DATE, revision INTEGER NOT NULL DEFAULT 0)").or_panic
+connection.execute("CREATE TABLE audit(id INTEGER PRIMARY KEY, ticket_id INTEGER)").or_panic
+connection.execute("CREATE TRIGGER audit_update AFTER UPDATE ON tickets BEGIN INSERT INTO audit(ticket_id) VALUES(NEW.id); END").or_panic
+clock = TestClock.new
+probe = TouchProbe.new
+pipeline = Pipeline(Ticket).new.add(probe, [Event::BeforeValidation, Event::BeforeSave, Event::BeforeUpdate, Event::AfterUpdate, Event::AfterSave, Event::AfterTouch, Event::AfterCommit, Event::AfterRollback])
+repository = Repository(Ticket).new(connection, TicketMapping.new, pipeline)
+touchable = ["reviewed_at"]
+timestamps = Timestamps(Ticket).new(repository, clock, updated: ["updated_at", "updated_on"], touchable: touchable)
+touchable << "title"
+pipeline.add(timestamps, [Event::BeforeCreate, Event::BeforeUpdate])
+locking = Optimistic(Ticket).new(repository, TicketVersion.new, "revision")
+original = locking.insert(Ticket.new("persisted")).or_panic
+id = original.id || 0_i64
+probe.events.clear
+fixed = Time.utc(2020, 1, 2, 3, 4, 5, nanosecond: 987654321)
+touched = timestamps.touch(repository.query, id, fixed, ["reviewed_at", "reviewed_at"]).or_panic
+assert !touched.nil?
+assert touched.updated_at == "2020-01-02T03:04:05.987654Z" if touched
+assert touched.reviewed_at == touched.updated_at if touched
+assert touched.updated_on == "2020-01-02" if touched
+assert touched.created_at == original.created_at if touched
+assert touched.revision == 0_i64 if touched
+assert clock.calls == 1
+assert probe.events == [Event::AfterTouch, Event::AfterCommit]
+audit = Query.new(connection, Table.new("audit"))
+assert audit.count.or_panic == 1_i64
+
+# Touch does not save pending title changes or validate them. A guarded touch
+# increments version with timestamps in exactly one UPDATE.
+pending = Ticket.new("", original.created_at, original.updated_at, id: id)
+values = timestamps.touch_attributes(pending, fixed, ["reviewed_at"]).or_panic
+probe.events.clear
+guarded = locking.touch(repository.query, id, pending, values).or_panic
+assert guarded.title == "persisted"
+assert pending.title == ""
+assert guarded.revision == 1_i64
+assert audit.count.or_panic == 2_i64
+assert probe.events == [Event::AfterTouch, Event::AfterCommit]
+assert locking.touch(repository.query, id, pending, values).is_a?(StaleObjectError)
+editor = Ticket.new("edited", original.created_at, original.updated_at, id: id)
+assert locking.update(repository.query, id, editor).is_a?(StaleObjectError)
+assert audit.count.or_panic == 2_i64
+assert locking.touch(repository.query.where("title", "other tenant"), id, guarded, values).is_a?(StaleObjectError)
+assert timestamps.touch(repository.query.where("title", "other tenant"), id, fixed).or_panic.nil?
+assert timestamps.touch(repository.query, 99999_i64, fixed).or_panic.nil?
+assert locking.touch(repository.query, 99999_i64, guarded, values).is_a?(StaleObjectError)
+
+# Save-stamping can be disabled while explicit touch remains available.
+timestamps.enabled = false
+before_clock = clock.calls
+default_touch = timestamps.touch(repository.query, id).or_panic
+assert !default_touch.nil?
+assert default_touch.updated_at == "2026-10-12T13:14:15.123456Z" if default_touch
+assert clock.calls == before_clock + 1
+assert timestamps.touch_attributes(guarded, fixed, ["title"]).is_a?(DatabaseError)
+assert timestamps.touch_attributes(guarded, fixed, ["missing"]).is_a?(DatabaseError)
+assert timestamps.touch_attributes(guarded, fixed, ["bad-name"]).is_a?(DatabaseError)
+assert repository.touch(repository.query, id, {"id" => 2_i64} of String => Value).is_a?(DatabaseError)
+assert repository.touch(repository.query, id, {"missing" => "x"} of String => Value).is_a?(DatabaseError)
+assert repository.touch(repository.query, id, Attributes.new).is_a?(DatabaseError)
+assert locking.touch(repository.query, id, guarded, {"revision" => 5_i64} of String => Value).is_a?(DatabaseError)
+assert Timestamps(Ticket).new(repository, clock, updated: [] of String).touch_attributes(guarded).is_a?(DatabaseError)
+assert Timestamps(Ticket).new(repository, clock, precision: -1).touch_attributes(guarded).is_a?(DatabaseError)
+
+before = repository.find(id).or_panic
+assert !before.nil?
+if before
+  count = audit.count.or_panic
+  invalid_time = Time.utc(2000, 1, 1)
+  assert timestamps.touch(repository.query, id, invalid_time).is_a?(DatabaseError)
+  probe.abort_touch = true
+  assert locking.touch(repository.query, id, before, values).is_a?(CallbackAbort)
+  probe.abort_touch = false
+  restored = repository.find(id).or_panic
+  assert !restored.nil?
+  assert restored.updated_at == before.updated_at if restored
+  assert restored.revision == before.revision if restored
+  assert audit.count.or_panic == count
+  outer = repository.unit_of_work.run do
+    probe.abort_touch = true
+    assert locking.touch(repository.query, id, before, values).is_a?(CallbackAbort)
+    probe.abort_touch = false
+    repository.insert(Ticket.new("outer survives"))
+  end
+  outer.or_panic
+  assert repository.query.where("title", "outer survives").count.or_panic == 1_i64
+  rolled_back = repository.unit_of_work.run do
+    locking.touch(repository.query, id, before, values).or_panic
+    CallbackAbort.new("outer rollback")
+  end
+  assert rolled_back.is_a?(CallbackAbort)
+  restored = repository.find(id).or_panic
+  assert !restored.nil?
+  assert restored.updated_at == before.updated_at if restored
+  assert restored.revision == before.revision if restored
+  assert audit.count.or_panic == count
+end
+other = Connection.open(":memory:").or_panic
+assert timestamps.touch(Query.new(other, Table.new("tickets")), id, fixed).is_a?(DatabaseError)
+assert repository.touch(Query.new(connection, Table.new("audit")), id, values).is_a?(DatabaseError)
+other.close.or_panic
+connection.close.or_panic

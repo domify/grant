@@ -1,0 +1,264 @@
+module grant/sql/definition_scanner
+
+import std/text
+import grant/errors::{DatabaseError}
+import grant/cstring::{cstring}
+
+pub enum Kind
+  Word
+  Identifier
+  Literal
+  Symbol
+end
+
+pub struct Token
+  getter text : String
+  getter kind : Kind
+  getter start : Int32
+  getter finish : Int32
+  getter depth : Int32
+
+  def initialize(@text : String, @kind : Kind, @start : Int32, @finish : Int32, @depth : Int32)
+  end
+
+  def keyword?(name : String) : Bool
+    @kind == Kind::Word && @text.upcase == name
+  end
+end
+
+# Byte offsets preserve catalog SQL verbatim, including Unicode and comments.
+pub def tokens(sql : String) : Array(Token) | DatabaseError
+  result = [] of Token
+  bytes = sql.to_unsafe
+  size = sql.bytesize
+  index = 0
+  depth = 0
+  while index < size
+    byte = bytes[index]
+    if byte == 32_u8 || byte == 9_u8 || byte == 10_u8 || byte == 13_u8
+      index += 1
+      next
+    end
+    if byte == 45_u8 && index + 1 < size && bytes[index + 1] == 45_u8
+      index += 2
+      while index < size && bytes[index] != 10_u8
+        index += 1
+      end
+      next
+    end
+    if byte == 47_u8 && index + 1 < size && bytes[index + 1] == 42_u8
+      index += 2
+      while index + 1 < size && !(bytes[index] == 42_u8 && bytes[index + 1] == 47_u8)
+        index += 1
+      end
+      return DatabaseError.new(20, "definition", "unterminated SQL comment") if index + 1 >= size
+      index += 2
+      next
+    end
+    start = index
+    if byte == 39_u8 || byte == 34_u8 || byte == 96_u8 || byte == 91_u8
+      delimiter = byte == 91_u8 ? 93_u8 : byte
+      kind = byte == 39_u8 ? Kind::Literal : Kind::Identifier
+      index += 1
+      closed = false
+      while index < size
+        if bytes[index] == delimiter
+          if delimiter != 93_u8 && index + 1 < size && bytes[index + 1] == delimiter
+            index += 2
+          else
+            index += 1
+            closed = true
+            break
+          end
+        else
+          index += 1
+        end
+      end
+      return DatabaseError.new(20, "definition", "unterminated quoted SQL token") unless closed
+      inner = slice(sql, start + 1, index - start - 2)
+      inner = inner.gsub("\"\"", "\"") if delimiter == 34_u8
+      inner = inner.gsub("''", "'") if delimiter == 39_u8
+      inner = inner.gsub("``", "`") if delimiter == 96_u8
+      result << Token.new(inner, kind, start, index, depth)
+    elsif (byte >= 48_u8 && byte <= 57_u8) || (byte == 46_u8 && index + 1 < size && bytes[index + 1] >= 48_u8 && bytes[index + 1] <= 57_u8)
+      index = numeric_end(bytes, size, index)
+      result << Token.new(slice(sql, start, index - start), Kind::Literal, start, index, depth)
+    elsif word_byte?(byte)
+      index += 1
+      while index < size && word_byte?(bytes[index])
+        index += 1
+      end
+      result << Token.new(slice(sql, start, index - start), Kind::Word, start, index, depth)
+    else
+      depth -= 1 if byte == 41_u8
+      return DatabaseError.new(20, "definition", "unbalanced SQL parentheses") if depth < 0
+      result << Token.new(slice(sql, index, 1), Kind::Symbol, index, index + 1, depth)
+      depth += 1 if byte == 40_u8
+      index += 1
+    end
+  end
+  return DatabaseError.new(20, "definition", "unbalanced SQL parentheses") unless depth == 0
+  result
+end
+
+def word_byte?(byte : UInt8) : Bool
+  (byte >= 48_u8 && byte <= 57_u8) || (byte >= 65_u8 && byte <= 90_u8) || (byte >= 97_u8 && byte <= 122_u8) || byte == 95_u8 || byte >= 128_u8
+end
+
+def numeric_end(bytes : UInt8*, size : Int32, start : Int32) : Int32
+  index = start
+  if index + 1 < size && bytes[index] == 48_u8 && (bytes[index + 1] == 120_u8 || bytes[index + 1] == 88_u8)
+    index += 2
+    while index < size && ((bytes[index] >= 48_u8 && bytes[index] <= 57_u8) || (bytes[index] >= 65_u8 && bytes[index] <= 70_u8) || (bytes[index] >= 97_u8 && bytes[index] <= 102_u8))
+      index += 1
+    end
+    return index
+  end
+  while index < size && bytes[index] >= 48_u8 && bytes[index] <= 57_u8
+    index += 1
+  end
+  if index < size && bytes[index] == 46_u8
+    index += 1
+    while index < size && bytes[index] >= 48_u8 && bytes[index] <= 57_u8
+      index += 1
+    end
+  end
+  if index < size && (bytes[index] == 101_u8 || bytes[index] == 69_u8)
+    index += 1
+    index += 1 if index < size && (bytes[index] == 43_u8 || bytes[index] == 45_u8)
+    while index < size && bytes[index] >= 48_u8 && bytes[index] <= 57_u8
+      index += 1
+    end
+  end
+  index
+end
+
+pub def table_body(sql : String) : Tuple(Array(String), String) | DatabaseError
+  all = tokens(sql)!
+  return DatabaseError.new(21, "definition", "virtual tables require their module-specific schema API") if all.size > 1 && all[1].keyword?("VIRTUAL")
+  opening = all.find { |token| token.kind == Kind::Symbol && token.text == "(" && token.depth == 0 }
+  closing = all.find { |token| token.kind == Kind::Symbol && token.text == ")" && token.depth == 0 }
+  return DatabaseError.new(20, "definition", "cannot read CREATE TABLE body") unless opening && closing
+  items = [] of String
+  start = opening.finish
+  all.each do |token|
+    if token.start > opening.start && token.start < closing.start && token.kind == Kind::Symbol && token.text == "," && token.depth == 1
+      items << slice(sql, start, token.start - start).strip
+      start = token.finish
+    end
+  end
+  items << slice(sql, start, closing.start - start).strip
+  return DatabaseError.new(20, "definition", "empty table definition item") if items.any? { |item| item.empty? }
+  {items, slice(sql, closing.finish, sql.bytesize - closing.finish).strip}
+end
+
+pub def column_name(sql : String) : String | Nil | DatabaseError
+  all = tokens(sql)!
+  return DatabaseError.new(20, "definition", "empty definition") if all.empty?
+  first = all[0]
+  return nil if first.keyword?("CONSTRAINT") || first.keyword?("PRIMARY") || first.keyword?("FOREIGN") || first.keyword?("CHECK") || first.keyword?("UNIQUE")
+  first.text
+end
+
+pub def constraint_name(sql : String) : String | Nil | DatabaseError
+  all = tokens(sql)!
+  return nil if all.empty? || !all[0].keyword?("CONSTRAINT")
+  return DatabaseError.new(20, "definition", "named constraint has no definition") if all.size < 3
+  all[1].text
+end
+
+pub def named_constraints(sql : String) : Array(String) | DatabaseError
+  all = tokens(sql)!
+  names = [] of String
+  all.each_with_index do |token, index|
+    if token.depth == 0 && token.keyword?("CONSTRAINT")
+      return DatabaseError.new(20, "definition", "constraint has no name") if index + 1 >= all.size
+      names << all[index + 1].text
+    end
+  end
+  names
+end
+
+pub def mentions?(sql : String, name : String) : Bool | DatabaseError
+  all = tokens(sql)!
+  all.any? { |token| (token.kind == Kind::Word || token.kind == Kind::Identifier) && token.text.downcase == name.downcase }
+end
+
+pub def primary_constraint?(sql : String) : Bool | DatabaseError
+  all = tokens(sql)!
+  all.each_with_index do |token, index|
+    return true if token.keyword?("PRIMARY") && index + 1 < all.size && all[index + 1].keyword?("KEY")
+  end
+  false
+end
+
+pub def change_type(sql : String, type : String) : String | DatabaseError
+  all = tokens(sql)!
+  return DatabaseError.new(20, "definition", "empty column definition") if all.empty?
+  stop = sql.bytesize
+  all.each_with_index do |token, index|
+    if index > 0 && token.depth == 0 && column_clause?(token)
+      stop = token.start
+      break
+    end
+  end
+  slice(sql, 0, all[0].finish) + " " + type + " " + slice(sql, stop, sql.bytesize - stop)
+end
+
+def column_clause?(token : Token) : Bool
+  ["CONSTRAINT", "PRIMARY", "NOT", "NULL", "UNIQUE", "CHECK", "DEFAULT", "COLLATE", "REFERENCES", "GENERATED", "AS"].any? { |name| token.keyword?(name) }
+end
+
+pub def without_default(sql : String) : String | DatabaseError
+  all = tokens(sql)!
+  index = 0
+  while index < all.size
+    token = all[index]
+    if token.depth == 0 && token.keyword?("DEFAULT")
+      return DatabaseError.new(20, "definition", "DEFAULT has no value") if index + 1 == all.size
+      start = clause_start(all, index)
+      value_index = index + 1
+      value = all[value_index]
+      finish = value.finish
+      if value.kind == Kind::Symbol && value.text == "("
+        closing = all.find { |candidate| candidate.start > value.start && candidate.depth == 0 && candidate.kind == Kind::Symbol && candidate.text == ")" }
+        return DatabaseError.new(20, "definition", "unterminated DEFAULT expression") unless closing
+        finish = closing.finish
+      elsif value.kind == Kind::Symbol && (value.text == "+" || value.text == "-")
+        return DatabaseError.new(20, "definition", "DEFAULT sign has no value") if value_index + 1 == all.size
+        finish = all[value_index + 1].finish
+      elsif value.keyword?("X") && value_index + 1 < all.size && all[value_index + 1].kind == Kind::Literal
+        finish = all[value_index + 1].finish
+      end
+      return remove_range(sql, start, finish)
+    end
+    index += 1
+  end
+  sql
+end
+
+pub def without_not_null(sql : String) : String | DatabaseError
+  all = tokens(sql)!
+  all.each_with_index do |token, index|
+    if token.depth == 0 && token.keyword?("NOT") && index + 1 < all.size && all[index + 1].keyword?("NULL")
+      finish = all[index + 1].finish
+      if index + 4 < all.size && all[index + 2].keyword?("ON") && all[index + 3].keyword?("CONFLICT")
+        finish = all[index + 4].finish
+      end
+      return remove_range(sql, clause_start(all, index), finish)
+    end
+  end
+  sql
+end
+
+def clause_start(all : Array(Token), index : Int32) : Int32
+  index >= 2 && all[index - 2].keyword?("CONSTRAINT") ? all[index - 2].start : all[index].start
+end
+
+def remove_range(sql : String, start : Int32, finish : Int32) : String
+  (slice(sql, 0, start).rstrip + " " + slice(sql, finish, sql.bytesize - finish).lstrip).strip
+end
+
+def slice(sql : String, start : Int32, count : Int32) : String
+  cstring(sql.to_unsafe + start, count)
+end

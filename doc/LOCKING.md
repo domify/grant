@@ -13,7 +13,7 @@ Identifier validation and parameter binding remain in force. Internal version
 predicates use `where_stored`, bypassing argument normalization while retaining
 all existing scope predicates.
 
-Use wrapper update/destroy for every write that needs version protection. Raw
+Use wrapper update/destroy/touch for every write that needs version protection. Raw
 queries and the underlying plain repository intentionally have no version guard.
 Version errors are union values, not Crystal exceptions. Each locked operation
 uses a savepoint when nested, restoring all callback effects on a failure that
@@ -29,5 +29,14 @@ failures, scoped writes, nested caught errors, version overflow and a
 before-destroy callback racing the version guard. The artifact gate also runs
 the locking consumer without Grant source.
 
-Touch integration, bulk version increments and pessimistic-lock APIs remain
+`touch(scope, id, record, attributes)` writes only the supplied timestamp fields
+and version+1, guarded by the record's expected version in the same UPDATE.
+Build timestamp attributes with `Timestamps.touch_attributes`. Validation and
+save/update callbacks are skipped; AfterTouch and transaction callbacks run.
+The returned and persisted versions are checked after callbacks. Timestamp and
+version changes roll back together on stale writes, callback errors or an outer
+rollback. `touch_test.iyi` verifies these paths and one-write behavior via an
+SQLite trigger; it is also an artifact consumer.
+
+Bulk version increments and pessimistic-lock APIs remain
 pending. SQLite has no row-level FOR UPDATE; this wrapper does not simulate it.

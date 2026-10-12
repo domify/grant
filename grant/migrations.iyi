@@ -5,21 +5,26 @@ import grant/database::{Database}
 import grant/errors::{DatabaseError}
 import grant/value::{Value}
 import grant/query::{identifier}
-import grant/transaction::{transaction}
+import grant/schema_transaction::{ddl_transaction}
 
 pub trait Migration
   abstract def version : Int64
   abstract def checksum : String
-  abstract def up(database : Database) : Nil | DatabaseError
-  abstract def down(database : Database) : Nil | DatabaseError
+  abstract def up(database : Database) : Nil | DatabaseError | Panicked | Cancelled
+  abstract def down(database : Database) : Nil | DatabaseError | Panicked | Cancelled
+
+  def rebuilds : Bool
+    false
+  end
 end
 
 pub struct SQLMigration
   getter version : Int64
+  getter rebuilds : Bool
   @up : Array(String)
   @down : Array(String)
 
-  def initialize(@version : Int64, up : Array(String), down : Array(String))
+  def initialize(@version : Int64, up : Array(String), down : Array(String), @rebuilds : Bool = false)
     @up = up.map { |sql| sql }
     @down = down.map { |sql| sql }
   end
@@ -28,11 +33,15 @@ pub struct SQLMigration
     # Length framing distinguishes adjacent SQL strings without separator ambiguity.
     text = ""
     (@up + @down).each { |sql| text += "#{sql.bytesize}:#{sql}" }
-    SHA256.hexdigest("#{@up.size}:#{@down.size}:#{text}")
+    SHA256.hexdigest("#{@rebuilds ? "rebuilds:" : ""}#{@up.size}:#{@down.size}:#{text}")
   end
 end
 
 impl Migration for SQLMigration
+  def rebuilds : Bool
+    @rebuilds
+  end
+
   def up(database : Database) : Nil | DatabaseError
     @up.each { |sql| database.execute(sql, [] of Value)! }
     nil
@@ -68,9 +77,9 @@ pub class Runner
         next
       end
       table = identifier(@table)!
-      transaction(@database, requires_new: true) do
+      ddl_transaction(@database, migration.rebuilds) do
         prepared = migration.up(@database)
-        next prepared if prepared.is_a?(DatabaseError)
+        next prepared if prepared.is_a?(Error)
         stored = @database.execute("INSERT INTO #{table} (version, checksum) VALUES (?, ?)", [migration.version, migration.checksum] of Value)
         stored.is_a?(DatabaseError) ? stored : 0
       end!
@@ -92,9 +101,9 @@ pub class Runner
       break if count == steps
       return DatabaseError.new(21, "migration", "applied migration #{migration.version} changed") unless applied[migration.version] == migration.checksum
       table = identifier(@table)!
-      transaction(@database, requires_new: true) do
+      ddl_transaction(@database, migration.rebuilds) do
         prepared = migration.down(@database)
-        next prepared if prepared.is_a?(DatabaseError)
+        next prepared if prepared.is_a?(Error)
         stored = @database.execute("DELETE FROM #{table} WHERE version = ?", [migration.version] of Value)
         stored.is_a?(DatabaseError) ? stored : 0
       end!

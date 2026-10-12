@@ -1,0 +1,292 @@
+module partial_update_test
+
+import std/time::{Time}
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table, Query}
+import grant/value::{Row, Attributes, Value}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Callback, Event, WriteContext, Around, Continuation, AroundError}
+import grant/timestamps::{Timestamps, Clock}
+import grant/dirty::{State, ScalarSnapshot}
+import grant/normalization::{Plan, TrimLowercase}
+
+struct Note
+  getter id : Int64?
+  getter title : String
+  getter body : String
+  getter slug : String
+  getter created_at : String?
+  getter updated_at : String?
+
+  def initialize(@title : String, @body : String = "body", @slug : String = "keep", @created_at : String? = nil,
+                 @updated_at : String? = nil, @id : Int64? = nil)
+  end
+end
+
+struct NoteMapping
+  def initialize(@plan : Plan? = nil)
+  end
+end
+
+impl Mapping(Note) for NoteMapping
+  def table : Table
+    Table.new("notes")
+  end
+
+  def attributes(record : Note) : Attributes
+    {"id" => record.id, "title" => record.title, "body" => record.body, "slug" => record.slug,
+     "created_at" => record.created_at, "updated_at" => record.updated_at} of String => Value
+  end
+
+  def readonly_attributes : Array(String)
+    ["slug"]
+  end
+
+  def normalization : Plan?
+    @plan
+  end
+
+  def with_attributes(record : Note, attributes : Attributes) : Note | DatabaseError
+    id = attributes["id"]
+    title = attributes["title"]
+    body = attributes["body"]
+    slug = attributes["slug"]
+    created = attributes["created_at"]
+    updated = attributes["updated_at"]
+    if (id.nil? || id.is_a?(Int64)) && title.is_a?(String) && body.is_a?(String) && slug.is_a?(String) &&
+       (created.nil? || created.is_a?(String)) && (updated.nil? || updated.is_a?(String))
+      Note.new(title, body, slug, created, updated, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid note attributes")
+    end
+  end
+
+  def from_row(row : Row) : Note | DatabaseError
+    with_attributes(Note.new(""), row.attributes)
+  end
+
+  def validate(record : Note) : Nil | ValidationError
+    record.title.empty? ? ValidationError.new({"title" => ["can't be blank"]}) : nil
+  end
+end
+
+class FixedClock
+  getter calls : Int32
+
+  def initialize
+    @calls = 0
+  end
+end
+
+impl Clock for FixedClock
+  def now : Time
+    @calls += 1
+    Time.utc(2026, 10, 12, 12, 0, @calls)
+  end
+end
+
+class Recorder
+  getter log : Array(Event)
+  getter contexts : Array(Bool)
+  property rewrite : Bool
+
+  def initialize
+    @log = [] of Event
+    @contexts = [] of Bool
+    @rewrite = false
+  end
+end
+
+impl Callback(Note) for Recorder
+  def call(event : Event, record : Note) : Note | DatabaseError | ValidationError | CallbackAbort
+    @log << event
+    return CallbackAbort.new("reject update") if event == Event::AfterUpdate && record.title == "abort"
+    if event == Event::BeforeSave && @rewrite
+      Note.new("callback title", record.body, record.slug, record.created_at, record.updated_at, record.id)
+    else
+      record
+    end
+  end
+
+  def call(event : Event, record : Note, context : WriteContext) : Note | DatabaseError | ValidationError | CallbackAbort
+    @contexts << context.partial
+    call(event, record)
+  end
+end
+
+class AroundRecorder
+  getter log : Array(Event)
+
+  def initialize
+    @log = [] of Event
+  end
+end
+
+impl Around(Note) for AroundRecorder
+  def call(event : Event, record : Note, continuation : Continuation(Note)) : Note | Nil | AroundError
+    @log << event
+    continuation.call(record)
+  end
+end
+
+def existing(repository : Repository(Note), id : Int64) : Note | DatabaseError
+  note = repository.find(id)!
+  note || DatabaseError.new(20, "test", "expected a note")
+end
+
+def count(database : Connection, field : String) : Int64 | DatabaseError
+  rows = database.query("SELECT COUNT(*) AS count FROM writes WHERE field=?", [field] of Value)!
+  value = rows[0]["count"]
+  value.is_a?(Int64) ? value : DatabaseError.new(20, "test", "invalid count")
+end
+
+database = Connection.open(":memory:").or_panic
+database.execute("CREATE TABLE notes(id INTEGER PRIMARY KEY, title TEXT NOT NULL CHECK(title <> 'sql failure'), body TEXT NOT NULL, slug TEXT NOT NULL, created_at TEXT, updated_at TEXT)").or_panic
+database.execute("CREATE TABLE writes(field TEXT)").or_panic
+database.execute("CREATE TRIGGER title_write AFTER UPDATE OF title ON notes BEGIN INSERT INTO writes(field) VALUES('title'); END").or_panic
+database.execute("CREATE TRIGGER body_write AFTER UPDATE OF body ON notes BEGIN INSERT INTO writes(field) VALUES('body'); END").or_panic
+database.execute("CREATE TRIGGER stamp_write AFTER UPDATE OF updated_at ON notes BEGIN INSERT INTO writes(field) VALUES('stamp'); END").or_panic
+database.execute("CREATE TRIGGER readonly_slug BEFORE UPDATE OF slug ON notes BEGIN SELECT RAISE(ABORT, 'readonly slug was written'); END").or_panic
+database.execute("CREATE TRIGGER creation_write BEFORE UPDATE OF created_at ON notes BEGIN SELECT RAISE(ABORT, 'creation timestamp was written'); END").or_panic
+pipeline = Pipeline(Note).new
+recorder = Recorder.new
+pipeline.add(recorder, [Event::BeforeValidation, Event::AfterValidation, Event::BeforeSave, Event::BeforeUpdate, Event::AfterUpdate, Event::AfterSave, Event::AfterCommit, Event::AfterRollback])
+around = AroundRecorder.new
+pipeline.add_around(around, [Event::AroundValidation, Event::AroundSave, Event::AroundUpdate])
+repository = Repository(Note).new(database, NoteMapping.new, pipeline)
+clock = FixedClock.new
+pipeline.add(Timestamps(Note).new(repository, clock), [Event::BeforeCreate, Event::BeforeUpdate])
+original = repository.insert(Note.new("original")).or_panic
+id = original.id || 0_i64
+baseline = repository.attributes(original)
+assert clock.calls == 1
+
+# A clean save still validates and runs callbacks, without UPDATE or stamping.
+recorder.log.clear
+recorder.contexts.clear
+around.log.clear
+clean = repository.update_changed(repository.query, id, original, baseline).or_panic
+assert !clean.nil?
+assert clock.calls == 1
+assert count(database, "title").or_panic == 0_i64 && count(database, "stamp").or_panic == 0_i64
+assert recorder.log == [Event::BeforeValidation, Event::AfterValidation, Event::BeforeSave, Event::BeforeUpdate, Event::AfterUpdate, Event::AfterSave, Event::AfterCommit]
+assert recorder.contexts == [true, true, true, true, true, true, false]
+assert around.log == [Event::AroundValidation, Event::AroundSave, Event::AroundUpdate]
+
+# Two stale sibling records write their changed columns, not each other's data.
+left = Note.new("left title", original.body, original.slug, original.created_at, original.updated_at, id)
+left_result = repository.update_changed(repository.query, id, left, baseline).or_panic
+assert !left_result.nil?
+right = Note.new(original.title, "right body", original.slug, original.created_at, original.updated_at, id)
+right_result = repository.update_changed(repository.query.where("body", original.body), id, right, baseline).or_panic
+assert !right_result.nil?
+stored = existing(repository, id).or_panic
+assert stored.title == "left title" && stored.body == "right body"
+assert stored.updated_at == "2026-10-12T12:00:03.000000Z"
+assert stored.created_at == original.created_at && stored.slug == original.slug
+assert count(database, "title").or_panic == 1_i64 && count(database, "body").or_panic == 1_i64 && count(database, "stamp").or_panic == 2_i64
+
+# Dirty state is caller-owned. Baselines/forced fields are snapshots, and failure
+# or an outer rollback never marks the application's pending state as clean.
+state = State(Value).new(repository.attributes(stored), ScalarSnapshot.new)
+state.set("body", "state body").or_panic
+candidate = repository.with_attributes(stored, state.attributes).or_panic
+saved_state = repository.update_changed(repository.query, id, candidate, state).or_panic
+assert !saved_state.nil?
+assert state.has_changes_to_save? && state.attribute_in_database("body") == "right body"
+copied_baseline = state.baseline_attributes
+copied_baseline["body"] = "mutated copy"
+assert state.attribute_in_database("body") == "right body"
+current = existing(repository, id).or_panic
+forced = State(Value).new(repository.attributes(current), ScalarSnapshot.new)
+forced.attribute_will_change("title").or_panic
+forced.forced_changes.clear
+assert forced.forced_changes == ["title"]
+repository.update_changed(repository.query, id, current, forced).or_panic
+assert count(database, "title").or_panic == 2_i64
+
+current = existing(repository, id).or_panic
+before_clock = clock.calls
+before_stamps = count(database, "stamp").or_panic
+skipped = Note.new("skip stamp", current.body, current.slug, current.created_at, current.updated_at, id)
+repository.update_changed(repository.query, id, skipped, repository.attributes(current), skip_timestamps: true).or_panic
+assert clock.calls == before_clock && count(database, "stamp").or_panic == before_stamps
+assert existing(repository, id).or_panic.updated_at == current.updated_at
+
+# Readonly columns and creation timestamps are writable on insert, not updates.
+current = existing(repository, id).or_panic
+readonly = Note.new(current.title, current.body, "replace slug", "2000-01-01T00:00:00Z", current.updated_at, id)
+repository.update_changed(repository.query, id, readonly, repository.attributes(current)).or_panic
+assert clock.calls == before_clock
+assert existing(repository, id).or_panic.created_at == original.created_at && existing(repository, id).or_panic.slug == "keep"
+full = Note.new("ordinary update", current.body, "replace slug", "2000-01-01T00:00:00Z", current.updated_at, id)
+repository.update(repository.query, id, full).or_panic
+assert existing(repository, id).or_panic.created_at == original.created_at && existing(repository, id).or_panic.slug == "keep"
+
+# BeforeSave transformations are included before deciding/stamping the write.
+current = existing(repository, id).or_panic
+recorder.rewrite = true
+repository.update_changed(repository.query, id, current, repository.attributes(current)).or_panic
+recorder.rewrite = false
+assert existing(repository, id).or_panic.title == "callback title"
+
+current = existing(repository, id).or_panic
+before_title = count(database, "title").or_panic
+before_stamps = count(database, "stamp").or_panic
+invalid = Note.new("", current.body, current.slug, current.created_at, current.updated_at, id)
+assert repository.update_changed(repository.query, id, invalid, repository.attributes(current)).is_a?(ValidationError)
+failed_sql = Note.new("sql failure", current.body, current.slug, current.created_at, current.updated_at, id)
+assert repository.update_changed(repository.query, id, failed_sql, repository.attributes(current)).is_a?(DatabaseError)
+aborted = Note.new("abort", current.body, current.slug, current.created_at, current.updated_at, id)
+assert repository.update_changed(repository.query, id, aborted, repository.attributes(current)).is_a?(CallbackAbort)
+assert count(database, "title").or_panic == before_title && count(database, "stamp").or_panic == before_stamps
+assert existing(repository, id).or_panic.title == current.title
+pending = State(Value).new(repository.attributes(current), ScalarSnapshot.new)
+pending.set("title", "rolled back").or_panic
+pending_record = repository.with_attributes(current, pending.attributes).or_panic
+rolled = repository.unit_of_work.run do
+  repository.update_changed(repository.query, id, pending_record, pending).or_panic
+  CallbackAbort.new("outer rollback")
+end
+assert rolled.is_a?(CallbackAbort)
+assert pending.has_changes_to_save? && pending.attribute_in_database("title") == current.title
+assert existing(repository, id).or_panic.title == current.title
+
+# A no-op still checks scope/existence and does not invent a persisted record.
+assert repository.update_changed(repository.query.where("title", "out of scope"), id, current, repository.attributes(current)).or_panic.nil?
+missing = repository.attributes(current)
+missing["id"] = 999_i64
+absent = Note.new(current.title, current.body, current.slug, current.created_at, current.updated_at, 999_i64)
+assert repository.update_changed(repository.query, 999_i64, absent, missing).or_panic.nil?
+assert repository.update_changed(repository.query, id, current, missing).is_a?(DatabaseError)
+assert repository.update_changed(repository.query, id, current, baseline, forced: ["unknown"]).is_a?(DatabaseError)
+assert repository.update_changed(repository.query, id, current, baseline, forced: ["id"]).is_a?(DatabaseError)
+assert repository.update_changed(repository.query, id, current, pending).is_a?(DatabaseError)
+
+# Normalize before comparing with the persisted baseline: assigning a spelling
+# that normalizes to the same value is still a clean save.
+normalized_pipeline = Pipeline(Note).new
+normalized_repository = Repository(Note).new(database, NoteMapping.new(Plan.new.add("title", TrimLowercase.new)), normalized_pipeline)
+normal_clock = FixedClock.new
+normalized_pipeline.add(Timestamps(Note).new(normalized_repository, normal_clock), [Event::BeforeCreate, Event::BeforeUpdate])
+normal_note = normalized_repository.insert(Note.new("  NORMAL TITLE  ")).or_panic
+normal_id = normal_note.id || 0_i64
+assert normal_note.title == "normal title"
+normal_candidate = Note.new(" NORMAL TITLE ", normal_note.body, normal_note.slug, normal_note.created_at, normal_note.updated_at)
+before_normal_write = count(database, "title").or_panic
+normal_result = normalized_repository.update_changed(normalized_repository.query, normal_id, normal_candidate, normalized_repository.attributes(normal_note)).or_panic
+assert !normal_result.nil? && normal_clock.calls == 1
+assert count(database, "title").or_panic == before_normal_write
+assert existing(normalized_repository, normal_id).or_panic.id == normal_id
+
+# Operation contexts copy the baseline and configuration; later application
+# mutations cannot change the values used to decide a write.
+context_baseline = repository.attributes(current)
+context_forced = [] of String
+context = WriteContext.new(context_baseline, context_forced)
+context_baseline["title"] = "mutated baseline"
+context_forced << "title"
+assert context.changes(repository.attributes(current)).empty?
+database.close.or_panic

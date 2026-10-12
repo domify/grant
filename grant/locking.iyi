@@ -2,6 +2,7 @@ module grant/locking
 
 import grant/model::{Repository}
 import grant/query::{Query, identifier}
+import grant/value::{Attributes}
 import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
 
 pub struct StaleObjectError
@@ -51,6 +52,29 @@ pub class Optimistic(T)
 
   def destroy(scope : Query, id : Int64, record : T) : T | LockError
     @repository.unit_of_work.run(requires_new: true) { destroy_record(scope, id, record).as(T | LockError) }
+  end
+
+  # Only the supplied timestamps and version are written; pending model fields
+  # cannot leak into a touch. The guard and increment share the same UPDATE.
+  def touch(scope : Query, id : Int64, record : T, attributes : Attributes) : T | LockError
+    @repository.unit_of_work.run(requires_new: true) { touch_record(scope, id, record, attributes).as(T | LockError) }
+  end
+
+  private def touch_record(scope : Query, id : Int64, record : T, attributes : Attributes) : T | LockError
+    version = expected_version(record)!
+    return DatabaseError.new(20, "locking", "version cannot be incremented beyond Int64") if version == 9223372036854775807_i64
+    return DatabaseError.new(21, "touch", "no timestamp columns are available to touch") if attributes.empty?
+    return DatabaseError.new(21, "touch", "version is owned by the locking policy") if attributes.has_key?(@column)
+    values = Attributes.new
+    attributes.each { |name, value| values[name] = value }
+    values[@column] = version + 1_i64
+    touched = @repository.touch(scope.where_stored(@column, version), id, values)!
+    return StaleObjectError.new(query.table.name, id, "touch", version) unless touched
+    return DatabaseError.new(20, "locking", "touch callback changed the incremented version") unless @repository.attributes(touched)[@column]? == version + 1_i64
+    persisted = @repository.first(query.where_stored(query.table.primary_key, id))!
+    return StaleObjectError.new(query.table.name, id, "touch", version) unless persisted
+    return DatabaseError.new(20, "locking", "stored version changed during touch callbacks") unless @repository.attributes(persisted)[@column]? == version + 1_i64
+    touched
   end
 
   private def expected_version(record : T) : Int64 | DatabaseError

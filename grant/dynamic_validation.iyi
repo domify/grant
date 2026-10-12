@@ -1,0 +1,77 @@
+module grant/dynamic_validation
+
+import std/float
+import grant/value::{Value, Attributes}
+import grant/errors::{DatabaseError}
+import grant/validation::{CheckedValidator, Validator, Errors, Context, Options}
+import grant/validators::{Numericality, Constraint, Comparison, Numeric, numeric_value}
+
+# Replaces source Symbol/Proc lookup with an explicit, typed local policy.
+pub trait Operand
+  abstract def resolve(attributes : Attributes, context : Context) : Value | DatabaseError
+end
+
+pub struct AttributeOperand
+  @name : String
+
+  def initialize(@name : String)
+  end
+end
+
+impl Operand for AttributeOperand
+  def resolve(attributes : Attributes, context : Context) : Value | DatabaseError
+    return DatabaseError.new(20, "numericality", "mapping must expose operand attribute: #{@name}") unless attributes.has_key?(@name)
+    attributes[@name]
+  end
+end
+
+pub struct DynamicConstraint
+  getter comparison : Comparison
+  getter operand : Operand
+
+  def initialize(@comparison : Comparison, @operand : Operand)
+  end
+end
+
+pub struct DynamicNumericality
+  @attribute : String
+  @constraints : Array(DynamicConstraint)
+  @base : Numericality
+  @parity : Numericality
+  @only_integer : Bool
+  @only_numeric : Bool
+  @options : Options
+
+  def initialize(@attribute : String, constraints : Array(DynamicConstraint),
+                 static : Array(Constraint) = [] of Constraint, @only_integer : Bool = false,
+                 @only_numeric : Bool = false, odd : Bool = false, even : Bool = false, @options : Options = Options.new)
+    @constraints = constraints.map { |constraint| constraint }
+    @base = Numericality.new(@attribute, static, @only_integer, @only_numeric, options: @options)
+    @parity = Numericality.new(@attribute, only_integer: @only_integer, only_numeric: @only_numeric, odd: odd, even: even, options: @options)
+  end
+end
+
+impl CheckedValidator for DynamicNumericality
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
+    raw = attributes[@attribute]?
+    return nil unless @options.applies?(raw, context)
+    @base.validate(attributes, errors, context)
+    number = @only_numeric && raw.is_a?(String) ? nil : Grant::Validators.numeric_value(raw)
+    # Bad model values are validation failures; do not evaluate operand policies
+    # when the source would have stopped at not_a_number/not_an_integer.
+    return nil unless number
+    return nil if @only_integer && !number.is_a?(Int64)
+    @constraints.each do |dynamic|
+      resolved = dynamic.operand.resolve(attributes, context)!
+      bound = Grant::Validators.numeric_value(resolved)
+      return DatabaseError.new(20, "numericality", "dynamic comparison operand must be a finite number") unless bound
+      constraint = Constraint.new(dynamic.comparison, bound)
+      unless constraint.satisfied?(number)
+        errors.add(@attribute, @options.message || constraint.message, constraint.code,
+          {"count" => bound, "value" => raw} of String => Value)
+      end
+    end
+    @parity.validate(attributes, errors, context)
+    nil
+  end
+end

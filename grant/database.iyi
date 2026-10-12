@@ -26,4 +26,8 @@ pub trait Database
   abstract def query(sql : String, parameters : Array(Value)) : Array(Row) | DatabaseError
   abstract def close : Nil | DatabaseError
   abstract def offset_without_limit(count : Int32) : String
+
+  def parameter_limit : Int32 | DatabaseError
+    DatabaseError.new(21, "parameters", "adapter does not expose its bind parameter limit")
+  end
 end

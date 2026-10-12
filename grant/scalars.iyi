@@ -1,0 +1,177 @@
+module grant/scalars
+
+import std/text
+import std/big::{BigDecimal, BigInt}
+import std/regex::{Regex}
+import std/time::{Time, Span}
+import grant/errors::{DatabaseError}
+
+# SQLite NUMERIC affinity may turn decimal text into a lossy Float64. These
+# values bind as canonical text; schema Decimal columns deliberately use TEXT.
+pub struct Decimal
+  @number : BigDecimal
+
+  def initialize(number : BigDecimal)
+    @number = BigDecimal.new(BigInt.new(number.value.to_s), number.scale).normalized
+  end
+
+  def number : BigDecimal
+    BigDecimal.new(BigInt.new(@number.value.to_s), @number.scale)
+  end
+
+  def self.parse(text : String) : Decimal | DatabaseError
+    input = text.strip
+    pattern = Regex.compile("\\A[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?\\z")
+    return DatabaseError.new(20, "decimal", "invalid decimal text") unless pattern.match?(input)
+    # Check the native BigDecimal parser's exponent/scale representation before
+    # invoking it. Do not impose an ORM-specific precision or digit limit.
+    exponent_parts = input.downcase.split("e")
+    if exponent_parts.size == 2
+      exponent = exponent_parts[1].to_i64?
+      return DatabaseError.new(20, "decimal", "decimal exponent is outside the native parser range") unless exponent && exponent >= -999999999_i64 && exponent <= 999999999_i64
+      mantissa = exponent_parts[0]
+      decimal_parts = mantissa.split(".")
+      fraction_digits = decimal_parts.size == 2 ? decimal_parts[1].bytesize.to_i64 : 0_i64
+      scale = fraction_digits - exponent
+      return DatabaseError.new(20, "decimal", "decimal scale is outside Int32") if scale < -2147483648_i64 || scale > 2147483647_i64
+    end
+    new(BigDecimal.new(input))
+  end
+
+  def self.from_integer(value : Int64) : Decimal
+    new(BigDecimal.new(value))
+  end
+
+  def to_s : String
+    @number.to_s
+  end
+
+  def ==(other : Decimal) : Bool
+    (@number <=> other.number) == 0
+  end
+
+  def hash : Int32
+    @number.hash
+  end
+
+  def <=>(other : Decimal) : Int32
+    @number <=> other.number
+  end
+
+  def +(other : Decimal) : Decimal
+    Decimal.new(@number + other.number)
+  end
+
+  def -(other : Decimal) : Decimal
+    Decimal.new(@number - other.number)
+  end
+
+  def *(other : Decimal) : Decimal
+    Decimal.new(@number * other.number)
+  end
+
+  # Assignment scale uses ties away from zero, as the reviewed Crystal port.
+  def rounded(scale : Int32) : Decimal | DatabaseError
+    return DatabaseError.new(20, "decimal", "scale must be non-negative") if scale < 0
+    return self if @number.scale <= scale
+    magnitude = @number.value.abs
+    removed_digits = @number.scale - scale
+    # Discarding more digits than the magnitude contains leaves a value strictly
+    # below half a rounding unit. Avoid constructing an enormous power
+    # of ten just to round a tiny exponent value to zero.
+    return Decimal.from_integer(0_i64) if magnitude.to_s.bytesize < removed_digits
+    divisor = BigInt.new(10_i64) ** removed_digits
+    whole, remainder = magnitude.divmod(divisor)
+    whole += BigInt.new(1_i64) if remainder * BigInt.new(2_i64) >= divisor
+    whole = -whole if @number.negative?
+    Decimal.new(BigDecimal.new(whole, scale))
+  end
+end
+
+pub struct Date
+  getter year : Int32
+  getter month : Int32
+  getter day : Int32
+
+  private def initialize(@year : Int32, @month : Int32, @day : Int32)
+  end
+
+  def self.from_parts(year : Int32, month : Int32, day : Int32) : Date | DatabaseError
+    return DatabaseError.new(20, "date", "year must be between 1 and 9999") if year < 1 || year > 9999
+    return DatabaseError.new(20, "date", "month must be between 1 and 12") if month < 1 || month > 12
+    return DatabaseError.new(20, "date", "invalid calendar day") if day < 1 || day > Time.days_in_month(year, month)
+    new(year, month, day)
+  end
+
+  def self.parse(text : String) : Date | DatabaseError
+    return DatabaseError.new(20, "date", "expected YYYY-MM-DD") unless Regex.compile("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}\\z").match?(text)
+    from_parts(text[0, 4].to_i, text[5, 2].to_i, text[8, 2].to_i)
+  end
+
+  def to_s : String
+    Time.utc(@year, @month, @day).to_rfc3339[0, 10]
+  end
+
+  def ==(other : Date) : Bool
+    @year == other.year && @month == other.month && @day == other.day
+  end
+
+  def hash : Int32
+    {@year, @month, @day}.hash
+  end
+
+  def <=>(other : Date) : Int32
+    Time.utc(@year, @month, @day) <=> Time.utc(other.year, other.month, other.day)
+  end
+end
+
+pub struct DateTime
+  getter instant : Time
+
+  def initialize(@instant : Time)
+  end
+
+  def self.parse(text : String) : DateTime | DatabaseError
+    pattern = Regex.compile("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})\\z")
+    return DatabaseError.new(20, "datetime", "expected RFC3339 with an explicit timezone and at most nine fractional digits") unless pattern.match?(text)
+    date = Date.parse(text[0, 10])!
+    hour = text[11, 2].to_i
+    minute = text[14, 2].to_i
+    second = text[17, 2].to_i
+    return DatabaseError.new(20, "datetime", "invalid clock time") if hour > 23 || minute > 59 || second > 60
+    utc_suffix = text.ends_with?("Z") || text.ends_with?("z")
+    suffix = utc_suffix ? text.bytesize - 1 : text.bytesize - 6
+    offset = 0_i64
+    unless utc_suffix
+      offset_hour = text[suffix + 1, 2].to_i
+      offset_minute = text[suffix + 4, 2].to_i
+      return DatabaseError.new(20, "datetime", "invalid timezone offset") if offset_hour > 23 || offset_minute > 59
+      offset = offset_hour.to_i64 * 3600_i64 + offset_minute.to_i64 * 60_i64
+      offset = -offset if text[suffix, 1] == "-"
+    end
+    nanos = 0
+    if suffix > 19
+      fraction = text[20, suffix - 20]
+      nanos = (fraction + "0" * (9 - fraction.bytesize)).to_i
+    end
+    # Leap seconds are the second after :59, as in the native Time parser.
+    base = Time.utc(date.year, date.month, date.day, hour, minute, second == 60 ? 59 : second, nanosecond: nanos)
+    new(base + Span.seconds((second == 60 ? 1_i64 : 0_i64) - offset))
+  end
+
+  def to_s : String
+    @instant.to_rfc3339(9)
+  end
+
+  def ==(other : DateTime) : Bool
+    @instant == other.instant
+  end
+
+  def hash : Int32
+    @instant.hash
+  end
+
+  def <=>(other : DateTime) : Int32
+    @instant <=> other.instant
+  end
+end

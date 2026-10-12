@@ -1,0 +1,151 @@
+module dynamic_validation_test
+
+import std/float
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/validation::{CheckedRules, Rules, Presence, Context, Options}
+import grant/validators::{Constraint, Comparison, Condition}
+import grant/dynamic_validation::{Operand, AttributeOperand, DynamicConstraint, DynamicNumericality}
+import grant/database_validation::{DatabaseRules, DatabaseWhen, Uniqueness}
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+
+class ContextLimit
+  getter calls : Int32
+
+  def initialize
+    @calls = 0
+  end
+end
+
+impl Operand for ContextLimit
+  def resolve(attributes : Attributes, context : Context) : Value | DatabaseError
+    @calls += 1
+    context.operation == "create" ? 5_i64 : 10_i64
+  end
+end
+
+struct OnCreate
+end
+
+impl Condition for OnCreate
+  def applies?(attributes : Attributes, context : Context) : Bool
+    context.operation == "create"
+  end
+end
+
+limits = [DynamicConstraint.new(Comparison::GreaterThan, AttributeOperand.new("minimum"))]
+rules = CheckedRules.new.add(DynamicNumericality.new("maximum", limits))
+limits << DynamicConstraint.new(Comparison::LessThan, AttributeOperand.new("missing"))
+errors = rules.validate({"maximum" => 5_i64, "minimum" => 10_i64} of String => Value).or_panic
+assert errors.size == 1
+assert errors["maximum"] == ["must be greater than 10"]
+assert errors.of_type?("maximum", "greater_than", {"count" => 10_i64, "value" => 5_i64} of String => Value)
+assert rules.validate({"maximum" => 5_i64, "minimum" => 1_i64} of String => Value).or_panic.empty?
+assert rules.validate({"maximum" => "5", "minimum" => "1"} of String => Value).or_panic.empty?
+assert rules.check({"maximum" => 5_i64} of String => Value).is_a?(DatabaseError)
+assert rules.check({"maximum" => 5_i64, "minimum" => nil} of String => Value).is_a?(DatabaseError)
+assert rules.check({"maximum" => 5_i64, "minimum" => "invalid"} of String => Value).is_a?(DatabaseError)
+assert rules.check({"maximum" => 5_i64, "minimum" => Float64::INFINITY} of String => Value).is_a?(DatabaseError)
+assert rules.validate({"maximum" => nil} of String => Value).or_panic.of_type?("maximum", "not_a_number")
+assert rules.validate({"maximum" => "bad"} of String => Value).or_panic.of_type?("maximum", "not_a_number")
+assert rules.validate({"maximum" => 9007199254740993_i64, "minimum" => 9007199254740992_i64} of String => Value).or_panic.empty?
+assert rules.check({"maximum" => 9007199254740992_i64, "minimum" => 9007199254740992_i64} of String => Value).is_a?(ValidationError)
+
+policy = ContextLimit.new
+ceiling = CheckedRules.new.add(DynamicNumericality.new("ceiling", [DynamicConstraint.new(Comparison::LessThanOrEqual, policy)], only_integer: true))
+errors = ceiling.validate({"ceiling" => 9_i64} of String => Value, Context.new("create")).or_panic
+assert errors.of_type?("ceiling", "less_than_or_equal_to", {"count" => 5_i64, "value" => 9_i64} of String => Value)
+assert policy.calls == 1
+assert ceiling.validate({"ceiling" => 9_i64} of String => Value, Context.new("update")).or_panic.empty?
+assert policy.calls == 2
+errors = ceiling.validate({"ceiling" => 1.5} of String => Value).or_panic
+assert errors.objects.map { |issue| issue.code } == ["not_an_integer"]
+assert policy.calls == 2
+assert ceiling.validate({"ceiling" => "8.0"} of String => Value).or_panic.of_type?("ceiling", "not_an_integer")
+assert policy.calls == 2
+skipped = CheckedRules.new.add(DynamicNumericality.new("amount", [DynamicConstraint.new(Comparison::EqualTo, policy)], options: Options.new(allow_nil: true, on: "create")))
+assert skipped.validate({"amount" => nil} of String => Value, Context.new("create")).or_panic.empty?
+assert skipped.validate({"amount" => 9_i64} of String => Value, Context.new("update")).or_panic.empty?
+assert policy.calls == 2
+combined = CheckedRules.new.add(DynamicNumericality.new("amount", [DynamicConstraint.new(Comparison::GreaterThan, AttributeOperand.new("minimum"))], [Constraint.new(Comparison::LessThan, 0_i64)], even: true, options: Options.new(message: "bad amount")))
+errors = combined.validate({"amount" => 3_i64, "minimum" => 4_i64} of String => Value).or_panic
+assert errors.size == 3
+assert errors["amount"] == ["bad amount", "bad amount", "bad amount"]
+assert errors.objects.map { |issue| issue.code } == ["less_than", "greater_than", "even"]
+assert errors.of_type?("amount", "less_than") && errors.of_type?("amount", "even") && errors.of_type?("amount", "greater_than")
+conditional = DatabaseRules.new.add(DatabaseWhen.new(DynamicNumericality.new("maximum", [DynamicConstraint.new(Comparison::GreaterThan, AttributeOperand.new("minimum"))]), OnCreate.new))
+assert conditional.check({"maximum" => 5_i64} of String => Value, Context.new("update")).nil?
+assert conditional.check({"maximum" => 5_i64} of String => Value, Context.new("create")).is_a?(DatabaseError)
+
+struct Order
+  getter id : Int64?
+  getter name : String
+  getter minimum : Int64?
+  getter maximum : Int64?
+
+  def initialize(@name : String, @minimum : Int64?, @maximum : Int64?, @id : Int64? = nil)
+  end
+end
+
+struct OrderMapping
+  @checks : CheckedRules
+
+  def initialize(@checks : CheckedRules)
+  end
+end
+
+impl Mapping(Order) for OrderMapping
+  def table : Table
+    Table.new("orders")
+  end
+
+  def attributes(record : Order) : Attributes
+    {"id" => record.id, "name" => record.name, "minimum" => record.minimum, "maximum" => record.maximum} of String => Value
+  end
+
+  def from_row(row : Row) : Order | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    minimum = row["minimum"]
+    maximum = row["maximum"]
+    if id.is_a?(Int64) && name.is_a?(String) && (minimum.nil? || minimum.is_a?(Int64)) && (maximum.nil? || maximum.is_a?(Int64))
+      Order.new(name, minimum, maximum, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid order")
+    end
+  end
+
+  def validate(record : Order) : Nil | ValidationError | DatabaseError
+    @checks.check(attributes(record))
+  end
+
+  def validate(record : Order, context : Context) : Nil | ValidationError | DatabaseError
+    @checks.check(attributes(record), context)
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE orders(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, minimum INTEGER, maximum INTEGER)").or_panic
+checks = CheckedRules.new(Rules.new.add(Presence.new("name")))
+checks.add(DynamicNumericality.new("maximum", [DynamicConstraint.new(Comparison::GreaterThan, AttributeOperand.new("minimum"))]))
+repository = Repository(Order).new(connection, OrderMapping.new(checks))
+checks.add(Uniqueness.new("name", repository.query))
+created = repository.insert(Order.new("one", 1_i64, 5_i64)).or_panic
+assert repository.insert(Order.new("invalid bound", nil, 5_i64)).is_a?(DatabaseError)
+assert repository.insert(Order.new("invalid value", 5_i64, 1_i64)).is_a?(ValidationError)
+assert repository.insert(Order.new("one", 1_i64, 5_i64)).is_a?(ValidationError)
+assert repository.query.count.or_panic == 1_i64
+assert repository.update(repository.query, created.id || 0_i64, Order.new("one", 10_i64, 5_i64)).is_a?(ValidationError)
+assert repository.update(repository.query, created.id || 0_i64, Order.new("one", nil, 5_i64)).is_a?(DatabaseError)
+loaded = repository.find(created.id || 0_i64).or_panic
+assert !loaded.nil?
+assert loaded.minimum == 1_i64 if loaded
+outer = repository.unit_of_work.run do
+  assert repository.insert(Order.new("caught bound", nil, 5_i64)).is_a?(DatabaseError)
+  repository.insert(Order.new("outer survives", 1_i64, 2_i64))
+end
+outer.or_panic
+assert repository.query.count.or_panic == 2_i64
+connection.close.or_panic

@@ -1,0 +1,115 @@
+module grant/timestamps
+
+import std/time::{Time}
+import std/text
+import grant/model::{Repository}
+import grant/query::{Query, identifier}
+import grant/value::{Attributes}
+import grant/lifecycle::{Callback, Event, WriteContext}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+
+pub trait Clock
+  abstract def now : Time
+end
+
+pub struct SystemClock
+end
+
+impl Clock for SystemClock
+  def now : Time
+    Time.utc
+  end
+end
+
+# Explicit callbacks replace global timestamp switches. UTC text is exact to
+# the declared precision; the application supplies a clock for deterministic
+# tests and a with_attributes mapping to rebuild its sealed record.
+pub class Timestamps(T)
+  @repository : Repository(T)
+  @clock : Clock
+  @created : Array(String)
+  @updated : Array(String)
+  @precision : Int32
+  @enabled : Bool
+  @touchable : Array(String)
+
+  def initialize(@repository : Repository(T), @clock : Clock = SystemClock.new,
+                 created : Array(String) = ["created_at"], updated : Array(String) = ["updated_at"],
+                 @precision : Int32 = 6, @enabled : Bool = true, touchable : Array(String) = [] of String)
+    @created = created.map { |name| name }
+    @updated = updated.map { |name| name }
+    @touchable = touchable.map { |name| name }
+  end
+
+  def enabled=(enabled : Bool) : Bool
+    @enabled = enabled
+  end
+
+  # Extra timestamp columns are declared here, rather than inferred from a
+  # String value (which could equally be an ordinary title or description).
+  def touch_attributes(record : T, time : Time? = nil, columns : Array(String) = [] of String) : Attributes | DatabaseError
+    return DatabaseError.new(21, "timestamps", "precision must be between 0 and 9") if @precision < 0 || @precision > 9
+    declared = @repository.attributes(record)
+    names = @updated + columns
+    return DatabaseError.new(21, "touch", "no timestamp columns are available to touch") if names.empty?
+    names.each do |name|
+      Grant::Query.identifier(name)!
+      return DatabaseError.new(21, "touch", "column is not declared as a timestamp: #{name}") unless (@created + @updated + @touchable).includes?(name)
+      return DatabaseError.new(20, "touch", "mapping must expose timestamp column: #{name}") unless declared.has_key?(name)
+      return DatabaseError.new(21, "touch", "touch cannot change the primary key") if name == @repository.query.table.primary_key
+    end
+    stamped_attributes(names, time || @clock.now)
+  end
+
+  def touch(scope : Query, id : Int64, time : Time? = nil, columns : Array(String) = [] of String) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+    record = @repository.first(scope.where_stored(@repository.query.table.primary_key, id))!
+    return nil unless record
+    values = touch_attributes(record, time, columns)!
+    @repository.touch(scope, id, values)
+  end
+
+  def apply(event : Event, record : T, context : WriteContext = WriteContext.new) : T | DatabaseError
+    return record unless @enabled && (event == Event::BeforeCreate || event == Event::BeforeUpdate)
+    return record unless context.stamp
+    if event == Event::BeforeUpdate && context.partial && context.changes(@repository.attributes(record)).empty?
+      return record
+    end
+    return DatabaseError.new(21, "timestamps", "precision must be between 0 and 9") if @precision < 0 || @precision > 9
+    attributes = @repository.attributes(record)
+    values = Attributes.new
+    attributes.each { |name, value| values[name] = value }
+    columns = event == Event::BeforeCreate ? @created + @updated : @updated
+    columns.each do |name|
+      return DatabaseError.new(20, "timestamps", "mapping must expose timestamp column: #{name}") unless values.has_key?(name)
+    end
+    pending = columns.select { |name| event == Event::BeforeUpdate || values[name].nil? }
+    return record if pending.empty?
+    stamped_attributes(pending, @clock.now).each { |name, value| values[name] = value }
+    @repository.with_attributes(record, values)
+  end
+
+  private def stamped_attributes(columns : Array(String), instant : Time) : Attributes
+    full = instant.to_rfc3339(9)
+    date = full.split("T")[0]
+    stamp = @precision == 0 ? full[0, full.bytesize - 11] + "Z" : full[0, full.bytesize - 10 + @precision] + "Z"
+    values = Attributes.new
+    columns.each do |name|
+      values[name] = name.ends_with?("_on") ? date : stamp
+    end
+    values
+  end
+end
+
+impl Callback(T) for Timestamps(T) forall T
+  def call(event : Event, record : T) : T | DatabaseError | ValidationError | CallbackAbort
+    apply(event, record)
+  end
+
+  def call(event : Event, record : T, context : WriteContext) : T | DatabaseError | ValidationError | CallbackAbort
+    apply(event, record, context)
+  end
+
+  def readonly_attributes : Array(String)
+    @created.map { |name| name }
+  end
+end

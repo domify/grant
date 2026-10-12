@@ -1,0 +1,168 @@
+module grant/schema_snapshot
+
+import std/text
+import std/indexable
+import grant/database::{Database, Dialect}
+import grant/errors::{DatabaseError}
+import grant/value::{Value}
+import grant/query::{identifier}
+import grant/transaction::{transaction}
+import grant/schema_transaction::{ddl_transaction}
+import grant/sql/definition_scanner::{table_body}
+
+pub enum ObjectKind
+  Table
+  View
+  Index
+  Trigger
+end
+
+pub struct CatalogObject
+  getter kind : ObjectKind
+  getter name : String
+  getter table : String
+  getter sql : String
+
+  def initialize(@kind : ObjectKind, @name : String, @table : String, @sql : String)
+  end
+end
+
+# A SQLite schema, not a data backup. SQL is taken verbatim from the catalog so
+# generated columns, expressions, collations and composite keys survive.
+# Application code owns snapshots; there is no global definition registry.
+pub struct Snapshot
+  @objects : Array(CatalogObject)
+  @versions : Hash(Int64, String)
+  getter tracking_table : String?
+
+  def initialize(objects : Array(CatalogObject), versions : Hash(Int64, String) = {} of Int64 => String,
+                 @tracking_table : String? = nil)
+    @objects = objects.map { |object| object }
+    @versions = {} of Int64 => String
+    versions.each { |number, checksum| @versions[number] = checksum }
+  end
+
+  def objects : Array(CatalogObject)
+    @objects.map { |object| object }
+  end
+
+  def versions : Hash(Int64, String)
+    result = {} of Int64 => String
+    @versions.each { |number, checksum| result[number] = checksum }
+    result
+  end
+
+  def version : Int64
+    latest = 0_i64
+    @versions.each { |number, _checksum| latest = number if number > latest }
+    latest
+  end
+
+  # Default loading refuses conflicts. Explicit replacement drops only objects
+  # named in this snapshot, atomically with creation and migration bookkeeping.
+  def apply(database : Database, replace : Bool = false) : Nil | DatabaseError | Panicked | Cancelled
+    return DatabaseError.new(21, "schema", "schema snapshots are implemented only for SQLite") unless database.dialect == Dialect::SQLite
+    ddl_transaction(database, rebuilds: true) { replay(database, replace).as(Nil | DatabaseError) }
+  end
+
+  # Emits a native iyi factory. Compile/import it, then explicitly apply its
+  # snapshot. SQL remains a string, never interpolated application source.
+  def to_iyi(module_name : String = "grant_schema_dump") : String | DatabaseError
+    return DatabaseError.new(21, "schema", "empty schema module name") if module_name.empty?
+    module_name.split('/').each { |part| identifier(part)! }
+    text = "module #{module_name}\n\nimport grant/schema_snapshot::{Snapshot, CatalogObject, ObjectKind}\n\npub def snapshot : Snapshot\n  objects = [] of CatalogObject\n"
+    @objects.each do |object|
+      text += "  objects << CatalogObject.new(ObjectKind::#{object.kind}, #{object.name.inspect}, #{object.table.inspect}, #{object.sql.inspect})\n"
+    end
+    text += "  versions = {} of Int64 => String\n"
+    @versions.keys.sorted.each do |number|
+      text += "  versions[#{number}_i64] = #{@versions[number].inspect}\n"
+    end
+    tracking = @tracking_table
+    text += "  Snapshot.new(objects, versions, #{tracking ? tracking.inspect : "nil"})\nend\n"
+    text
+  end
+
+  private def replay(database : Database, replace : Bool) : Nil | DatabaseError
+    return DatabaseError.new(21, "schema", "migration versions require a tracking table") if !@versions.empty? && @tracking_table.nil?
+    @versions.each do |number, _checksum|
+      return DatabaseError.new(21, "schema", "migration versions must be positive") if number <= 0_i64
+    end
+    if replace
+      # Drop views and triggers before tables. Indexes owned by a table vanish
+      # with that table; explicit drops also cover snapshots built by callers.
+      @objects.reverse_each do |object|
+        kind = object.kind.to_s.upcase
+        database.execute("DROP #{kind} IF EXISTS #{quoted_name(object.name)}", [] of Value)!
+      end
+    end
+    @objects.each { |object| database.execute(object.sql, [] of Value)! }
+    if tracking = @tracking_table
+      table = identifier(tracking)!
+      database.execute("CREATE TABLE IF NOT EXISTS #{table} (version BIGINT PRIMARY KEY NOT NULL, checksum TEXT NOT NULL)", [] of Value)!
+      database.execute("DELETE FROM #{table}", [] of Value)! if replace
+      @versions.keys.sorted.each do |number|
+        database.execute("INSERT INTO #{table} (version, checksum) VALUES (?, ?)", [number, @versions[number]] of Value)!
+      end
+    end
+    nil
+  end
+end
+
+pub class Dumper
+  @database : Database
+  @tracking_table : String
+
+  def initialize(@database : Database, @tracking_table : String = "grant_schema_migrations")
+  end
+
+  def snapshot : Snapshot | DatabaseError | Panicked | Cancelled
+    return DatabaseError.new(21, "schema", "schema snapshots are implemented only for SQLite") unless @database.dialect == Dialect::SQLite
+    transaction(@database, requires_new: true) { read_snapshot.as(Snapshot | DatabaseError) }
+  end
+
+  private def read_snapshot : Snapshot | DatabaseError
+    tracking = identifier(@tracking_table)!
+    rows = @database.query("SELECT type, name, tbl_name, sql FROM main.sqlite_schema WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*' ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 1 WHEN 'index' THEN 2 ELSE 3 END, name", [] of Value)!
+    objects = [] of CatalogObject
+    tracked = false
+    rows.each do |row|
+      name = row["name"]
+      table = row["tbl_name"]
+      type = row["type"]
+      sql = row["sql"]
+      return DatabaseError.new(20, "schema", "invalid SQLite catalog object") unless name.is_a?(String) && table.is_a?(String) && type.is_a?(String) && sql.is_a?(String)
+      tracked = true if type == "table" && name == @tracking_table
+      next if table == @tracking_table || table == "schema_migrations" || table == "ar_internal_metadata"
+      kind = case type
+             when "table"   then ObjectKind::Table
+             when "view"    then ObjectKind::View
+             when "index"   then ObjectKind::Index
+             when "trigger" then ObjectKind::Trigger
+             else                return DatabaseError.new(21, "schema", "unsupported SQLite catalog object: #{type}")
+             end
+      # Virtual tables and their shadow storage need module-specific dumps.
+      if kind == ObjectKind::Table
+        Grant::Sql::DefinitionScanner.table_body(sql)!
+      end
+      objects << CatalogObject.new(kind, name, table, sql)
+    end
+    versions = {} of Int64 => String
+    if tracked
+      tracked_rows = @database.query("SELECT version, checksum FROM #{tracking} ORDER BY version", [] of Value)!
+      tracked_rows.each do |row|
+        number = row["version"]
+        checksum = row["checksum"]
+        return DatabaseError.new(20, "schema", "invalid migration bookkeeping row") unless number.is_a?(Int64) && number > 0_i64 && checksum.is_a?(String)
+        versions[number] = checksum
+      end
+    end
+    Snapshot.new(objects, versions, tracked ? @tracking_table : nil)
+  end
+end
+
+# Catalog names may contain spaces and Unicode even though application schema
+# builders use the stricter identifier API. Escaping quotes preserves them.
+def quoted_name(name : String) : String
+  "\"#{name.gsub("\"", "\"\"")}\""
+end
