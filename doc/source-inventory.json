@@ -1305,6 +1305,7 @@
     "grant/dirty.iyi",
     "grant/errors.iyi",
     "grant/lifecycle.iyi",
+    "grant/locking.iyi",
     "grant/migrations.iyi",
     "grant/model.iyi",
     "grant/normalization.iyi",

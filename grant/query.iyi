@@ -63,8 +63,14 @@ pub class Query
   end
 
   def where(name : String, value : Value) : Query
+    where_stored(name, normalized_value(name, value))
+  end
+
+  # For internal stored representations such as optimistic lock versions.
+  # Values are still bound and every existing scope predicate is retained.
+  def where_stored(name : String, value : Value) : Query
     filters = copy_filters(@filters)
-    filters << Predicate.new(name, normalized_value(name, value))
+    filters << Predicate.new(name, value)
     Query.new(@database, @table, filters, @limit, @offset, @order, @descending, @normalization)
   end
 

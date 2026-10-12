@@ -1,0 +1,89 @@
+module grant/locking
+
+import grant/model::{Repository}
+import grant/query::{Query, identifier}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+
+pub struct StaleObjectError
+  getter table : String
+  getter id : Int64
+  getter operation : String
+  getter expected_version : Int64
+
+  def initialize(@table : String, @id : Int64, @operation : String, @expected_version : Int64)
+  end
+end
+
+impl Error for StaleObjectError
+  def message : String
+    "attempted to #{operation} stale #{@table} id=#{@id} version=#{@expected_version}"
+  end
+end
+
+pub alias LockError = StaleObjectError | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+
+pub trait Version(T)
+  abstract def version(record : T) : Int64
+  abstract def with_version(record : T, version : Int64) : T | DatabaseError
+end
+
+# Version checks are SQL predicates in the same atomic operation as the write.
+# There is no SELECT-then-write race and no SQLite row-lock emulation.
+pub class Optimistic(T)
+  @repository : Repository(T)
+  @policy : Version(T)
+  @column : String
+
+  def initialize(@repository : Repository(T), @policy : Version(T), @column : String = "lock_version")
+  end
+
+  def query : Query
+    @repository.query
+  end
+
+  def insert(record : T) : T | LockError
+    @repository.insert(record)
+  end
+
+  def update(scope : Query, id : Int64, record : T) : T | LockError
+    @repository.unit_of_work.run(requires_new: true) { update_record(scope, id, record).as(T | LockError) }
+  end
+
+  def destroy(scope : Query, id : Int64, record : T) : T | LockError
+    @repository.unit_of_work.run(requires_new: true) { destroy_record(scope, id, record).as(T | LockError) }
+  end
+
+  private def expected_version(record : T) : Int64 | DatabaseError
+    Grant::Query.identifier(@column)!
+    version = @policy.version(record)
+    attributes = @repository.attributes(record)
+    return DatabaseError.new(20, "locking", "mapping must expose the version declared by the policy") unless attributes.has_key?(@column) && attributes[@column] == version
+    version
+  end
+
+  private def update_record(scope : Query, id : Int64, record : T) : T | LockError
+    version = expected_version(record)!
+    return DatabaseError.new(20, "locking", "version cannot be incremented beyond Int64") if version == 9223372036854775807_i64
+    prepared = @policy.with_version(record, version + 1_i64)
+    return prepared if prepared.is_a?(DatabaseError)
+    before = @repository.attributes(record)
+    after = @repository.attributes(prepared)
+    key = query.table.primary_key
+    return DatabaseError.new(20, "locking", "version policy changed the primary key") unless before[key]? == after[key]?
+    return DatabaseError.new(20, "locking", "version policy did not assign the expected increment") unless after[@column]? == version + 1_i64
+    updated = @repository.update(scope.where_stored(@column, version), id, prepared)!
+    return StaleObjectError.new(query.table.name, id, "update", version) unless updated
+    return DatabaseError.new(20, "locking", "callback or normalization changed the incremented version") unless @repository.attributes(updated)[@column]? == version + 1_i64
+    persisted = @repository.first(query.where_stored(key, id))!
+    return StaleObjectError.new(query.table.name, id, "update", version) unless persisted
+    return DatabaseError.new(20, "locking", "stored version changed during callbacks") unless @repository.attributes(persisted)[@column]? == version + 1_i64
+    updated
+  end
+
+  private def destroy_record(scope : Query, id : Int64, record : T) : T | LockError
+    version = expected_version(record)!
+    destroyed = @repository.destroy(scope.where_stored(@column, version), id)!
+    return StaleObjectError.new(query.table.name, id, "destroy", version) unless destroyed
+    destroyed
+  end
+end

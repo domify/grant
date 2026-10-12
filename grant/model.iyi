@@ -174,7 +174,8 @@ pub class Repository(T)
     prepared = callback(Event::BeforeDestroy, current)
     return prepared if prepared.is_a?(Error)
     current = prepared
-    selected.delete!
+    deleted = selected.delete!
+    return nil if deleted.changes == 0
     observed = observe(current, row[@mapping.table.primary_key])
     return observed if observed.is_a?(DatabaseError)
     callback(Event::AfterDestroy, current)

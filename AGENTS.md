@@ -70,6 +70,11 @@ SQLite `Binary` values bind as BLOB and are copied on decoding. Empty BLOB is
 distinct from NULL. Do not coerce arbitrary bytes through text encoding. The
 PostgreSQL adapter rejects Binary binding until its port is resumed.
 
+Optimistic locking is an explicit Optimistic(T) repository wrapper with a
+Version(T) policy and an Int64 stored column. Route protected writes through it;
+plain repository/raw writes do not have a version guard. Use bound where_stored
+predicates for stored metadata such as lock versions. See doc/LOCKING.md.
+
 Direct collection writes use `CollectionWriter(T)` and an application-owned
 `Link(T)` implementation. New records and attachments run repository callbacks;
 nullify/delete removals are set-based and skip callbacks, while destroy runs

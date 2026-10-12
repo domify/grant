@@ -1,0 +1,114 @@
+module locking_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/locking::{Optimistic, Version, StaleObjectError}
+import grant/lifecycle::{Pipeline, Callback, Event}
+
+struct Note
+  getter id : Int64?
+  getter title : String
+  getter revision : Int64
+
+  def initialize(@title : String, @revision : Int64 = 0_i64, @id : Int64? = nil)
+  end
+end
+
+struct NoteMapping
+end
+
+impl Mapping(Note) for NoteMapping
+  def table : Table
+    Table.new("notes")
+  end
+
+  def attributes(record : Note) : Attributes
+    {"id" => record.id, "title" => record.title, "revision" => record.revision} of String => Value
+  end
+
+  def from_row(row : Row) : Note | DatabaseError
+    id = row["id"]
+    title = row["title"]
+    revision = row["revision"]
+    if id.is_a?(Int64) && title.is_a?(String) && revision.is_a?(Int64)
+      Note.new(title, revision, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid note row")
+    end
+  end
+
+  def validate(record : Note) : Nil | ValidationError
+    record.title.empty? ? ValidationError.new({"title" => ["can't be blank"]}) : nil
+  end
+end
+
+struct NoteVersion
+end
+
+impl Version(Note) for NoteVersion
+  def version(record : Note) : Int64
+    record.revision
+  end
+
+  def with_version(record : Note, version : Int64) : Note | DatabaseError
+    Note.new(record.title, version, record.id)
+  end
+end
+
+class DestroyRace
+  @connection : Connection
+
+  def initialize(@connection : Connection)
+  end
+end
+
+impl Callback(Note) for DestroyRace
+  def call(event : Event, record : Note) : Note | DatabaseError | ValidationError | CallbackAbort
+    if event == Event::BeforeDestroy && record.title == "race"
+      @connection.execute("UPDATE notes SET revision=revision+1 WHERE id=?", [record.id] of Value)!
+    end
+    record
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE notes(id INTEGER PRIMARY KEY, title TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)").or_panic
+pipeline = Pipeline(Note).new.add(DestroyRace.new(connection), [Event::BeforeDestroy])
+repository = Repository(Note).new(connection, NoteMapping.new, pipeline)
+locking = Optimistic(Note).new(repository, NoteVersion.new, "revision")
+original = locking.insert(Note.new("initial")).or_panic
+id = original.id || 0_i64
+first = repository.find(id).or_panic
+second = repository.find(id).or_panic
+assert !first.nil? && !second.nil?
+updated = locking.update(repository.query, id, Note.new("updated", original.revision, id)).or_panic
+assert updated.revision == 1_i64
+assert original.revision == 0_i64
+assert locking.update(repository.query, id, Note.new("stale", original.revision, id)).is_a?(StaleObjectError)
+assert locking.destroy(repository.query, id, original).is_a?(StaleObjectError)
+current = repository.find(id).or_panic
+assert current.title == "updated" if current
+assert current.revision == 1_i64 if current
+assert locking.update(repository.query, id, Note.new("", 1_i64, id)).is_a?(ValidationError)
+current = repository.find(id).or_panic
+assert current.revision == 1_i64 if current
+assert locking.update(repository.query.where("title", "other scope"), id, Note.new("outside", 1_i64, id)).is_a?(StaleObjectError)
+result = repository.unit_of_work.run do
+  error = locking.update(repository.query, id, Note.new("caught stale", 0_i64, id))
+  assert error.is_a?(StaleObjectError)
+  repository.insert(Note.new("outer success"))
+end
+result.or_panic
+assert repository.query.where("title", "outer success").count.or_panic == 1
+locking.destroy(repository.query, id, updated).or_panic
+assert repository.find(id).or_panic.nil?
+assert locking.destroy(repository.query, id, updated).is_a?(StaleObjectError)
+race = locking.insert(Note.new("race")).or_panic
+assert locking.destroy(repository.query, race.id || 0_i64, race).is_a?(StaleObjectError)
+race_after = repository.find(race.id || 0_i64).or_panic
+assert race_after.revision == 0_i64 if race_after
+assert locking.update(repository.query, race.id || 0_i64, Note.new("overflow", 9223372036854775807_i64, race.id)).is_a?(DatabaseError)
+connection.close.or_panic

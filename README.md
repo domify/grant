@@ -30,6 +30,8 @@ The original ORM's full feature set has **not** been ported yet.
   savepoints. Repository-based saves and destruction run model callbacks.
 - `grant/dependent.iyi`: explicit owner destruction callbacks with scoped
   nullify/delete/destroy/restrict actions and cycle detection.
+- `grant/locking.iyi`: typed optimistic version policies with atomic SQL guards,
+  stale-object errors and nested rollback. See `doc/LOCKING.md`.
 - `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
@@ -105,9 +107,9 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, an artifact layout bug was found and fixed in iyi
 compiler commit `a03fc3438`. The fixed local compiler passes the model consumer. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 19 programs, including
+connection failure). The current SQLite-only suite has 20 programs, including
 association reads, transactional writes, dependent destruction, binary data and
-additional validators, SQLite uniqueness and model normalization. See
+additional validators, SQLite uniqueness, model normalization and locking. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` retains and expands the artifact gate. Older installed
 compilers may still fail it until they include the fix.

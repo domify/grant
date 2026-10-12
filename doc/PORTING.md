@@ -107,6 +107,12 @@ been translated wholesale to native iyi yet.
 
 ## Remaining work
 
+Optimistic locking is now implemented with explicit version policies, atomic
+SQL predicates and StaleObjectError values. SQLite cases cover stale/missing
+targets, scopes, overflow and nested/callback rollback. Current suite has 20
+SQLite source programs and seven source-free artifact consumers. Touch/bulk
+locking integration and pessimistic APIs remain pending; see LOCKING.md.
+
 1. Add exact decimal and date/time value types for SQLite. PostgreSQL
    live CRUD and result verification are deferred under the current scope.
 2. Complete schema alteration/dumping, composite keys and migration capabilities;
