@@ -10,6 +10,16 @@ SQLite uses `libsqlite3`; PostgreSQL uses `libpq`. All application-facing
 code, queries, mapping contracts, error handling, and transactions are iyi.
 The original ORM's full feature set has **not** been ported yet.
 
+> **Compiler requirement:** source-free `.iyimod` consumers and the full test
+> gate require an iyi compiler containing commit `a03fc3438` **and** the fix in
+> [scripts/compiler-witness-union.patch](scripts/compiler-witness-union.patch).
+> Apply the patch to the iyi compiler checkout and rebuild/install that compiler;
+> changing Grant alone is insufficient. An older compiler can reject artifact
+> imports or produce a crashing consumer. This requirement concerns artifact
+> consumption, rather than ordinary compilation from Grant source. Do not assume
+> the installed iyi version includes both fixes. See
+> [doc/ARTIFACT-ISSUE.md](doc/ARTIFACT-ISSUE.md) for the diagnosis and verification.
+
 ## Design
 
 - `grant/database.iyi`: the `Database` trait and mutation result.
@@ -91,7 +101,8 @@ checkout can be selected with `IYI=/home/priit/contribute/iyi/bin/iyi`.
 Current development scope is SQLite only; PostgreSQL work is
 deferred and its existing adapter/test are retained.
 
-Run from this directory with iyi 0.16.2. Install the system development packages
+The native source targets iyi 0.16.2 syntax; use the patched compiler above for
+the full verification gate. Run from this directory. Install the system development packages
 providing `libsqlite3` and `libpq` before linking their respective adapters.
 
 ```sh
