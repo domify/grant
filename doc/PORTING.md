@@ -83,6 +83,11 @@ No code delegates native model behavior to the archived Crystal ORM.
 - Explicit normalization plans, plus snapshot-based dirty state supporting
   mutable values through a supplied copying trait. Unknown runtime writes return
   `AttributeError`; batch clearing validates names before changing any baseline.
+- Mapping-declared normalization is now applied before repository validation via
+  typed record reconstruction, and repository query arguments inherit the plan.
+  Conditional normalizers see create/update context but never run on query
+  arguments. SQLite cases exercise stored data, legacy hydration and invalid
+  transformed types. See `NORMALIZATION.md`; suite now has 19 SQLite programs.
 - Basic table/index definitions, SQLite/PostgreSQL column introspection and
   transactional SQL migration ordering, targets, rollback and checksum checking.
   PostgreSQL behavior beyond connection failure remains unverified.
@@ -91,7 +96,7 @@ No code delegates native model behavior to the archived Crystal ORM.
   Unicode text, dollar quotes, and escaped question-mark operators.
 - The earlier core passed typed model artifact consumption. The expanded port
   currently fails that gate due to a compiler trait-field layout mismatch; see
-  `ARTIFACT-ISSUE.md`. Current source execution passes all 18 SQLite test programs.
+  `ARTIFACT-ISSUE.md`. Current source execution passes all 19 SQLite test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
@@ -104,7 +109,7 @@ been translated wholesale to native iyi yet.
    live CRUD and result verification are deferred under the current scope.
 2. Complete schema alteration/dumping, composite keys and migration capabilities;
    add connection pools, prepared-statement caches and nonblocking scheduling.
-3. Complete remaining validators, conditional normalization, around callbacks,
+3. Complete remaining validators and normalization parity, around callbacks,
    dirty-state repository integration, timestamps and defaults with parity cases.
 4. Complete belongs-to assignment helpers, through/polymorphic and composite-key loading,
    nested attributes, STI, dependent behavior and the remaining relation APIs.

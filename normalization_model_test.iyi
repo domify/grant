@@ -1,0 +1,124 @@
+module normalization_model_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table, Query}
+import grant/value::{Value, Row, Attributes}
+import grant/validation::{Context}
+import grant/normalization::{Plan, TrimLowercase, Normalizer}
+import grant/validators::{Condition}
+import grant/errors::{DatabaseError, ValidationError}
+
+struct User
+  getter id : Int64?
+  getter email : String
+  getter handle : String?
+  getter enabled : Bool
+
+  def initialize(@email : String, @handle : String? = nil, @enabled : Bool = true, @id : Int64? = nil)
+  end
+end
+
+struct Enabled
+end
+
+impl Condition for Enabled
+  def applies?(attributes : Attributes, context : Context) : Bool
+    attributes["enabled"]? == true
+  end
+end
+
+struct UserMapping
+  @plan : Plan
+
+  def initialize(@plan : Plan = Plan.new.add("email", TrimLowercase.new).add("handle", TrimLowercase.new, condition: Enabled.new))
+  end
+end
+
+impl Mapping(User) for UserMapping
+  def table : Table
+    Table.new("users")
+  end
+
+  def normalization : Plan?
+    @plan
+  end
+
+  def attributes(record : User) : Attributes
+    {"id" => record.id, "email" => record.email, "handle" => record.handle, "enabled" => record.enabled} of String => Value
+  end
+
+  def with_attributes(record : User, attributes : Attributes) : User | DatabaseError
+    email = attributes["email"]
+    handle = attributes["handle"]
+    enabled = attributes["enabled"]
+    if email.is_a?(String) && (handle.nil? || handle.is_a?(String)) && enabled.is_a?(Bool)
+      User.new(email, handle, enabled, record.id)
+    else
+      DatabaseError.new(20, "assignment", "invalid normalized user values")
+    end
+  end
+
+  def from_row(row : Row) : User | DatabaseError
+    id = row["id"]
+    email = row["email"]
+    handle = row["handle"]
+    enabled = row["enabled"]
+    if id.is_a?(Int64) && email.is_a?(String) && (handle.nil? || handle.is_a?(String)) && enabled.is_a?(Int64)
+      User.new(email, handle, enabled != 0_i64, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid user row")
+    end
+  end
+
+  def validate(record : User) : Nil | ValidationError
+    if record.email != record.email.strip.downcase
+      ValidationError.new({"email" => ["must be normalized before validation"]})
+    else
+      nil
+    end
+  end
+end
+
+struct InvalidEmail
+end
+
+impl Normalizer for InvalidEmail
+  def normalize(value : Value) : Value
+    42_i64
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, email TEXT NOT NULL, handle TEXT, enabled INTEGER NOT NULL)").or_panic
+repository = Repository(User).new(connection, UserMapping.new)
+input = User.new("  USER@EXAMPLE.COM  ", "  JoE  ")
+saved = repository.insert(input).or_panic
+assert saved.email == "user@example.com"
+assert saved.handle == "joe"
+assert input.email == "  USER@EXAMPLE.COM  "
+assert input.handle == "  JoE  "
+assert repository.query.where("email", " USER@EXAMPLE.COM ").count.or_panic == 1
+assert repository.query.where_in("email", [" USER@EXAMPLE.COM "] of Value).count.or_panic == 1
+assert repository.query.where("handle", "  JoE  ").count.or_panic == 0
+assert repository.query.where("handle", "joe").count.or_panic == 1
+assert repository.query.order("id").limit(1).where("email", " USER@EXAMPLE.COM ").exists?.or_panic
+assert repository.query.offset(0).unordered.where("email", " USER@EXAMPLE.COM ").count.or_panic == 1
+assert repository.query.where_not("email", " USER@EXAMPLE.COM ").count.or_panic == 0
+updated = repository.update(repository.query, saved.id || 0_i64, User.new(" SECOND@EXAMPLE.COM ", " Keep RAW ", false)).or_panic
+assert !updated.nil?
+assert updated.email == "second@example.com" if updated
+assert updated.handle == " Keep RAW " if updated
+raw = Query.new(connection, Table.new("users"))
+raw.insert({"email" => " LEGACY@EXAMPLE.COM ", "handle" => " LEGACY ", "enabled" => 1_i64} of String => Value).or_panic
+legacy = repository.find(2_i64).or_panic
+assert !legacy.nil?
+assert legacy.email == " LEGACY@EXAMPLE.COM " if legacy
+assert legacy.handle == " LEGACY " if legacy
+assert repository.query.where("email", " LEGACY@EXAMPLE.COM ").count.or_panic == 0
+bad_plan = Plan.new.add("email", InvalidEmail.new)
+bad_repository = Repository(User).new(connection, UserMapping.new(bad_plan))
+assert bad_repository.insert(User.new("invalid assignment")).is_a?(DatabaseError)
+assert repository.query.count.or_panic == 2
+assert bad_repository.query.where_case_insensitive("email", "invalid").all.is_a?(DatabaseError)
+connection.close.or_panic

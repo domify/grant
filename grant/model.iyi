@@ -7,6 +7,7 @@ import grant/query::{Query, Table}
 import grant/lifecycle::{Pipeline, Event}
 import grant/unit_of_work::{UnitOfWork, Observer}
 import grant/validation::{Context}
+import grant/normalization::{Plan}
 
 # Applications explicitly map their sealed record types to a table. The ORM
 # never reopens those types or discovers their fields through a global macro.
@@ -22,6 +23,24 @@ pub trait Mapping(T)
   def validate(record : T, context : Context) : Nil | ValidationError | DatabaseError
     validate(record)
   end
+
+  def normalization : Plan?
+    nil
+  end
+
+  # Sealed application records are rebuilt explicitly; hydration is not an
+  # assignment API and must never be reused to build an unsaved record.
+  def with_attributes(record : T, attributes : Attributes) : T | DatabaseError
+    DatabaseError.new(21, "normalization", "mapping must implement with_attributes when declaring a normalization plan")
+  end
+
+  def normalize(record : T, context : Context) : T | DatabaseError
+    if plan = normalization
+      with_attributes(record, plan.apply(attributes(record), context))
+    else
+      record
+    end
+  end
 end
 
 pub class Repository(T)
@@ -35,7 +54,7 @@ pub class Repository(T)
   end
 
   def query : Query
-    Query.new(@database, @mapping.table)
+    Query.new(@database, @mapping.table, normalization: @mapping.normalization)
   end
 
   def unit_of_work : UnitOfWork
@@ -92,7 +111,9 @@ pub class Repository(T)
   end
 
   private def validated(record : T, context : Context) : T | DatabaseError | ValidationError | CallbackAbort
-    prepared = callback(Event::BeforeValidation, record)
+    normalized = @mapping.normalize(record, context)
+    return normalized if normalized.is_a?(DatabaseError)
+    prepared = callback(Event::BeforeValidation, normalized)
     return prepared if prepared.is_a?(Error)
     current = prepared
     validation = @mapping.validate(current, context)

@@ -3,6 +3,7 @@ module grant/query
 import grant/database::{Database, Mutation}
 import grant/value::{Value, Row, Attributes}
 import grant/errors::{DatabaseError}
+import grant/normalization::{Plan}
 
 pub struct Table
   getter name : String
@@ -51,9 +52,10 @@ pub class Query
   @offset : Int32
   @order : String?
   @descending : Bool
+  @normalization : Plan?
 
   def initialize(@database : Database, @table : Table, @filters : Array(Predicate) = [] of Predicate,
-                 @limit : Int32? = nil, @offset : Int32 = 0, @order : String? = nil, @descending : Bool = false)
+                 @limit : Int32? = nil, @offset : Int32 = 0, @order : String? = nil, @descending : Bool = false, @normalization : Plan? = nil)
   end
 
   def database_identity : UInt64
@@ -62,26 +64,26 @@ pub class Query
 
   def where(name : String, value : Value) : Query
     filters = copy_filters(@filters)
-    filters << Predicate.new(name, value)
-    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+    filters << Predicate.new(name, normalized_value(name, value))
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending, @normalization)
   end
 
   def where_in(name : String, values : Array(Value)) : Query
     filters = copy_filters(@filters)
-    filters << Predicate.new(name, nil, values.map { |value| value })
-    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+    filters << Predicate.new(name, nil, values.map { |value| normalized_value(name, value) })
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending, @normalization)
   end
 
   def where_not(name : String, value : Value) : Query
     filters = copy_filters(@filters)
-    filters << Predicate.new(name, value, comparison: Operator::NotEqual)
-    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+    filters << Predicate.new(name, normalized_value(name, value), comparison: Operator::NotEqual)
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending, @normalization)
   end
 
   def where_case_insensitive(name : String, value : String) : Query
     filters = copy_filters(@filters)
-    filters << Predicate.new(name, value, comparison: Operator::CaseInsensitive)
-    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+    filters << Predicate.new(name, normalized_value(name, value), comparison: Operator::CaseInsensitive)
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending, @normalization)
   end
 
   def exists? : Bool | DatabaseError
@@ -96,19 +98,19 @@ pub class Query
   end
 
   def unordered : Query
-    Query.new(@database, @table, copy_filters(@filters), @limit, @offset)
+    Query.new(@database, @table, copy_filters(@filters), @limit, @offset, normalization: @normalization)
   end
 
   def limit(count : Int32) : Query
-    Query.new(@database, @table, copy_filters(@filters), count, @offset, @order, @descending)
+    Query.new(@database, @table, copy_filters(@filters), count, @offset, @order, @descending, @normalization)
   end
 
   def offset(count : Int32) : Query
-    Query.new(@database, @table, copy_filters(@filters), @limit, count, @order, @descending)
+    Query.new(@database, @table, copy_filters(@filters), @limit, count, @order, @descending, @normalization)
   end
 
   def order(name : String, descending : Bool = false) : Query
-    Query.new(@database, @table, copy_filters(@filters), @limit, @offset, name, descending)
+    Query.new(@database, @table, copy_filters(@filters), @limit, @offset, name, descending, @normalization)
   end
 
   def all : Array(Row) | DatabaseError
@@ -188,11 +190,22 @@ pub class Query
     @database.execute("DELETE FROM #{table}#{predicate}", parameters)
   end
 
+  private def normalized_value(name : String, value : Value) : Value
+    if plan = @normalization
+      plan.value_for(name, value)
+    else
+      value
+    end
+  end
+
   private def where_sql(parameters : Array(Value)) : String | DatabaseError
     clauses = [] of String
     @filters.each do |predicate|
       column = identifier(predicate.name)!
       value = predicate.value
+      if predicate.comparison == Operator::CaseInsensitive && !value.nil? && !value.is_a?(String)
+        return DatabaseError.new(20, "predicate", "case-insensitive normalization must produce text or nil")
+      end
       if values = predicate.values
         placeholders = [] of String
         nulls = false

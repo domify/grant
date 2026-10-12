@@ -40,7 +40,8 @@ The original ORM's full feature set has **not** been ported yet.
   acceptance and typed conditional rule wrappers. See `doc/VALIDATION.md`.
 - `grant/database_validation.iyi`: scoped SQLite uniqueness with self exclusion,
   context-aware mapping validation and separate database failure values.
-- `grant/normalization.iyi`: explicit normalization plans.
+- `grant/normalization.iyi`: mapping-based save normalization, conditional plans
+  and automatic predicate normalization. See `doc/NORMALIZATION.md`.
 - `grant/dirty.iyi`: snapshot-based change tracking with fixed attribute names.
 - `grant/schema.iyi` and `grant/migrations.iyi`: table/index definitions, column
   introspection, and ordered checksum-verified transactional SQL migrations.
@@ -77,6 +78,7 @@ iyi run association_write_test.iyi
 iyi run dependent_test.iyi
 iyi run validators_test.iyi
 iyi run uniqueness_test.iyi
+iyi run normalization_model_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
@@ -100,9 +102,9 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, that check is currently blocked by a compiler artifact
 layout bug. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 18 programs, including
+connection failure). The current SQLite-only suite has 19 programs, including
 association reads, transactional writes, dependent destruction, binary data and
-additional validators and SQLite uniqueness. See
+additional validators, SQLite uniqueness and model normalization. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` deliberately retains the failing artifact gate.
 
@@ -126,8 +128,9 @@ until the outer transaction commits. SQL migrations and basic schema operations
 are implemented; schema alteration, dumping, and composite keys are pending.
 
 Validation, normalization, dirty tracking, callbacks, and migrations implement
-a subset of the original behavior. Normalization and dirty state are explicit
-utilities, not automatic repository behavior. Around callbacks and several
+a subset of the original behavior. Mapping-declared normalization runs before
+validation and coerces query predicates; dirty-state integration is still pending.
+Around callbacks and several
 validators remain pending. Belongs-to assignment helpers, through/polymorphic associations,
 encrypted/serialized columns, locking,
 sharding, bulk operations, and the remaining original features still need native

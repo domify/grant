@@ -2,6 +2,8 @@ module grant/normalization
 
 import std/text
 import grant/value::{Value, Attributes}
+import grant/validators::{Condition}
+import grant/validation::{Context}
 
 pub trait Normalizer
   abstract def normalize(value : Value) : Value
@@ -33,8 +35,10 @@ struct Entry
   getter attribute : String
   getter normalizer : Normalizer
   getter apply_to_nil : Bool
+  getter condition : Condition?
+  getter invert : Bool
 
-  def initialize(@attribute : String, @normalizer : Normalizer, @apply_to_nil : Bool)
+  def initialize(@attribute : String, @normalizer : Normalizer, @apply_to_nil : Bool, @condition : Condition? = nil, @invert : Bool = false)
   end
 end
 
@@ -47,24 +51,33 @@ pub class Plan
     @entries = [] of Entry
   end
 
-  def add(attribute : String, normalizer : Normalizer, apply_to_nil : Bool = false) : Plan
-    @entries << Entry.new(attribute, normalizer, apply_to_nil)
+  def add(attribute : String, normalizer : Normalizer, apply_to_nil : Bool = false, condition : Condition? = nil, invert : Bool = false) : Plan
+    @entries << Entry.new(attribute, normalizer, apply_to_nil, condition, invert)
     self
   end
 
   def value_for(attribute : String, value : Value) : Value
     normalized = value
     @entries.each do |entry|
-      if entry.attribute == attribute && (!normalized.nil? || entry.apply_to_nil)
+      if entry.condition.nil? && entry.attribute == attribute && (!normalized.nil? || entry.apply_to_nil)
         normalized = entry.normalizer.normalize(normalized)
       end
     end
     normalized
   end
 
-  def apply(attributes : Attributes) : Attributes
+  def apply(attributes : Attributes, context : Context = Context.new) : Attributes
     result = Attributes.new
     attributes.each { |attribute, value| result[attribute] = value_for(attribute, value) }
+    @entries.each do |entry|
+      if condition = entry.condition
+        applies = condition.applies?(result, context)
+        if (entry.invert ? !applies : applies) && result.has_key?(entry.attribute)
+          value = result[entry.attribute]
+          result[entry.attribute] = entry.normalizer.normalize(value) unless value.nil? && !entry.apply_to_nil
+        end
+      end
+    end
     result
   end
 end

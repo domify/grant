@@ -30,6 +30,12 @@ definitions and SQL migrations. These feature ports are partial; consult
 mapping. Neither a global model registry nor an inherited macro DSL is used.
 Consumer web handlers and RPC handlers should call the same model services.
 
+Mappings declaring a normalization Plan must implement with_attributes to rebuild
+their sealed records. Repository normalization runs before validation; query
+arguments use only unconditional rules. Hydration bypasses normalization.
+Configure plans before use. See doc/NORMALIZATION.md for the explicit assignment
+boundary and raw-query behavior.
+
 Additional scalar validators are in `grant/validators.iyi`: numericality, format,
 acceptance and `When` with a typed `Condition`. Conditions inspect explicit
 attributes/context. See `doc/VALIDATION.md` for semantics and unported validators;
