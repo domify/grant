@@ -22,6 +22,9 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/model.iyi`: `Mapping(T)` and `Repository(T)` for typed application
   records. Each application declares its mapping with an `impl`, rather
   than inheriting a macro-generated ActiveRecord model.
+- `grant/associations.iyi`: explicit typed `BelongsTo(T)`, `HasMany(T)` and
+  `HasOne(T)` readers and batch preloading with preserved scopes. See
+  `doc/ASSOCIATIONS.md` for usage and limits.
 - `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
@@ -46,8 +49,9 @@ complete typed record mapping and CRUD example.
 
 ## Running
 
-`./scripts/check.sh` runs the native checks and the source-free artifact
-consumer check.
+`./scripts/check.sh` runs the SQLite native checks and the source-free artifact
+consumer check. Current development scope is SQLite only; PostgreSQL work is
+deferred and its existing adapter/test are retained.
 
 Run from this directory with iyi 0.16.2. Install the system development packages
 providing `libsqlite3` and `libpq` before linking their respective adapters.
@@ -59,8 +63,7 @@ iyi run query_test.iyi
 iyi run model_test.iyi
 iyi run transaction_test.iyi
 iyi run placeholder_test.iyi
-iyi run postgresql_test.iyi
-iyi test ./*_test.iyi
+iyi run association_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
@@ -83,7 +86,9 @@ SQLite CRUD, typed mapping, validation errors, scoped writes, SQL parameter
 binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, that check is currently blocked by a compiler artifact
-layout bug. Source builds pass all 13 native test programs. See
+layout bug. Source builds previously passed 13 native test programs (including PostgreSQL
+connection failure). The current SQLite-only suite has 13 programs, including
+the new association cases. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` deliberately retains the failing artifact gate.
 
@@ -105,7 +110,8 @@ are implemented; schema alteration, dumping, and composite keys are pending.
 Validation, normalization, dirty tracking, callbacks, and migrations implement
 a subset of the original behavior. Normalization and dirty state are explicit
 utilities, not automatic repository behavior. Around callbacks and several
-validators remain pending. Associations, encrypted/serialized columns, locking,
+validators remain pending. Association writes, through/polymorphic associations,
+encrypted/serialized columns, locking,
 sharding, bulk operations, and the remaining original features still need native
 implementations and parity cases.
 The original parity percentages do not apply to this port. `doc/PORTING.md`

@@ -1,0 +1,115 @@
+module association_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table, Query}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError}
+import grant/associations::{HasMany, HasOne, BelongsTo}
+
+struct Bank
+  getter id : Int64?
+  getter account_id : Int64
+  getter name : String
+
+  def initialize(@account_id : Int64, @name : String, @id : Int64? = nil)
+  end
+end
+
+struct BankMapping
+end
+
+impl Mapping(Bank) for BankMapping
+  def table : Table
+    Table.new("banks")
+  end
+
+  def attributes(record : Bank) : Attributes
+    {"id" => record.id, "account_id" => record.account_id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Bank | DatabaseError
+    id = row["id"]
+    account_id = row["account_id"]
+    name = row["name"]
+    if id.is_a?(Int64) && account_id.is_a?(Int64) && name.is_a?(String)
+      Bank.new(account_id, name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid bank row")
+    end
+  end
+
+  def validate(record : Bank) : Nil | ValidationError
+    if record.name.strip.empty?
+      ValidationError.new({"name" => ["can't be blank"]})
+    else
+      nil
+    end
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE banks(id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+repository = Repository(Bank).new(connection, BankMapping.new)
+first = repository.insert(Bank.new(10_i64, "a")).or_panic
+second = repository.insert(Bank.new(10_i64, "b")).or_panic
+third = repository.insert(Bank.new(20_i64, "c")).or_panic
+many = HasMany(Bank).new(repository, "account_id", repository.query.order("id"))
+assert many.load(nil).empty?
+assert many.load(10_i64).or_panic.size == 2
+assert many.load(999_i64).or_panic.empty?
+groups = many.preload([10_i64, 20_i64, 999_i64, 10_i64]).or_panic
+assert groups.size == 3
+assert groups[10_i64].size == 2
+assert groups[10_i64][0].name == "a"
+assert groups[20_i64][0].name == "c"
+assert groups[999_i64].empty?
+assert many.preload([] of Int64).or_panic.empty?
+scoped = HasMany(Bank).new(repository, "account_id", repository.query.where("name", "a"))
+assert scoped.preload([10_i64, 20_i64]).or_panic[10_i64].size == 1
+assert scoped.preload([10_i64, 20_i64]).or_panic[20_i64].empty?
+assert HasMany(Bank).new(repository, "account_id", repository.query.limit(1)).preload([10_i64]).is_a?(DatabaseError)
+one = HasOne(Bank).new(repository, "account_id", repository.query.order("id"))
+assert one.load(nil).nil?
+selected = one.load(10_i64).or_panic
+assert selected.name == "a" if selected
+singles = one.preload([10_i64, 999_i64]).or_panic
+selected = singles[10_i64]
+assert !selected.nil?
+assert selected.name == "a" if selected
+assert singles[999_i64].nil?
+parent = BelongsTo(Bank).new(repository)
+id = first.id || 0_i64
+assert parent.load(nil).nil?
+assert parent.load(999_i64).or_panic.nil?
+selected = parent.load(id).or_panic
+assert !selected.nil?
+assert selected.name == "a" if selected
+parents = parent.preload([id, id, 999_i64]).or_panic
+assert parents.size == 2
+assert !parents[id].nil?
+assert parents[999_i64].nil?
+assert parent.preload([] of Int64).or_panic.empty?
+assert BelongsTo(Bank).new(repository, repository.query.where("account_id", 20_i64)).preload([id]).or_panic[id].nil?
+values = [10_i64] of Value
+query = repository.query.where_in("account_id", values)
+values << 20_i64
+assert query.count.or_panic == 2
+assert repository.query.where_in("id", [] of Value).count.or_panic == 0
+assert repository.query.where("account_id", 10_i64).where_in("account_id", [20_i64] of Value).count.or_panic == 0
+assert repository.query.where_in("account_id", [nil, 20_i64] of Value).count.or_panic == 1
+assert repository.query.where_in("name", ["a' OR 1=1 --"] of Value).count.or_panic == 0
+assert repository.query.where_in("bad;name", [1_i64] of Value).all.is_a?(DatabaseError)
+connection.execute("CREATE TABLE nullable(value TEXT)").or_panic
+connection.execute("INSERT INTO nullable VALUES(NULL), ('a'), ('b')").or_panic
+nullable = Query.new(connection, Table.new("nullable"))
+assert nullable.where_in("value", [nil, "a"] of Value).count.or_panic == 2
+assert nullable.where_in("value", [nil] of Value).count.or_panic == 1
+assert repository.query.where_in("id", [] of Value).delete.or_panic.changes == 0
+other = Connection.open(":memory:").or_panic
+foreign_repository = Repository(Bank).new(other, BankMapping.new)
+assert repository.all(foreign_repository.query).is_a?(DatabaseError)
+assert repository.first(Query.new(connection, Table.new("nullable"))).is_a?(DatabaseError)
+assert HasMany(Bank).new(repository, "account_id", foreign_repository.query).preload([10_i64]).is_a?(DatabaseError)
+other.close.or_panic
+connection.close.or_panic

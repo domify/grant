@@ -1,0 +1,113 @@
+module grant/associations
+
+import grant/model::{Repository}
+import grant/query::{Query}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+
+# Relations use explicit repositories/scopes, never a global model registry.
+# Keys are Int64, matching Repository.find. Composite/string keys are pending.
+pub class HasMany(T)
+  @repository : Repository(T)
+  @scope : Query
+  @foreign_key : String
+
+  def initialize(@repository : Repository(T), @foreign_key : String, scope : Query? = nil)
+    @scope = scope || @repository.query
+  end
+
+  def load(owner_id : Int64?) : Array(T) | DatabaseError
+    return [] of T unless owner_id
+    @repository.all(@scope.where(@foreign_key, owner_id))
+  end
+
+  def first(owner_id : Int64?) : T | Nil | DatabaseError
+    return nil unless owner_id
+    @repository.first(@scope.where(@foreign_key, owner_id))
+  end
+
+  # Missing owners have an empty collection. Existing scope predicates remain
+  # ANDed with the key list, so a tenant scope cannot be widened by preloading.
+  def preload(owner_ids : Array(Int64)) : Hash(Int64, Array(T)) | DatabaseError
+    return DatabaseError.new(21, "preload", "collection pagination would apply globally, not per owner") if @scope.paginated?
+    groups = {} of Int64 => Array(T)
+    keys = [] of Value
+    owner_ids.each do |id|
+      unless groups.has_key?(id)
+        groups[id] = [] of T
+        keys << id
+      end
+    end
+    return groups if keys.empty?
+    records = @repository.all(@scope.where_in(@foreign_key, keys))!
+    records.each do |record|
+      attributes = @repository.attributes(record)
+      key = attributes[@foreign_key]?
+      return DatabaseError.new(20, "preload", "mapping must expose an Int64 foreign key: #{@foreign_key}") unless key.is_a?(Int64)
+      if members = groups[key]?
+        members << record
+      else
+        return DatabaseError.new(20, "preload", "mapping foreign key does not match the selected owner")
+      end
+    end
+    groups
+  end
+end
+
+pub class HasOne(T)
+  @relation : HasMany(T)
+
+  def initialize(repository : Repository(T), foreign_key : String, scope : Query? = nil)
+    @relation = HasMany(T).new(repository, foreign_key, scope)
+  end
+
+  def load(owner_id : Int64?) : T | Nil | DatabaseError
+    @relation.first(owner_id)
+  end
+
+  def preload(owner_ids : Array(Int64)) : Hash(Int64, T?) | DatabaseError
+    collections = @relation.preload(owner_ids)!
+    result = {} of Int64 => T?
+    collections.each do |id, members|
+      result[id] = members.empty? ? nil : members[0]
+    end
+    result
+  end
+end
+
+pub class BelongsTo(T)
+  @repository : Repository(T)
+  @scope : Query
+
+  def initialize(@repository : Repository(T), scope : Query? = nil)
+    @scope = scope || @repository.query
+  end
+
+  def load(foreign_id : Int64?) : T | Nil | DatabaseError
+    return nil unless foreign_id
+    @repository.first(@scope.where(@scope.table.primary_key, foreign_id))
+  end
+
+  # Repeated references share one decoded record in this explicit result map.
+  # Missing foreign keys produce nil, rather than a fabricated parent record.
+  def preload(foreign_ids : Array(Int64)) : Hash(Int64, T?) | DatabaseError
+    return DatabaseError.new(21, "preload", "pagination is not supported for belongs_to preloading") if @scope.paginated?
+    result = {} of Int64 => T?
+    keys = [] of Value
+    foreign_ids.each do |id|
+      unless result.has_key?(id)
+        result[id] = nil
+        keys << id
+      end
+    end
+    return result if keys.empty?
+    records = @repository.all(@scope.where_in(@scope.table.primary_key, keys))!
+    records.each do |record|
+      key = @repository.attributes(record)[@scope.table.primary_key]?
+      return DatabaseError.new(20, "preload", "mapping must expose an Int64 primary key") unless key.is_a?(Int64)
+      return DatabaseError.new(20, "preload", "mapping primary key does not match the selected key") unless result.has_key?(key)
+      result[key] = record
+    end
+    result
+  end
+end

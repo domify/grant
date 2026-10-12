@@ -30,6 +30,33 @@ pub class Repository(T)
     Query.new(@database, @mapping.table)
   end
 
+  def attributes(record : T) : Attributes
+    @mapping.attributes(record)
+  end
+
+  def all(scope : Query) : Array(T) | DatabaseError
+    valid_scope(scope)!
+    rows = scope.all!
+    records = [] of T
+    rows.each do |row|
+      records << @mapping.from_row(row)!
+    end
+    records
+  end
+
+  def first(scope : Query) : T | Nil | DatabaseError
+    valid_scope(scope)!
+    row = scope.first!
+    row ? @mapping.from_row(row) : nil
+  end
+
+  private def valid_scope(scope : Query) : Nil | DatabaseError
+    table = @mapping.table
+    return DatabaseError.new(21, "scope", "scope belongs to another table") unless scope.table.name == table.name && scope.table.primary_key == table.primary_key
+    return DatabaseError.new(21, "scope", "scope belongs to another database") unless scope.database_identity == @database.identity
+    nil
+  end
+
   def find(id : Int64) : T | Nil | DatabaseError
     row = query.where(@mapping.table.primary_key, id).first!
     row ? @mapping.from_row(row) : nil

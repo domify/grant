@@ -28,8 +28,9 @@ end
 pub struct Predicate
   getter name : String
   getter value : Value
+  getter values : Array(Value)?
 
-  def initialize(@name : String, @value : Value)
+  def initialize(@name : String, @value : Value, @values : Array(Value)? = nil)
   end
 end
 
@@ -56,6 +57,16 @@ pub class Query
     filters = copy_filters(@filters)
     filters << Predicate.new(name, value)
     Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+  end
+
+  def where_in(name : String, values : Array(Value)) : Query
+    filters = copy_filters(@filters)
+    filters << Predicate.new(name, nil, values.map { |value| value })
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+  end
+
+  def paginated? : Bool
+    !@limit.nil? || @offset != 0
   end
 
   def limit(count : Int32) : Query
@@ -152,7 +163,22 @@ pub class Query
     @filters.each do |predicate|
       column = identifier(predicate.name)!
       value = predicate.value
-      if value.nil?
+      if values = predicate.values
+        placeholders = [] of String
+        nulls = false
+        values.each do |item|
+          if item.nil?
+            nulls = true
+          else
+            placeholders << "?"
+            parameters << item
+          end
+        end
+        parts = [] of String
+        parts << "#{column} IN (#{placeholders.join(", ")})" unless placeholders.empty?
+        parts << "#{column} IS NULL" if nulls
+        clauses << (parts.empty? ? "0 = 1" : "(#{parts.join(" OR ")})")
+      elsif value.nil?
         clauses << "#{column} IS NULL"
       else
         clauses << "#{column} = ?"

@@ -13,3 +13,4 @@ pub import grant/schema
 pub import grant/migrations
 pub import grant/lifecycle
 pub import grant/unit_of_work
+pub import grant/associations

@@ -30,7 +30,10 @@ definitions and SQL migrations. These feature ports are partial; consult
 mapping. Neither a global model registry nor an inherited macro DSL is used.
 Consumer web handlers and RPC handlers should call the same model services.
 
-SQLite is the local behavioral test target. PostgreSQL connection failure is
+Current user scope is SQLite only: implement and verify SQLite behavior first.
+Keep the existing PostgreSQL adapter, but defer PostgreSQL development and live
+verification until the user expands scope. The default check runner excludes
+the PostgreSQL test. SQLite is the local behavioral test target. PostgreSQL connection failure is
 covered; live PostgreSQL CRUD remains unverified. Tests use disposable data.
 Never run the original entire Crystal spec suite in one compilation: it can
 require around 20 GB RAM. For original parity reference runs, use focused specs
@@ -43,7 +46,7 @@ when needed; do not repurpose HOME. There are no runtime dependency shards;
 link the system SQLite/libpq libraries for the relevant adapter.
 
 A mutable connection is owned by one request/task at a time. Pooling,
-concurrent scheduling, associations, around callbacks and the
+concurrent scheduling, association writes/through/polymorphism, around callbacks and the
 other remaining features listed in `doc/PORTING.md` are still pending; do not assume
 support. Do not silently coerce exact numeric values to floats or substitute
 fake successes for unsupported operations.

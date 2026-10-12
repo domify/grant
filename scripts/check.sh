@@ -8,7 +8,15 @@ export IYI_CACHE_DIR
 mkdir -p "$IYI_CACHE_DIR"
 iyi check grant.iyi
 iyi fmt --check grant grant.iyi ./*_test.iyi
-iyi test ./*_test.iyi
+# Active porting scope is SQLite; retain the PostgreSQL reference test on disk.
+set --
+for grant_test in ./*_test.iyi; do
+  case "$grant_test" in
+    ./postgresql_test.iyi) continue ;;
+  esac
+  set -- "$@" "$grant_test"
+done
+iyi test "$@"
 
 grant_check_dir=$(mktemp -d /tmp/grant-iyi-check.XXXXXX)
 trap 'rm -rf "$grant_check_dir"' EXIT HUP INT TERM

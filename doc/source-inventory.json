@@ -1296,6 +1296,7 @@
   "native_modules": [
     "grant/adapters/postgresql.iyi",
     "grant/adapters/sqlite.iyi",
+    "grant/associations.iyi",
     "grant/cstring.iyi",
     "grant/database.iyi",
     "grant/dirty.iyi",

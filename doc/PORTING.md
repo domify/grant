@@ -5,6 +5,11 @@ Source: Crystal Grant 0.23.4 at commit
 Target: `/home/priit/contribute/grant`. Native code is at the root; original
 Crystal source is preserved unchanged as the `crystal-upstream/` Git subtree.
 
+## Active scope
+
+Current user instruction: focus only on SQLite. Retain the existing PostgreSQL
+adapter and reference test, but defer PostgreSQL implementation and verification.
+
 ## Conversion model
 
 Automatic `iyi migrate` produced 46 modules from 256 Crystal files after
@@ -30,6 +35,12 @@ No code delegates native model behavior to the archived Crystal ORM.
   not yet verified.
 - Lazy, immutable equality/null predicates with AND semantics, ordering,
   pagination, count, insert returning a row, scoped update and delete.
+- Typed `BelongsTo`, `HasMany` and `HasOne` readers and explicit batch
+  preloading for Int64 keys, preserving target scopes and rejecting global
+  pagination during preloading. Association writing/cascades remain pending.
+- Immutable `where_in` predicates with bound values, empty-set false semantics
+  and explicit NULL membership. Repository scoped `all`/`first` decode records
+  and reject scopes for another table or database.
 - Identifier checks and parameter binding; extra tenant predicates cannot
   replace an earlier tenant predicate.
 - Typed `Mapping(T)` and `Repository(T)` with validation, decoding, lookup,
@@ -60,14 +71,14 @@ been translated wholesale to native iyi yet.
 
 ## Remaining work
 
-1. Verify real PostgreSQL CRUD, transactions, and result types in an isolated
-   server, then add exact decimal, date/time, and binary value types.
+1. Add exact decimal, date/time and binary value types for SQLite. PostgreSQL
+   live CRUD and result verification are deferred under the current scope.
 2. Complete schema alteration/dumping, composite keys and migration capabilities;
    add connection pools, prepared-statement caches and nonblocking scheduling.
 3. Complete remaining validators, conditional normalization, around callbacks,
    dirty-state repository integration, timestamps and defaults with parity cases.
-4. Port association loading/writing, nested attributes, STI, eager loading,
-   dependent behavior, and scoped relation APIs.
+4. Complete association writing, through/polymorphic and composite-key loading,
+   nested attributes, STI, dependent behavior and the remaining relation APIs.
 5. Port bulk operations, locking, encryption, serialization, multiple databases,
    sharding and other features in the original module inventory.
 6. Translate and run the original behavior cases in small native test groups;
