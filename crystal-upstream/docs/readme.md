@@ -1,0 +1,115 @@
+# Documentation
+
+## Getting Started
+
+### Installation
+
+Add this library to your projects dependencies along with the driver in
+your `shard.yml`. This can be used with any framework but was originally
+designed to work with the amber framework in mind. This library will work
+with Kemal or any other framework as well.
+
+```yaml
+dependencies:
+  grant:
+    github: amberframework/grant
+
+  # Pick your database
+  mysql:
+    github: crystal-lang/crystal-mysql
+
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+
+  pg:
+    github: will/crystal-pg
+```
+
+### Register a Connection
+
+Next you will need to register a connection. This should be one of the first things in your main Crystal file, before Grant is required.
+
+```crystal
+Grant::Connections << Grant::Adapter::Mysql.new(name: "mysql", url: "YOUR_DATABASE_URL")
+
+# Rest of code...
+```
+
+Supported adapters include: `Mysql, Pg, and Sqlite`.
+
+#### Database Version Requirements
+
+Grant requires modern database versions for full feature support:
+
+- **PostgreSQL**: 9.5+ (for ON CONFLICT support)
+- **MySQL**: 5.6+ (for ON DUPLICATE KEY UPDATE)  
+- **SQLite**: 3.24.0+ (for ON CONFLICT support, enforced at runtime)
+
+Note: For SQLite, the library will automatically check the version on startup and raise an error if using a version older than 3.24.0. This ensures proper support for upsert operations using the modern `ON CONFLICT` syntax.
+
+### Example Model
+
+Here is an example Grant model using the connection registered above.
+
+```crystal
+require "grant/adapter/mysql"
+
+class Post < Grant::Base
+  connection mysql
+  table posts # Name of the table to use for the model, defaults to class name snake cased
+
+  column id : Int64, primary: true # Primary key, defaults to AUTO INCREMENT
+  column name : String? # Nilable field
+  column body : String # Not nil field
+end
+```
+
+## Additional Documentation
+
+[ActiveRecord 8 parity tracker](./PARITY.md) - generated feature status, evidence, gaps, and prioritized missing features
+
+[Models](./models.md)
+
+[CRUD](./crud.md)
+
+[Querying](./querying.md)
+
+[Relationships](./relationships.md)
+
+[Validation](./validations.md)
+
+[Callbacks](./callbacks.md)
+
+[Migrations](./migrations.md)
+
+[PostgreSQL Schema Tenancy](./schema_tenancy.md) - Apartment-compatible schema-per-tenant connection scoping
+
+[Imports](./imports.md)
+
+[Dirty Tracking](./dirty_tracking.md) - Track changes to model attributes
+
+[Polymorphic Associations](./polymorphic_associations.md) - Associations that can belong to multiple models
+
+[Advanced Associations](./advanced_associations.md) - Dependent options, counter cache, touch, and more
+
+[Enum Attributes](./enum_attributes.md) - Rails-style enum attributes with helper methods
+
+[Built-in Validators](./built_in_validators.md) - Common validators for format, length, numericality, and more
+
+[Attribute API](./attribute_api.md) - Flexible attributes with virtual fields, defaults, and custom types
+
+[Convenience Methods](./convenience_methods.md) - Rails-style convenience methods like toggle, increment, and decrement
+
+[Instrumentation](./instrumentation.md) - Built-in logging, query analysis, and performance monitoring
+
+[Data Normalization](./normalization.md) - Automatic data normalization before validation
+
+[Value Objects](./value_objects.md) - Domain-Driven Design aggregations for composing columns into objects
+
+## Releasing
+
+For a release, bump `Grant::VERSION`, re-verify feature statuses against
+PostgreSQL specs, then run `CRYSTAL_CACHE_DIR=$PWD/.crystal-cache crystal-alpha
+run scripts/generate_parity.cr`. Commit the generated
+`docs/parity/<version>.md` snapshot with the release. The generator refuses to
+replace an existing version snapshot.

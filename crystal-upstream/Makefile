@@ -1,0 +1,54 @@
+# Grant ORM — developer convenience targets.
+#
+# The mysql-auth-* targets stand up the MySQL-family auth matrix (MySQL 8.0.x,
+# 8.4 LTS, 9.x LTS, Percona — all DEFAULT caching_sha2_password — plus the
+# MariaDB native_password outlier) for exercising Grant's auth handshake. See
+# docs/testing_mysql_auth.md and docs/mysql_compatibility.md.
+
+COMPOSE_FILE := docker-compose.test.yml
+AUTH_SCRIPT  := ./scripts/mysql-auth-test.sh
+MYSQL_TEST_COMPOSE_PROJECT ?= grant-full-green
+MYSQL_TEST_HOST_PORT ?= 3316
+
+.PHONY: help spec mysql-spec mysql-auth-test mysql-auth-up mysql-auth-down mysql-auth-ping \
+        mysql-auth-pubkey mysql-auth-config mysql-auth-matrix \
+        mysql-auth-8011-amd64
+
+spec: ## Run specs one directory per process (ADAPTERS="sqlite pg")
+	CRYSTAL=$${CRYSTAL:-crystal} ./scripts/spec-groups.sh $(ADAPTERS)
+
+help: ## Show available targets
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+
+mysql-spec: ## Run the full spec suite against the MySQL 8 test service
+	@set -e; \
+	trap 'docker compose -p "$(MYSQL_TEST_COMPOSE_PROJECT)" -f $(COMPOSE_FILE) down --remove-orphans' EXIT; \
+	GRANT_MYSQL_TEST_PORT=$(MYSQL_TEST_HOST_PORT) docker compose -p "$(MYSQL_TEST_COMPOSE_PROJECT)" -f $(COMPOSE_FILE) up -d --wait mysql8; \
+	CRYSTAL_CACHE_DIR=$(CURDIR)/.crystal-cache CURRENT_ADAPTER=mysql MYSQL_DATABASE_URL=mysql://grant:test_password@127.0.0.1:$(MYSQL_TEST_HOST_PORT)/grant_test crystal-alpha spec
+
+## ---------------------------------------------------------------------------
+## MySQL-family auth matrix (caching_sha2_password + MariaDB native_password)
+## ---------------------------------------------------------------------------
+
+mysql-auth-test: ## Bring up the auth matrix (8.0/8.4/9.x/MariaDB/Percona), wait, verify
+	$(AUTH_SCRIPT) up
+
+mysql-auth-matrix: mysql-auth-test ## Alias for mysql-auth-test (full version matrix)
+
+mysql-auth-up: mysql-auth-test ## Alias for mysql-auth-test
+
+mysql-auth-down: ## Tear down the auth-matrix images (removes volumes)
+	$(AUTH_SCRIPT) down
+
+mysql-auth-ping: ## Re-verify auth/ping against the running matrix images
+	$(AUTH_SCRIPT) ping
+
+mysql-auth-pubkey: ## Dump each caching_sha2 server's RSA public key (full-auth path)
+	$(AUTH_SCRIPT) pubkey
+
+mysql-auth-config: ## Validate the docker compose test config
+	docker compose -f $(COMPOSE_FILE) config >/dev/null && echo "compose config OK"
+
+mysql-auth-8011-amd64: ## Bring up MySQL 8.0.11 (first GA) — amd64 hosts/CI only
+	docker compose -f $(COMPOSE_FILE) --profile amd64-only up -d mysql8011

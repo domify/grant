@@ -1,0 +1,10 @@
+version: '2'
+services:
+  spec:
+    extends:
+      file: ../docker-compose.yml
+      service: spec
+    build:
+      context: ../
+    environment:
+      CURRENT_ADAPTER: sqlite
