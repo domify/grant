@@ -1,0 +1,141 @@
+module association_write_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/association_writes::{CollectionWriter, Link, Removal}
+import grant/lifecycle::{Callback, Pipeline, Event}
+import grant/unit_of_work::{UnitOfWork}
+
+struct Child
+  getter id : Int64?
+  getter owner_id : Int64?
+  getter tenant : Int64
+  getter name : String
+
+  def initialize(@name : String, @owner_id : Int64? = nil, @tenant : Int64 = 1_i64, @id : Int64? = nil)
+  end
+end
+
+struct ChildMapping
+end
+
+impl Mapping(Child) for ChildMapping
+  def table : Table
+    Table.new("children")
+  end
+
+  def attributes(record : Child) : Attributes
+    {"id" => record.id, "owner_id" => record.owner_id, "tenant" => record.tenant, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Child | DatabaseError
+    id = row["id"]
+    owner = row["owner_id"]
+    tenant = row["tenant"]
+    name = row["name"]
+    if id.is_a?(Int64) && (owner.nil? || owner.is_a?(Int64)) && tenant.is_a?(Int64) && name.is_a?(String)
+      Child.new(name, owner, tenant, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid child row")
+    end
+  end
+
+  def validate(record : Child) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct ChildLink
+end
+
+impl Link(Child) for ChildLink
+  def with_owner(record : Child, owner_id : Int64) : Child | DatabaseError
+    Child.new(record.name, owner_id, record.tenant, record.id)
+  end
+end
+
+class Hooks
+  getter events : Array(Event)
+
+  def initialize
+    @events = [] of Event
+  end
+end
+
+impl Callback(Child) for Hooks
+  def call(event : Event, record : Child) : Child | DatabaseError | ValidationError | CallbackAbort
+    @events << event
+    if record.name == "abort" && event == Event::AfterUpdate
+      CallbackAbort.new("stop attachment")
+    elsif record.name == "protected" && event == Event::BeforeDestroy
+      CallbackAbort.new("stop destruction")
+    else
+      record
+    end
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("PRAGMA foreign_keys = ON").or_panic
+connection.execute("CREATE TABLE owners(id INTEGER PRIMARY KEY)").or_panic
+connection.execute("INSERT INTO owners VALUES(1), (2)").or_panic
+connection.execute("CREATE TABLE children(id INTEGER PRIMARY KEY, owner_id INTEGER REFERENCES owners(id), tenant INTEGER NOT NULL, name TEXT NOT NULL)").or_panic
+unit = UnitOfWork.new(connection)
+hooks = Hooks.new
+pipeline = Pipeline(Child).new.add(hooks, [Event::BeforeCreate, Event::AfterUpdate, Event::BeforeDestroy, Event::AfterCommit, Event::AfterRollback])
+repository = Repository(Child).new(connection, ChildMapping.new, pipeline, unit)
+writer = CollectionWriter(Child).new(repository, "owner_id", ChildLink.new, repository.query.where("tenant", 1_i64).order("id"))
+assert writer.append(nil, [Child.new("a")]).is_a?(DatabaseError)
+assert writer.append(1_i64, [Child.new("a"), Child.new("")]).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0
+assert hooks.events.includes?(Event::AfterRollback)
+created = writer.append(1_i64, [Child.new("a"), Child.new("b")]).or_panic
+assert created.size == 2
+assert created[0].owner_id == 1_i64
+first_id = created[0].id || 0_i64
+second_id = created[1].id || 0_i64
+assert writer.append(999_i64, [Child.new("bad owner")]).is_a?(DatabaseError)
+assert repository.query.count.or_panic == 2
+foreign = repository.insert(Child.new("outside", 2_i64, 2_i64)).or_panic
+assert writer.append(1_i64, [foreign]).is_a?(DatabaseError)
+assert writer.append(1_i64, [Child.new("outside new", nil, 2_i64)]).is_a?(DatabaseError)
+assert repository.query.count.or_panic == 3
+assert writer.remove(1_i64, [first_id, foreign.id || 0_i64]).or_panic == 1
+found = repository.find(first_id).or_panic
+assert found.owner_id.nil? if found
+assert writer.replace_ids(1_i64, [first_id, 999_i64]).is_a?(DatabaseError)
+assert repository.query.where("owner_id", 1_i64).count.or_panic == 1
+replaced = writer.replace_ids(1_i64, [first_id, first_id]).or_panic
+assert replaced.size == 1
+assert replaced[0].owner_id == 1_i64
+found = repository.find(second_id).or_panic
+assert found.owner_id.nil? if found
+assert writer.replace_ids(1_i64, [] of Int64).or_panic.empty?
+assert repository.query.where("owner_id", 1_i64).count.or_panic == 0
+assert writer.remove(1_i64, [first_id], Removal::Delete).or_panic == 0
+writer.append(1_i64, [created[0]]).or_panic
+assert writer.remove(1_i64, [first_id], Removal::Delete).or_panic == 1
+assert repository.find(first_id).or_panic.nil?
+guarded = writer.append(1_i64, [Child.new("normal"), Child.new("protected")]).or_panic
+assert writer.remove(1_i64, guarded.map { |record| record.id || 0_i64 }, Removal::Destroy).is_a?(CallbackAbort)
+assert repository.query.where("owner_id", 1_i64).count.or_panic == 2
+normal_id = guarded[0].id || 0_i64
+assert writer.remove(1_i64, [normal_id], Removal::Destroy).or_panic == 1
+assert repository.find(normal_id).or_panic.nil?
+aborting = repository.insert(Child.new("abort", 2_i64)).or_panic
+assert writer.append(1_i64, [aborting]).is_a?(CallbackAbort)
+found = repository.find(aborting.id || 0_i64).or_panic
+assert found.owner_id == 2_i64 if found
+result = unit.run do
+  error = writer.append(1_i64, [Child.new("temporary"), aborting])
+  assert error.is_a?(CallbackAbort)
+  repository.insert(Child.new("outer success", 2_i64))
+end
+result.or_panic
+assert repository.query.where("name", "temporary").count.or_panic == 0
+assert repository.query.where("name", "outer success").count.or_panic == 1
+assert CollectionWriter(Child).new(repository, "owner_id", ChildLink.new, repository.query.limit(1)).replace_ids(1_i64, [] of Int64).is_a?(DatabaseError)
+connection.close.or_panic

@@ -30,6 +30,10 @@ pub class Repository(T)
     Query.new(@database, @mapping.table)
   end
 
+  def unit_of_work : UnitOfWork
+    @unit
+  end
+
   def attributes(record : T) : Attributes
     @mapping.attributes(record)
   end
@@ -68,15 +72,13 @@ pub class Repository(T)
   end
 
   def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    return DatabaseError.new(21, "update", "scope belongs to another table") unless scope.table.name == @mapping.table.name
-    return DatabaseError.new(21, "update", "scope belongs to another database") unless scope.database_identity == @database.identity
+    valid_scope(scope)!
     return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
     @unit.run { update_record(scope, id, record) }
   end
 
   def destroy(scope : Query, id : Int64) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    return DatabaseError.new(21, "destroy", "scope belongs to another table") unless scope.table.name == @mapping.table.name
-    return DatabaseError.new(21, "destroy", "scope belongs to another database") unless scope.database_identity == @database.identity
+    valid_scope(scope)!
     return DatabaseError.new(21, "destroy", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
     @unit.run { destroy_record(scope, id) }
   end

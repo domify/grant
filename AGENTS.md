@@ -46,10 +46,17 @@ when needed; do not repurpose HOME. There are no runtime dependency shards;
 link the system SQLite/libpq libraries for the relevant adapter.
 
 A mutable connection is owned by one request/task at a time. Pooling,
-concurrent scheduling, association writes/through/polymorphism, around callbacks and the
+concurrent scheduling, singular association writes/through/polymorphism, around callbacks and the
 other remaining features listed in `doc/PORTING.md` are still pending; do not assume
 support. Do not silently coerce exact numeric values to floats or substitute
 fake successes for unsupported operations.
+
+Direct collection writes use `CollectionWriter(T)` and an application-owned
+`Link(T)` implementation. New records and attachments run repository callbacks;
+nullify/delete removals are set-based and skip callbacks, while destroy runs
+callbacks. Collection operations use savepoints inside an outer unit of work.
+Singular writers, unsaved-owner staging, association-specific hooks and automatic
+dependent owner callbacks remain pending. See `doc/ASSOCIATIONS.md`.
 
 The subtree bootstrap uses local commits on `feature/phase-0-native-iyi`, keeping
 original Crystal history. Do not push or change public default branches without

@@ -69,6 +69,10 @@ pub class Query
     !@limit.nil? || @offset != 0
   end
 
+  def unordered : Query
+    Query.new(@database, @table, copy_filters(@filters), @limit, @offset)
+  end
+
   def limit(count : Int32) : Query
     Query.new(@database, @table, copy_filters(@filters), count, @offset, @order, @descending)
   end

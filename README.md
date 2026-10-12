@@ -25,6 +25,9 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/associations.iyi`: explicit typed `BelongsTo(T)`, `HasMany(T)` and
   `HasOne(T)` readers and batch preloading with preserved scopes. See
   `doc/ASSOCIATIONS.md` for usage and limits.
+- `grant/association_writes.iyi`: direct collection append, ID replacement and
+  nullify/delete/destroy removal with typed link transformations and atomic
+  savepoints. Repository-based saves and destruction run model callbacks.
 - `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
@@ -64,6 +67,7 @@ iyi run model_test.iyi
 iyi run transaction_test.iyi
 iyi run placeholder_test.iyi
 iyi run association_test.iyi
+iyi run association_write_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
@@ -87,8 +91,8 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, that check is currently blocked by a compiler artifact
 layout bug. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 13 programs, including
-the new association cases. See
+connection failure). The current SQLite-only suite has 14 programs, including
+association reads and transactional writes. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` deliberately retains the failing artifact gate.
 
@@ -110,7 +114,7 @@ are implemented; schema alteration, dumping, and composite keys are pending.
 Validation, normalization, dirty tracking, callbacks, and migrations implement
 a subset of the original behavior. Normalization and dirty state are explicit
 utilities, not automatic repository behavior. Around callbacks and several
-validators remain pending. Association writes, through/polymorphic associations,
+validators remain pending. Singular association writes, through/polymorphic associations,
 encrypted/serialized columns, locking,
 sharding, bulk operations, and the remaining original features still need native
 implementations and parity cases.

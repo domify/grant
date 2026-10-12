@@ -1,4 +1,4 @@
-# Explicit association readers
+# Explicit associations
 
 Association declarations are ordinary typed objects. The application owns its
 record types and `Mapping(T)` implementations; Grant does not reopen models or
@@ -42,7 +42,64 @@ installation or automatic refresh after a write.
 a set containing nil also matches SQL NULL. Chaining preserves all earlier
 predicates and copies the supplied value array.
 
-Association writers, autosave, nested attributes, through/polymorphic relations,
-composite/string keys and dependent callback behavior remain pending. Database
+## Direct collection writes
+
+`grant/association_writes` provides `CollectionWriter(T)`, `Link(T)` and
+`Removal`. Implement `Link(T).with_owner(record, owner_id)` alongside the
+application record. It returns a new typed record with the foreign key assigned;
+it must preserve the primary key. Grant verifies the resulting mapping.
+
+```iyi
+import grant/association_writes::{CollectionWriter, Link, Removal}
+
+struct BankLink
+end
+
+impl Link(Bank) for BankLink
+  def with_owner(record : Bank, owner_id : Int64) : Bank | DatabaseError
+    Bank.new(owner_id, record.name, record.id)
+  end
+end
+
+writer = CollectionWriter(Bank).new(banks, "account_id", BankLink.new)
+attached = writer.append(account_id, [new_bank, existing_bank]).or_panic
+members = writer.replace_ids(account_id, [first_bank_id, second_bank_id]).or_panic
+removed_count = writer.remove(account_id, [first_bank_id], Removal::Destroy).or_panic
+```
+
+Append saves new records and updates existing ones through the repository, with
+model validation and lifecycle callbacks. Existing targets must be visible in
+the writer's target scope before attaching; new targets must be visible after
+saving. All results are hydrated from persisted data. Scoped tenant constraints
+remain in force, including when moving a target between owners.
+
+`replace_ids` verifies all requested target IDs before removing any current
+members. IDs are deduplicated, results follow requested order, unchanged members
+are not saved again, and missing IDs return an error. Empty IDs clear the scoped
+collection. This API currently accepts saved targets only; append also accepts
+unsaved targets.
+
+Removal affects only keys belonging to that owner within the target scope:
+
+- `Nullify` (default) clears the foreign key with a set-based update; the column
+  must be nullable. It skips model callbacks, matching the source collection.
+- `Delete` removes rows directly and skips model callbacks.
+- `Destroy` uses repository destruction with model callbacks.
+
+Every nonempty append and every remove/replace runs within the repository's
+`UnitOfWork`, using a savepoint when nested. Validation, SQL or callback failure
+rolls back the complete collection operation even if an outer caller handles
+the error and continues. Commit callbacks wait for the outermost managed commit.
+Pass the same `UnitOfWork` to repositories participating in a shared operation.
+
+An owner must supply a non-null saved Int64 key; there is no implicit owner
+lookup or deferred unsaved-owner cache. Enable SQLite foreign keys and declare
+the database constraint to enforce owner existence. Target scope ordering is
+removed for writes; pagination is rejected. Association-specific add/remove
+hooks, inverse caching and counter caches are not implemented yet.
+
+Singular association writers, autosave, nested attributes, through/polymorphic
+relations, composite/string keys and automatic owner-destruction callbacks remain
+pending. Database
 foreign-key actions implemented in `Schema` are separate from model callbacks.
 The source-free artifact compiler issue remains unresolved.

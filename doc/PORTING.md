@@ -37,7 +37,13 @@ No code delegates native model behavior to the archived Crystal ORM.
   pagination, count, insert returning a row, scoped update and delete.
 - Typed `BelongsTo`, `HasMany` and `HasOne` readers and explicit batch
   preloading for Int64 keys, preserving target scopes and rejecting global
-  pagination during preloading. Association writing/cascades remain pending.
+  pagination during preloading. Singular writing/automatic cascades remain pending.
+- Direct collection append and ID replacement using an application `Link(T)`;
+  scoped nullify/delete removals and repository destroy with model callbacks.
+  Collection operations use savepoints inside a shared unit of work, preserving
+  atomicity when an outer caller catches errors. SQLite parity cases cover
+  validation, scope violations, foreign-key errors, callback abort and nested
+  rollback. Source suite now has 14 SQLite test programs.
 - Immutable `where_in` predicates with bound values, empty-set false semantics
   and explicit NULL membership. Repository scoped `all`/`first` decode records
   and reject scopes for another table or database.
@@ -77,7 +83,7 @@ been translated wholesale to native iyi yet.
    add connection pools, prepared-statement caches and nonblocking scheduling.
 3. Complete remaining validators, conditional normalization, around callbacks,
    dirty-state repository integration, timestamps and defaults with parity cases.
-4. Complete association writing, through/polymorphic and composite-key loading,
+4. Complete singular association writing, through/polymorphic and composite-key loading,
    nested attributes, STI, dependent behavior and the remaining relation APIs.
 5. Port bulk operations, locking, encryption, serialization, multiple databases,
    sharding and other features in the original module inventory.

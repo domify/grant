@@ -1,0 +1,153 @@
+module grant/association_writes
+
+import grant/model::{Repository}
+import grant/query::{Query, identifier}
+import grant/value::{Value, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+
+pub alias WriteError = DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+
+# Applications construct a new sealed record instead of ORM field mutation.
+pub trait Link(T)
+  abstract def with_owner(record : T, owner_id : Int64) : T | DatabaseError
+end
+
+pub enum Removal
+  Nullify
+  Delete
+  Destroy
+end
+
+# Explicit writer for a direct has_many. Collection operations use a savepoint
+# when nested, so a caught failure cannot leave a partially changed collection.
+pub class CollectionWriter(T)
+  @repository : Repository(T)
+  @scope : Query
+  @foreign_key : String
+  @link : Link(T)
+
+  def initialize(@repository : Repository(T), @foreign_key : String, @link : Link(T), scope : Query? = nil)
+    @scope = scope || @repository.query
+  end
+
+  def append(owner_id : Int64?, records : Array(T)) : Array(T) | WriteError
+    return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
+    valid(owner_id)!
+    return [] of T if records.empty?
+    @repository.unit_of_work.run(requires_new: true) { append_records(owner_id, records).as(Array(T) | WriteError) }
+  end
+
+  def remove(owner_id : Int64?, ids : Array(Int64), strategy : Removal = Removal::Nullify) : Int64 | WriteError
+    return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
+    valid(owner_id)!
+    @repository.unit_of_work.run(requires_new: true) { remove_records(owner_id, ids, strategy).as(Int64 | WriteError) }
+  end
+
+  def replace_ids(owner_id : Int64?, ids : Array(Int64), strategy : Removal = Removal::Nullify) : Array(T) | WriteError
+    return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
+    valid(owner_id)!
+    @repository.unit_of_work.run(requires_new: true) { replace_records(owner_id, ids, strategy).as(Array(T) | WriteError) }
+  end
+
+  private def valid(owner_id : Int64?) : Nil | DatabaseError
+    return DatabaseError.new(21, "association", "owner must have a saved Int64 key") unless owner_id
+    return DatabaseError.new(21, "association", "pagination is not supported for collection writes") if @scope.paginated?
+    Grant::Query.identifier(@foreign_key)!
+    table = @repository.query.table
+    return DatabaseError.new(21, "association", "scope belongs to another table") unless @scope.table.name == table.name && @scope.table.primary_key == table.primary_key
+    return DatabaseError.new(21, "association", "scope belongs to another database") unless @scope.database_identity == @repository.query.database_identity
+    nil
+  end
+
+  private def record_id(record : T) : Int64 | Nil | DatabaseError
+    attributes = @repository.attributes(record)
+    name = @scope.table.primary_key
+    return DatabaseError.new(20, "association", "mapping must expose the primary key") unless attributes.has_key?(name)
+    value = attributes[name]
+    return value if value.nil? || value.is_a?(Int64)
+    DatabaseError.new(20, "association", "primary key must be Int64 or nil")
+  end
+
+  private def append_records(owner_id : Int64, records : Array(T)) : Array(T) | WriteError
+    result = [] of T
+    records.each do |record|
+      result << attach(owner_id, record)!
+    end
+    result
+  end
+
+  private def attach(owner_id : Int64, record : T) : T | WriteError
+    id = record_id(record)!
+    if id
+      existing = @repository.first(@scope.where(@scope.table.primary_key, id))!
+      return DatabaseError.new(21, "association", "target does not exist in the permitted scope") unless existing
+    end
+    linked = @link.with_owner(record, owner_id)
+    return linked if linked.is_a?(DatabaseError)
+    attributes = @repository.attributes(linked)
+    return DatabaseError.new(20, "association", "link changed the primary key") unless record_id(linked)! == id
+    return DatabaseError.new(20, "association", "link did not assign the expected foreign key") unless attributes[@foreign_key]? == owner_id
+    saved = id ? @repository.update(@scope.unordered, id, linked) : @repository.insert(linked)
+    return saved if saved.is_a?(Error)
+    return DatabaseError.new(21, "association", "target disappeared while attaching") unless saved
+    saved_id = record_id(saved)!
+    return DatabaseError.new(20, "association", "saved target has no primary key") unless saved_id
+    return DatabaseError.new(20, "association", "callback changed the saved target's primary key") if id && saved_id != id
+    # Read persisted data, not the callback's returned snapshot. This also
+    # ensures a callback cannot silently attach outside the permitted scope.
+    persisted = @repository.first(@scope.where(@foreign_key, owner_id).where(@scope.table.primary_key, saved_id))!
+    return DatabaseError.new(21, "association", "saved target is outside the association scope") unless persisted
+    persisted
+  end
+
+  private def remove_records(owner_id : Int64, ids : Array(Int64), strategy : Removal) : Int64 | WriteError
+    return 0_i64 if ids.empty?
+    keys = ids.map { |id| id.as(Value) }
+    relation = @scope.unordered.where(@foreign_key, owner_id).where_in(@scope.table.primary_key, keys)
+    case strategy
+    when Removal::Nullify
+      relation.update({@foreign_key => nil} of String => Value)!.changes
+    when Removal::Delete
+      relation.delete!.changes
+    else
+      records = @repository.all(relation)!
+      removed = 0_i64
+      records.each do |record|
+        id = record_id(record)!
+        return DatabaseError.new(20, "association", "persisted target has no primary key") unless id
+        deleted = @repository.destroy(relation, id)!
+        removed += 1_i64 if deleted
+      end
+      removed
+    end
+  end
+
+  private def replace_records(owner_id : Int64, ids : Array(Int64), strategy : Removal) : Array(T) | WriteError
+    wanted = [] of Int64
+    ids.each { |id| wanted << id unless wanted.includes?(id) }
+    targets = @repository.all(@scope.where_in(@scope.table.primary_key, wanted.map { |id| id.as(Value) }))!
+    by_id = {} of Int64 => T
+    targets.each do |record|
+      id = record_id(record)!
+      return DatabaseError.new(20, "association", "persisted target has no primary key") unless id
+      by_id[id] = record
+    end
+    wanted.each do |id|
+      return DatabaseError.new(21, "association", "replacement target is missing from the permitted scope: #{id}") unless by_id.has_key?(id)
+    end
+    current = @repository.all(@scope.where(@foreign_key, owner_id))!
+    current_ids = [] of Int64
+    current.each do |record|
+      id = record_id(record)!
+      return DatabaseError.new(20, "association", "persisted target has no primary key") unless id
+      current_ids << id
+    end
+    remove_records(owner_id, current_ids.reject { |id| wanted.includes?(id) }, strategy)!
+    result = [] of T
+    wanted.each do |id|
+      record = by_id[id]
+      result << (current_ids.includes?(id) ? record : attach(owner_id, record)!)
+    end
+    result
+  end
+end
