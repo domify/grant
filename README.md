@@ -11,9 +11,11 @@ code, queries, mapping contracts, error handling, and transactions are iyi.
 The original ORM's full feature set has **not** been ported yet.
 
 > **Compiler requirement:** source-free `.iyimod` consumers and the full test
-> gate require an iyi compiler containing commit `a03fc3438` **and** the fix in
+> gate require the trait-field ABI fix (originally `a03fc3438`) **and** the fix in
 > [scripts/compiler-witness-union.patch](scripts/compiler-witness-union.patch).
-> Apply the patch to the iyi compiler checkout and rebuild/install that compiler;
+> Both fixes are available together on
+> [priit/iyi:fix/artifact-witness-abi](https://github.com/priit/iyi/tree/fix/artifact-witness-abi).
+> Build/install that compiler branch, or apply the patch on top of the ABI fix;
 > changing Grant alone is insufficient. An older compiler can reject artifact
 > imports or produce a crashing consumer. This requirement concerns artifact
 > consumption, rather than ordinary compilation from Grant source. Do not assume
@@ -95,8 +97,9 @@ complete typed record mapping and CRUD example.
 
 `./scripts/check.sh` runs the SQLite native checks and the source-free artifact
 consumer checks. Set `IYI` to the desired compiler executable. Source-free
-consumers currently require iyi compiler fix `a03fc3438` plus the local compound
-witness-reference fix in `scripts/compiler-witness-union.patch`; the local fixed
+consumers currently require the ABI fix originally committed as `a03fc3438` plus
+the compound witness-reference fix in `scripts/compiler-witness-union.patch`.
+The published compiler branch linked above contains both fixes; the local fixed
 checkout can be selected with `IYI=/home/priit/contribute/iyi/bin/iyi`.
 Current development scope is SQLite only; PostgreSQL work is
 deferred and its existing adapter/test are retained.

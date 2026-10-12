@@ -1,5 +1,13 @@
 # Artifact trait-field layout regression (resolved locally)
 
+Both compiler fixes are now published on
+[priit/iyi:fix/artifact-witness-abi](https://github.com/priit/iyi/tree/fix/artifact-witness-abi),
+based directly on upstream `e82ab0a16`. The ABI fix is cherry-picked as
+`503752129`, followed by the compound-reference fix `84c438193`; the original
+local `a03fc3438` is retained below as historical provenance. The branch excludes
+the unrelated Vim editor commit. See [IYI-COMPILER-PR.md](IYI-COMPILER-PR.md) for
+the complete PR description, reproduction and validation results.
+
 The regression is fixed in the iyi compiler at commit `a03fc3438` in
 `/home/priit/contribute/iyi`. The initial six Grant artifact consumers (model,
 lifecycle, normalization, uniqueness, dependencies and binary data) passed with
