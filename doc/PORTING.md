@@ -78,3 +78,15 @@ original `main` baseline remain available; the layout is prepared on
 `scripts/update-crystal-upstream.sh` takes an explicit Crystal repo/ref, checks
 its layout, and makes a squashed source import. Native behavior changes are
 separate work and separate commits. No remote or public branch has been changed.
+
+## Layout verification
+
+- The imported `crystal-upstream/` Git tree matches the source baseline's root
+  tree exactly (`b298faa7a10c7bff3d4e433032938f94348eb8fd`).
+- All archived source-inventory hashes match the corresponding subtree files.
+- `scripts/check.sh` passes: six native test programs, type/format checks,
+  and a source-free `.iyimod` consumer build/run.
+- The upstream script recognizes an already imported revision as a no-op.
+- In disposable repositories, a new source revision imports only into the
+  subtree, leaves the native library tree unchanged, and matches the new
+  source tree exactly. A native-root source is rejected.
