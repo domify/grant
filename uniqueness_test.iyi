@@ -1,0 +1,111 @@
+module uniqueness_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table, Query}
+import grant/database_validation::{DatabaseRules, Uniqueness, DatabaseWhen}
+import grant/validators::{Condition}
+import grant/validation::{Rules, Presence, Context, Options}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError}
+
+struct Bank
+  getter id : Int64?
+  getter account_id : Int64
+  getter name : String
+
+  def initialize(@account_id : Int64, @name : String, @id : Int64? = nil)
+  end
+end
+
+struct BankMapping
+  @rules : DatabaseRules
+
+  def initialize(query : Query)
+    @rules = DatabaseRules.new(Rules.new.add(Presence.new("name"))).add(Uniqueness.new("name", query, ["account_id"]))
+  end
+end
+
+impl Mapping(Bank) for BankMapping
+  def table : Table
+    Table.new("banks")
+  end
+
+  def attributes(record : Bank) : Attributes
+    {"id" => record.id, "account_id" => record.account_id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Bank | DatabaseError
+    id = row["id"]
+    account_id = row["account_id"]
+    name = row["name"]
+    if id.is_a?(Int64) && account_id.is_a?(Int64) && name.is_a?(String)
+      Bank.new(account_id, name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid bank row")
+    end
+  end
+
+  def validate(record : Bank) : Nil | ValidationError | DatabaseError
+    @rules.check(attributes(record))
+  end
+
+  def validate(record : Bank, context : Context) : Nil | ValidationError | DatabaseError
+    @rules.check(attributes(record), context)
+  end
+end
+
+struct CheckDuplicates
+end
+
+impl Condition for CheckDuplicates
+  def applies?(attributes : Attributes, context : Context) : Bool
+    attributes["check_duplicates"]? == true
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE banks(id INTEGER PRIMARY KEY, account_id INTEGER, name TEXT)").or_panic
+query = Query.new(connection, Table.new("banks"))
+query.insert({"name" => "Ada", "account_id" => 1_i64} of String => Value).or_panic
+query.insert({"name" => "nullable scope", "account_id" => nil} of String => Value).or_panic
+rules = DatabaseRules.new.add(Uniqueness.new("name", query, ["account_id"]))
+assert rules.validate({"name" => "Ada", "account_id" => 1_i64} of String => Value).or_panic.of_type?("name", "taken")
+assert rules.validate({"name" => "Ada", "account_id" => 2_i64} of String => Value).or_panic.empty?
+assert rules.validate({"id" => 1_i64, "name" => "Ada", "account_id" => 1_i64} of String => Value).or_panic.empty?
+assert rules.validate({"name" => "nullable scope", "account_id" => nil} of String => Value).or_panic.of_type?("name", "taken")
+assert rules.validate({"name" => "Ada"} of String => Value).is_a?(DatabaseError)
+assert rules.validate({"name" => nil} of String => Value).or_panic.empty?
+insensitive = DatabaseRules.new.add(Uniqueness.new("name", query, case_sensitive: false))
+assert insensitive.validate({"name" => "ada"} of String => Value).or_panic.of_type?("name", "taken")
+assert DatabaseRules.new.add(Uniqueness.new("name", query)).validate({"name" => "ada"} of String => Value).or_panic.empty?
+conditions = DatabaseRules.new.add(Uniqueness.new("name", query.where("account_id", 2_i64)))
+assert conditions.validate({"name" => "Ada"} of String => Value).or_panic.empty?
+assert rules.validate({"name" => "x' OR 1=1 --", "account_id" => 1_i64} of String => Value).or_panic.empty?
+assert DatabaseRules.new.add(Uniqueness.new("name", query.limit(1))).validate({"name" => "Ada"} of String => Value).is_a?(DatabaseError)
+assert DatabaseRules.new.add(Uniqueness.new("bad;name", query)).validate({"bad;name" => "Ada"} of String => Value).is_a?(DatabaseError)
+scopes = ["account_id"]
+copied = DatabaseRules.new.add(Uniqueness.new("name", query, scopes))
+scopes << "missing"
+assert copied.validate({"name" => "Ada", "account_id" => 1_i64} of String => Value).or_panic.of_type?("name", "taken")
+assert DatabaseRules.new.add(Uniqueness.new("name", query, options: Options.new(on: "create"))).validate({"name" => "Ada"} of String => Value, Context.new("update")).or_panic.empty?
+repository = Repository(Bank).new(connection, BankMapping.new(query))
+assert repository.insert(Bank.new(1_i64, "Ada")).is_a?(ValidationError)
+new_bank = repository.insert(Bank.new(2_i64, "Ada")).or_panic
+assert repository.update(repository.query, new_bank.id || 0_i64, new_bank).or_panic.is_a?(Bank)
+assert repository.update(repository.query, new_bank.id || 0_i64, Bank.new(2_i64, "Ada")).or_panic.is_a?(Bank)
+assert repository.insert(new_bank).is_a?(ValidationError)
+assert query.where_not("account_id", nil).count.or_panic == 2
+assert query.where_not("account_id", 1_i64).count.or_panic == 1
+assert query.where_case_insensitive("name", "ADA").count.or_panic == 2
+assert query.where("name", "missing").exists?.or_panic == false
+assert query.limit(0).exists?.or_panic == false
+assert query.offset(99).exists?.or_panic == false
+assert query.offset(-1).limit(0).exists?.is_a?(DatabaseError)
+conditional = DatabaseRules.new.add(DatabaseWhen.new(Uniqueness.new("name", query), CheckDuplicates.new))
+assert conditional.validate({"name" => "Ada", "check_duplicates" => false} of String => Value).or_panic.empty?
+assert conditional.validate({"name" => "Ada", "check_duplicates" => true} of String => Value).or_panic.of_type?("name", "taken")
+connection.execute("DROP TABLE banks").or_panic
+assert repository.insert(Bank.new(1_i64, "Ada")).is_a?(DatabaseError)
+connection.close.or_panic
+assert rules.validate({"name" => "Ada", "account_id" => 1_i64} of String => Value).is_a?(DatabaseError)

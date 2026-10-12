@@ -1,0 +1,78 @@
+module validators_test
+
+import std/regex::{Regex}
+import std/float
+import grant/value::{Value, Attributes}
+import grant/validation::{Rules, Presence, Options, Context}
+import grant/validators::{Numericality, Constraint, Comparison, Format, Acceptance, Condition, When}
+
+bounds = [Constraint.new(Comparison::GreaterThan, 0_i64), Constraint.new(Comparison::LessThanOrEqual, 10_i64)]
+numbers = Rules.new.add(Numericality.new("amount", bounds, only_integer: true))
+assert numbers.validate({"amount" => "8"} of String => Value).empty?
+assert numbers.validate({"amount" => 8_i64} of String => Value).empty?
+assert numbers.validate({"amount" => "8.0"} of String => Value).of_type?("amount", "not_an_integer")
+assert numbers.validate({"amount" => 8.0} of String => Value).of_type?("amount", "not_an_integer")
+assert numbers.validate({"amount" => "bad"} of String => Value).of_type?("amount", "not_a_number")
+assert numbers.validate({"amount" => nil} of String => Value).of_type?("amount", "not_a_number")
+errors = numbers.validate({"amount" => 12_i64} of String => Value)
+assert errors.of_type?("amount", "less_than_or_equal_to", {"count" => 10_i64, "value" => 12_i64} of String => Value)
+assert numbers.validate({"amount" => 0_i64} of String => Value).of_type?("amount", "greater_than")
+assert Rules.new.add(Numericality.new("amount", only_numeric: true)).validate({"amount" => "8"} of String => Value).of_type?("amount", "not_a_number")
+assert Rules.new.add(Numericality.new("amount")).validate({"amount" => " 1.5e2 "} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount")).validate({"amount" => "NaN"} of String => Value).of_type?("amount", "not_a_number")
+assert Rules.new.add(Numericality.new("amount")).validate({"amount" => Float64::NAN} of String => Value).of_type?("amount", "not_a_number")
+assert Rules.new.add(Numericality.new("amount", options: Options.new(allow_nil: true))).validate({"amount" => nil} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount", options: Options.new(allow_blank: true))).validate({"amount" => " "} of String => Value).empty?
+parity = Rules.new.add(Numericality.new("amount", [Constraint.new(Comparison::GreaterThan, 0_i64)], odd: true))
+errors = parity.validate({"amount" => -4_i64} of String => Value)
+assert errors.size == 2
+assert errors.of_type?("amount", "greater_than")
+assert errors.of_type?("amount", "odd")
+assert parity.validate({"amount" => 3_i64} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount", even: true)).validate({"amount" => 2.5} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount", odd: true)).validate({"amount" => 1e30} of String => Value).of_type?("amount", "out_of_range")
+large = Rules.new.add(Numericality.new("amount", [Constraint.new(Comparison::GreaterThan, 9007199254740992_i64)]))
+assert large.validate({"amount" => 9007199254740993_i64} of String => Value).empty?
+assert !large.validate({"amount" => 9007199254740992_i64} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount", [Constraint.new(Comparison::EqualTo, 5_i64)])).validate({"amount" => 5_i64} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount", [Constraint.new(Comparison::OtherThan, 5_i64)])).validate({"amount" => 5_i64} of String => Value).of_type?("amount", "other_than")
+assert Rules.new.add(Numericality.new("amount", [Constraint.new(Comparison::LessThan, 5_i64)])).validate({"amount" => 5_i64} of String => Value).of_type?("amount", "less_than")
+assert Rules.new.add(Numericality.new("amount", [Constraint.new(Comparison::GreaterThanOrEqual, 5_i64)])).validate({"amount" => 5_i64} of String => Value).empty?
+assert Rules.new.add(Numericality.new("amount", options: Options.new(message: "bad amount"))).validate({"amount" => false} of String => Value)["amount"] == ["bad amount"]
+formats = Rules.new.add(Format.new("code", Regex.compile("\\A[A-Z][0-9]+\\z")))
+assert formats.validate({"code" => "A42"} of String => Value).empty?
+assert !formats.validate({"code" => "prefix A42"} of String => Value).empty?
+assert !formats.validate({"code" => nil} of String => Value).empty?
+assert Rules.new.add(Format.new("code", Regex.compile("[0-9]+"))).validate({"code" => "x42y"} of String => Value).empty?
+assert !Rules.new.add(Format.new("code", Regex.compile("[0-9]+"), without: true)).validate({"code" => "x42y"} of String => Value).empty?
+assert Rules.new.add(Format.new("code", Regex.compile("[0-9]+"), options: Options.new(allow_nil: true))).validate({"code" => nil} of String => Value).empty?
+
+struct Enabled
+end
+
+impl Condition for Enabled
+  def applies?(attributes : Attributes, context : Context) : Bool
+    attributes["enabled"]? == true && context.operation == "create"
+  end
+end
+
+conditional = Rules.new.add(When.new(Presence.new("name"), Enabled.new))
+assert conditional.validate({"enabled" => true} of String => Value, Context.new("create")).of_type?("name", "blank")
+assert conditional.validate({"enabled" => false} of String => Value, Context.new("create")).empty?
+assert conditional.validate({"enabled" => true} of String => Value, Context.new("update")).empty?
+inverted = Rules.new.add(When.new(Presence.new("name"), Enabled.new, true))
+assert inverted.validate({"enabled" => true} of String => Value, Context.new("create")).empty?
+assert !inverted.validate({"enabled" => false} of String => Value, Context.new("create")).empty?
+
+acceptance = Rules.new.add(Acceptance.new("terms"))
+assert acceptance.validate({"terms" => true} of String => Value).empty?
+assert acceptance.validate({"terms" => "YES"} of String => Value).empty?
+assert acceptance.validate({"terms" => 1_i64} of String => Value).empty?
+assert acceptance.validate({"terms" => false} of String => Value).of_type?("terms", "accepted")
+assert acceptance.validate({"terms" => nil} of String => Value).of_type?("terms", "accepted")
+assert Rules.new.add(Acceptance.new("terms", options: Options.new(allow_nil: true))).validate({} of String => Value).empty?
+allowed = ["ok"]
+custom_acceptance = Rules.new.add(Acceptance.new("terms", allowed))
+allowed << "no"
+assert custom_acceptance.validate({"terms" => "ok"} of String => Value).empty?
+assert custom_acceptance.validate({"terms" => "no"} of String => Value).of_type?("terms", "accepted")

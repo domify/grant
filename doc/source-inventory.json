@@ -1300,6 +1300,7 @@
     "grant/associations.iyi",
     "grant/cstring.iyi",
     "grant/database.iyi",
+    "grant/database_validation.iyi",
     "grant/dependent.iyi",
     "grant/dirty.iyi",
     "grant/errors.iyi",
@@ -1313,6 +1314,7 @@
     "grant/transaction.iyi",
     "grant/unit_of_work.iyi",
     "grant/validation.iyi",
+    "grant/validators.iyi",
     "grant/value.iyi"
   ],
   "note": "Native functionality is tracked in PORTING.md; reference_only means this original file has not been fully converted."

@@ -109,8 +109,9 @@ end
 pub struct Context
   getter operation : String
   getter name : String
+  getter persisted_id : Int64?
 
-  def initialize(@operation : String = "save", @name : String = "save")
+  def initialize(@operation : String = "save", @name : String = "save", @persisted_id : Int64? = nil)
   end
 end
 
@@ -193,7 +194,8 @@ pub struct Inclusion
   @exclude : Bool
   @options : Options
 
-  def initialize(@attribute : String, @values : Array(Value), @exclude : Bool = false, @options : Options = Options.new)
+  def initialize(@attribute : String, values : Array(Value), @exclude : Bool = false, @options : Options = Options.new)
+    @values = values.map { |value| value }
   end
 end
 

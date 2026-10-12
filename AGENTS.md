@@ -30,6 +30,15 @@ definitions and SQL migrations. These feature ports are partial; consult
 mapping. Neither a global model registry nor an inherited macro DSL is used.
 Consumer web handlers and RPC handlers should call the same model services.
 
+Additional scalar validators are in `grant/validators.iyi`: numericality, format,
+acceptance and `When` with a typed `Condition`. Conditions inspect explicit
+attributes/context. See `doc/VALIDATION.md` for semantics and unported validators;
+dynamic comparison operands are still pending. SQLite uniqueness lives in
+`grant/database_validation.iyi`: propagate SQL failures as `DatabaseError` and
+back validation with an appropriate unique index. Context-aware mappings override
+`validate(record, context)`; repository update contexts supply the actual persisted
+ID so nil input IDs cannot incorrectly fail self-exclusion.
+
 Current user scope is SQLite only: implement and verify SQLite behavior first.
 Keep the existing PostgreSQL adapter, but defer PostgreSQL development and live
 verification until the user expands scope. The default check runner excludes

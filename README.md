@@ -36,6 +36,10 @@ The original ORM's full feature set has **not** been ported yet.
   sessions and ordered validation/save/destroy/commit/rollback callbacks.
 - `grant/validation.iyi`: structured errors and presence, absence, length,
   inclusion, exclusion, and confirmation rules.
+- `grant/validators.iyi`: numericality/comparison bounds, odd/even, format,
+  acceptance and typed conditional rule wrappers. See `doc/VALIDATION.md`.
+- `grant/database_validation.iyi`: scoped SQLite uniqueness with self exclusion,
+  context-aware mapping validation and separate database failure values.
 - `grant/normalization.iyi`: explicit normalization plans.
 - `grant/dirty.iyi`: snapshot-based change tracking with fixed attribute names.
 - `grant/schema.iyi` and `grant/migrations.iyi`: table/index definitions, column
@@ -71,6 +75,8 @@ iyi run placeholder_test.iyi
 iyi run association_test.iyi
 iyi run association_write_test.iyi
 iyi run dependent_test.iyi
+iyi run validators_test.iyi
+iyi run uniqueness_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
@@ -94,8 +100,9 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, that check is currently blocked by a compiler artifact
 layout bug. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 16 programs, including
-association reads, transactional writes, dependent destruction and binary data. See
+connection failure). The current SQLite-only suite has 18 programs, including
+association reads, transactional writes, dependent destruction, binary data and
+additional validators and SQLite uniqueness. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` deliberately retains the failing artifact gate.
 

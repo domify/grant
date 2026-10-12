@@ -1,0 +1,109 @@
+module grant/database_validation
+
+import grant/query::{Query}
+import grant/value::{Value, Attributes}
+import grant/errors::{DatabaseError, ValidationError}
+import grant/validation::{Errors, Rules, Context, Options}
+import grant/validators::{Condition}
+
+# Database rules return SQL failures as errors, never as a fabricated successful
+# validation or a user-facing "taken" issue.
+pub trait DatabaseValidator
+  abstract def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
+end
+
+pub struct Uniqueness
+  @attribute : String
+  @query : Query
+  @scope_columns : Array(String)
+  @case_sensitive : Bool
+  @options : Options
+
+  def initialize(@attribute : String, @query : Query, scope_columns : Array(String) = [] of String,
+                 @case_sensitive : Bool = true, @options : Options = Options.new)
+    @scope_columns = scope_columns.map { |name| name }
+  end
+end
+
+impl DatabaseValidator for Uniqueness
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
+    value = attributes[@attribute]?
+    # Imported Grant skips a nil uniqueness value even without allow_nil.
+    return nil if value.nil? || !@options.applies?(value, context)
+    return DatabaseError.new(21, "uniqueness", "pagination is not supported for uniqueness conditions") if @query.paginated?
+    selected = if @case_sensitive
+                 @query.where(@attribute, value)
+               elsif value.is_a?(String)
+                 @query.where_case_insensitive(@attribute, value)
+               else
+                 return DatabaseError.new(20, "uniqueness", "case-insensitive validation requires a string")
+               end
+    @scope_columns.each do |name|
+      return DatabaseError.new(20, "uniqueness", "mapping must expose scope column: #{name}") unless attributes.has_key?(name)
+      selected = selected.where(name, attributes[name])
+    end
+    key = if context.operation == "create"
+            nil
+          elsif context.operation == "update"
+            context.persisted_id || attributes[@query.table.primary_key]?
+          else
+            attributes[@query.table.primary_key]?
+          end
+    unless key.nil?
+      return DatabaseError.new(20, "uniqueness", "primary key must be Int64 or String") unless key.is_a?(Int64) || key.is_a?(String)
+      selected = selected.where_not(@query.table.primary_key, key)
+    end
+    if selected.exists?!
+      errors.add(@attribute, @options.message || "has already been taken", "taken", {"value" => value} of String => Value)
+    end
+    nil
+  end
+end
+
+pub class DatabaseWhen
+  @validator : DatabaseValidator
+  @condition : Condition
+  @unless : Bool
+
+  def initialize(@validator : DatabaseValidator, @condition : Condition, @unless : Bool = false)
+  end
+end
+
+impl DatabaseValidator for DatabaseWhen
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
+    applies = @condition.applies?(attributes, context)
+    if @unless ? !applies : applies
+      @validator.validate(attributes, errors, context)
+    else
+      nil
+    end
+  end
+end
+
+pub class DatabaseRules
+  @scalar_rules : Rules
+  @validators : Array(DatabaseValidator)
+
+  def initialize(@scalar_rules : Rules = Rules.new)
+    @validators = [] of DatabaseValidator
+  end
+
+  def add(validator : DatabaseValidator) : DatabaseRules
+    @validators << validator
+    self
+  end
+
+  def validate(attributes : Attributes, context : Context = Context.new) : Errors | DatabaseError
+    errors = @scalar_rules.validate(attributes, context)
+    @validators.each do |validator|
+      result = validator.validate(attributes, errors, context)
+      return result if result.is_a?(DatabaseError)
+    end
+    errors
+  end
+
+  def check(attributes : Attributes, context : Context = Context.new) : Nil | ValidationError | DatabaseError
+    errors = validate(attributes, context)!
+    errors.result
+  end
+end

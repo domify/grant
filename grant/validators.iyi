@@ -1,0 +1,203 @@
+module grant/validators
+
+import std/text
+import std/float
+import std/regex::{Regex}
+import grant/value::{Value, Attributes}
+import grant/validation::{Validator, Errors, Context, Options}
+
+pub alias Numeric = Int64 | Float64
+
+pub enum Comparison
+  GreaterThan
+  GreaterThanOrEqual
+  LessThan
+  LessThanOrEqual
+  EqualTo
+  OtherThan
+end
+
+pub struct Constraint
+  getter comparison : Comparison
+  getter bound : Numeric
+
+  def initialize(@comparison : Comparison, @bound : Numeric)
+  end
+
+  def satisfied?(number : Numeric) : Bool
+    case comparison
+    when Comparison::GreaterThan        then number > bound
+    when Comparison::GreaterThanOrEqual then number >= bound
+    when Comparison::LessThan           then number < bound
+    when Comparison::LessThanOrEqual    then number <= bound
+    when Comparison::EqualTo            then number == bound
+    else                                     number != bound
+    end
+  end
+
+  def code : String
+    case comparison
+    when Comparison::GreaterThan        then "greater_than"
+    when Comparison::GreaterThanOrEqual then "greater_than_or_equal_to"
+    when Comparison::LessThan           then "less_than"
+    when Comparison::LessThanOrEqual    then "less_than_or_equal_to"
+    when Comparison::EqualTo            then "equal_to"
+    else                                     "other_than"
+    end
+  end
+
+  def message : String
+    case comparison
+    when Comparison::GreaterThan        then "must be greater than #{bound}"
+    when Comparison::GreaterThanOrEqual then "must be greater than or equal to #{bound}"
+    when Comparison::LessThan           then "must be less than #{bound}"
+    when Comparison::LessThanOrEqual    then "must be less than or equal to #{bound}"
+    when Comparison::EqualTo            then "must be equal to #{bound}"
+    else                                     "must be other than #{bound}"
+    end
+  end
+end
+
+pub struct Numericality
+  @attribute : String
+  @constraints : Array(Constraint)
+  @only_integer : Bool
+  @only_numeric : Bool
+  @odd : Bool
+  @even : Bool
+  @options : Options
+
+  def initialize(@attribute : String, constraints : Array(Constraint) = [] of Constraint,
+                 @only_integer : Bool = false, @only_numeric : Bool = false,
+                 @odd : Bool = false, @even : Bool = false, @options : Options = Options.new)
+    @constraints = constraints.map { |constraint| constraint }
+  end
+end
+
+impl Validator for Numericality
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    raw = attributes[@attribute]?
+    return nil unless @options.applies?(raw, context)
+    number = @only_numeric && raw.is_a?(String) ? nil : numeric_value(raw)
+    if number.nil?
+      errors.add(@attribute, @options.message || "is not a number", "not_a_number", {"value" => raw} of String => Value)
+      return nil
+    end
+    if @only_integer && !number.is_a?(Int64)
+      errors.add(@attribute, @options.message || "must be an integer", "not_an_integer", {"value" => raw} of String => Value)
+      return nil
+    end
+    @constraints.each do |constraint|
+      if constraint.bound.is_a?(Float64) && !constraint.bound.as(Float64).finite?
+        errors.add(@attribute, "comparison bound must be finite", "invalid_constraint")
+      elsif !constraint.satisfied?(number)
+        errors.add(@attribute, @options.message || constraint.message, constraint.code,
+          {"count" => constraint.bound, "value" => raw} of String => Value)
+      end
+    end
+    if @odd || @even
+      # The source truncates floats for parity checks. Reject values outside
+      # Int64 rather than allowing an overflowing conversion to panic.
+      integer = if number.is_a?(Int64)
+                  number
+                elsif number >= -9223372036854775808.0 && number < 9223372036854775808.0
+                  number.to_i64
+                else
+                  nil
+                end
+      if integer.nil?
+        errors.add(@attribute, "is out of range for parity checks", "out_of_range")
+      else
+        errors.add(@attribute, @options.message || "must be odd", "odd", {"value" => raw} of String => Value) if @odd && integer % 2 == 0
+        errors.add(@attribute, @options.message || "must be even", "even", {"value" => raw} of String => Value) if @even && integer % 2 != 0
+      end
+    end
+    nil
+  end
+end
+
+pub struct Format
+  @attribute : String
+  @pattern : Regex
+  @without : Bool
+  @options : Options
+
+  def initialize(@attribute : String, @pattern : Regex, @without : Bool = false, @options : Options = Options.new)
+  end
+end
+
+impl Validator for Format
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    raw = attributes[@attribute]?
+    return nil unless @options.applies?(raw, context)
+    text = raw.nil? ? "" : raw.to_s
+    matches = !@pattern.find(text).nil?
+    errors.add(@attribute, @options.message || "is invalid", "invalid", {"value" => raw} of String => Value) if @without ? matches : !matches
+    nil
+  end
+end
+
+pub struct Acceptance
+  @attribute : String
+  @accepted : Array(String)
+  @options : Options
+
+  def initialize(@attribute : String, accepted : Array(String) = ["1", "true", "yes", "on"], @options : Options = Options.new)
+    @accepted = accepted.map { |value| value }
+  end
+end
+
+impl Validator for Acceptance
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    raw = attributes[@attribute]?
+    return nil unless @options.applies?(raw, context)
+    accepted = if raw.is_a?(Bool)
+                 raw
+               elsif raw.nil?
+                 false
+               else
+                 @accepted.includes?(raw.to_s.downcase)
+               end
+    errors.add(@attribute, @options.message || "must be accepted", "accepted", {"value" => raw} of String => Value) unless accepted
+    nil
+  end
+end
+
+# Conditions are typed implementations; they can inspect attributes/context
+# without Ruby symbols, global callbacks, or generated method lookup.
+pub trait Condition
+  abstract def applies?(attributes : Attributes, context : Context) : Bool
+end
+
+pub class When
+  @validator : Validator
+  @condition : Condition
+  @unless : Bool
+
+  def initialize(@validator : Validator, @condition : Condition, @unless : Bool = false)
+  end
+end
+
+impl Validator for When
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    applies = @condition.applies?(attributes, context)
+    @validator.validate(attributes, errors, context) if @unless ? !applies : applies
+    nil
+  end
+end
+
+def numeric_value(value : Value) : Numeric?
+  case value
+  when Int64 then value
+  when Float64
+    value.finite? ? value : nil
+  when String
+    text = value.strip
+    integer = text.to_i64?
+    return integer if integer
+    float = text.to_f?
+    float && float.finite? ? float : nil
+  else
+    nil
+  end
+end

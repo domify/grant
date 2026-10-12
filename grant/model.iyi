@@ -6,6 +6,7 @@ import grant/database::{Database}
 import grant/query::{Query, Table}
 import grant/lifecycle::{Pipeline, Event}
 import grant/unit_of_work::{UnitOfWork, Observer}
+import grant/validation::{Context}
 
 # Applications explicitly map their sealed record types to a table. The ORM
 # never reopens those types or discovers their fields through a global macro.
@@ -13,7 +14,14 @@ pub trait Mapping(T)
   abstract def table : Table
   abstract def attributes(record : T) : Attributes
   abstract def from_row(row : Row) : T | DatabaseError
-  abstract def validate(record : T) : Nil | ValidationError
+  abstract def validate(record : T) : Nil | ValidationError | DatabaseError
+
+  # Existing simple mappings retain their validation implementation. Mappings
+  # with database/context rules override this overload to use the authoritative
+  # update key even when an application supplies a record with id=nil.
+  def validate(record : T, context : Context) : Nil | ValidationError | DatabaseError
+    validate(record)
+  end
 end
 
 pub class Repository(T)
@@ -83,20 +91,20 @@ pub class Repository(T)
     @unit.run(requires_new: true) { destroy_record(scope, id) }
   end
 
-  private def validated(record : T) : T | DatabaseError | ValidationError | CallbackAbort
+  private def validated(record : T, context : Context) : T | DatabaseError | ValidationError | CallbackAbort
     prepared = callback(Event::BeforeValidation, record)
     return prepared if prepared.is_a?(Error)
     current = prepared
-    validation = @mapping.validate(current)
+    validation = @mapping.validate(current, context)
     prepared = callback(Event::AfterValidation, current)
     return prepared if prepared.is_a?(Error)
     current = prepared
-    return validation if validation.is_a?(ValidationError)
+    return validation if validation.is_a?(Error)
     current
   end
 
   private def insert_record(record : T) : T | DatabaseError | ValidationError | CallbackAbort
-    current = validated(record)!
+    current = validated(record, Context.new("create"))!
     prepared = callback(Event::BeforeSave, current)
     return prepared if prepared.is_a?(Error)
     current = prepared
@@ -114,7 +122,7 @@ pub class Repository(T)
   end
 
   private def update_record(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort
-    current = validated(record)!
+    current = validated(record, Context.new("update", persisted_id: id))!
     prepared = callback(Event::BeforeSave, current)
     return prepared if prepared.is_a?(Error)
     current = prepared

@@ -25,12 +25,19 @@ pub def identifier(name : String) : String | DatabaseError
   "\"#{name}\""
 end
 
+pub enum Operator
+  Equal
+  NotEqual
+  CaseInsensitive
+end
+
 pub struct Predicate
   getter name : String
   getter value : Value
   getter values : Array(Value)?
+  getter comparison : Operator
 
-  def initialize(@name : String, @value : Value, @values : Array(Value)? = nil)
+  def initialize(@name : String, @value : Value, @values : Array(Value)? = nil, @comparison : Operator = Operator::Equal)
   end
 end
 
@@ -63,6 +70,25 @@ pub class Query
     filters = copy_filters(@filters)
     filters << Predicate.new(name, nil, values.map { |value| value })
     Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+  end
+
+  def where_not(name : String, value : Value) : Query
+    filters = copy_filters(@filters)
+    filters << Predicate.new(name, value, comparison: Operator::NotEqual)
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+  end
+
+  def where_case_insensitive(name : String, value : String) : Query
+    filters = copy_filters(@filters)
+    filters << Predicate.new(name, value, comparison: Operator::CaseInsensitive)
+    Query.new(@database, @table, filters, @limit, @offset, @order, @descending)
+  end
+
+  def exists? : Bool | DatabaseError
+    return DatabaseError.new(21, "exists", "negative pagination") if @offset < 0 || (@limit || 0) < 0
+    return false if @limit == 0
+    row = first!
+    !row.nil?
   end
 
   def paginated? : Bool
@@ -183,9 +209,16 @@ pub class Query
         parts << "#{column} IS NULL" if nulls
         clauses << (parts.empty? ? "0 = 1" : "(#{parts.join(" OR ")})")
       elsif value.nil?
-        clauses << "#{column} IS NULL"
+        clauses << "#{column} IS " + (predicate.comparison == Operator::NotEqual ? "NOT NULL" : "NULL")
       else
-        clauses << "#{column} = ?"
+        case predicate.comparison
+        when Operator::NotEqual
+          clauses << "#{column} != ?"
+        when Operator::CaseInsensitive
+          clauses << "LOWER(#{column}) = LOWER(?)"
+        else
+          clauses << "#{column} = ?"
+        end
         parameters << value
       end
     end

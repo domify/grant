@@ -70,6 +70,16 @@ No code delegates native model behavior to the archived Crystal ORM.
   callbacks, deferred commit hooks, rollback hooks and first-record deduplication.
 - Structured validation errors and presence/absence, length, inclusion/exclusion
   and confirmation rules with explicit contexts and nil/blank options.
+- Numericality with typed static comparison bounds, finite-number checks,
+  integer/numeric-only options, odd/even and per-constraint metadata; native
+  regex format, acceptance and typed conditional validator wrappers. Integer
+  comparisons preserve Int64 precision. Dynamic operands remain pending.
+- SQLite uniqueness with scope columns, NULL scopes, explicit query conditions,
+  self exclusion, case-insensitive text and typed conditions. `DatabaseRules`
+  combines scalar rules with SQL rules and propagates database failures separately.
+  Context-aware mapping validation receives create/update and the actual persisted
+  update key. Query adds inequality, case-insensitive equality and existence checks.
+  See `VALIDATION.md`; suite now has 18 SQLite programs.
 - Explicit normalization plans, plus snapshot-based dirty state supporting
   mutable values through a supplied copying trait. Unknown runtime writes return
   `AttributeError`; batch clearing validates names before changing any baseline.
@@ -81,7 +91,7 @@ No code delegates native model behavior to the archived Crystal ORM.
   Unicode text, dollar quotes, and escaped question-mark operators.
 - The earlier core passed typed model artifact consumption. The expanded port
   currently fails that gate due to a compiler trait-field layout mismatch; see
-  `ARTIFACT-ISSUE.md`. Current source execution passes all 16 SQLite test programs.
+  `ARTIFACT-ISSUE.md`. Current source execution passes all 18 SQLite test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
