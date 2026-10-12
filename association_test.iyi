@@ -55,7 +55,9 @@ first = repository.insert(Bank.new(10_i64, "a")).or_panic
 second = repository.insert(Bank.new(10_i64, "b")).or_panic
 third = repository.insert(Bank.new(20_i64, "c")).or_panic
 many = HasMany(Bank).new(repository, "account_id", repository.query.order("id"))
-assert many.load(nil).empty?
+empty = many.load(nil)
+assert empty.is_a?(Array(Bank))
+assert empty.empty? if empty.is_a?(Array(Bank))
 assert many.load(10_i64).or_panic.size == 2
 assert many.load(999_i64).or_panic.empty?
 groups = many.preload([10_i64, 20_i64, 999_i64, 10_i64]).or_panic

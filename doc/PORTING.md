@@ -94,9 +94,11 @@ No code delegates native model behavior to the archived Crystal ORM.
 - Native port of the original placeholder scanner, with 15 parity assertions
   covering strings, escape strings, quoted identifiers, comments, casts,
   Unicode text, dollar quotes, and escaped question-mark operators.
-- The earlier core passed typed model artifact consumption. The expanded port
-  currently fails that gate due to a compiler trait-field layout mismatch; see
-  `ARTIFACT-ISSUE.md`. Current source execution passes all 19 SQLite test programs.
+- The trait-field artifact regression is fixed in iyi compiler commit
+  `a03fc3438`; the local fixed compiler passes all six artifact consumers and
+  the minimal reproduction. All 125 compiler artifact tests pass. Older installed compilers
+  require the fix; see `ARTIFACT-ISSUE.md`. Current source execution passes all
+  19 SQLite test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
@@ -141,8 +143,8 @@ separate work and separate commits. No remote or public branch has been changed.
   tree exactly (`b298faa7a10c7bff3d4e433032938f94348eb8fd`).
 - All archived source-inventory hashes match the corresponding subtree files.
 - At layout bootstrap, `scripts/check.sh` passed six native test programs and
-  the artifact consumer. The current expanded port passes 13 source tests; its
-  artifact consumer is blocked as described above.
+  the artifact consumer. The current expanded port passes 19 SQLite source tests
+  and its model artifact consumer with the fixed local compiler.
 - The upstream script recognizes an already imported revision as a no-op.
 - In disposable repositories, a new source revision imports only into the
   subtree, leaves the native library tree unchanged, and matches the new

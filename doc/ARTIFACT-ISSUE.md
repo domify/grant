@@ -1,8 +1,18 @@
-# Source-free artifact consumption: trait field layout
+# Artifact trait-field layout regression (resolved locally)
 
-The expanded native Grant currently passes source execution but fails the
-source-free artifact consumer gate. Do not publish these artifacts as a working
-package or remove the gate from `scripts/check.sh`.
+The regression is fixed in the iyi compiler at commit `a03fc3438` in
+`/home/priit/contribute/iyi`. The fixed local compiler passes the six Grant artifact consumers (model,
+lifecycle, normalization, uniqueness, dependencies and binary data) and the
+minimal reproduction. All 125 compiler artifact tests
+pass, including a regression exercising a generic forwarding body and a
+trait-valued field. An older installed iyi binary still needs this fix.
+
+The compiler now records producer witnesses that affect trait ABI even when no
+carried instruction numbers them, and restores those witnesses in the consumer
+before typing its bodies. Treating them only as an unmatchable type ID was
+insufficient. Keep the artifact gate in `scripts/check.sh`. Set `IYI` to the
+fixed compiler executable when running it; the installed default is not assumed
+to have this unpublished local fix.
 
 ## Reproduction
 
@@ -18,7 +28,7 @@ emits artifacts, and compiles a separate consumer using those artifacts. Both
 programs open SQLite and execute `UnitOfWork.run { 42_i64 }`. The source program
 prints `transaction completed`; the consumer must print the same and exit zero.
 
-## Observations on 2026-10-12
+## Historical observations before the fix
 
 - Installed iyi 0.16.2 refuses the model consumer because it cannot name
   `IyiDefTypeWitness_Grant_Database_Database` referenced by an artifact.
@@ -36,7 +46,7 @@ trait field representation. The consumer without that witness reconstructs a
 different representation for `UnitOfWork.@database`; a call passing that field
 to transaction code consequently supplies an invalid connection pointer.
 Treating a missing witness only as a type ID that cannot match does not preserve
-this layout. The compiler must preserve artifact field and call ABI across
+this layout. The fix preserves artifact field and call ABI across
 definition-typing witnesses, including generic bodies recompiled by consumers.
 
 The earlier core artifact check passed before the expanded transaction-session

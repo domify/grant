@@ -75,7 +75,10 @@ pub class CollectionWriter(T)
   private def replace_single(owner_id : Int64, record : T?, strategy : Removal) : T | Nil | WriteError
     current = @repository.all(@scope.where(@foreign_key, owner_id))!
     return DatabaseError.new(21, "association", "has_one scope contains multiple targets") if current.size > 1
-    wanted_id = record ? record_id(record)! : nil
+    wanted_id = nil.as(Int64?)
+    if record
+      wanted_id = record_id(record)!
+    end
     ids = [] of Int64
     current.each do |member|
       id = record_id(member)!
@@ -183,7 +186,12 @@ pub class CollectionWriter(T)
     result = [] of T
     wanted.each do |id|
       record = by_id[id]
-      result << (current_ids.includes?(id) ? record : attach(owner_id, record)!)
+      if current_ids.includes?(id)
+        result << record
+      else
+        attached = attach(owner_id, record)!
+        result << attached
+      end
     end
     result
   end

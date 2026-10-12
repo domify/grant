@@ -60,7 +60,10 @@ complete typed record mapping and CRUD example.
 ## Running
 
 `./scripts/check.sh` runs the SQLite native checks and the source-free artifact
-consumer check. Current development scope is SQLite only; PostgreSQL work is
+consumer checks. Set `IYI` to the desired compiler executable. Source-free
+consumers currently require iyi compiler fix `a03fc3438`; the local fixed
+checkout can be selected with `IYI=/home/priit/contribute/iyi/bin/iyi`.
+Current development scope is SQLite only; PostgreSQL work is
 deferred and its existing adapter/test are retained.
 
 Run from this directory with iyi 0.16.2. Install the system development packages
@@ -100,13 +103,14 @@ import specific adapter/mapping/query names at the call site.
 SQLite CRUD, typed mapping, validation errors, scoped writes, SQL parameter
 binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
-transaction sessions, that check is currently blocked by a compiler artifact
-layout bug. Source builds previously passed 13 native test programs (including PostgreSQL
+transaction sessions, an artifact layout bug was found and fixed in iyi
+compiler commit `a03fc3438`. The fixed local compiler passes the model consumer. Source builds previously passed 13 native test programs (including PostgreSQL
 connection failure). The current SQLite-only suite has 19 programs, including
 association reads, transactional writes, dependent destruction, binary data and
 additional validators, SQLite uniqueness and model normalization. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
-`./scripts/check.sh` deliberately retains the failing artifact gate.
+`./scripts/check.sh` retains and expands the artifact gate. Older installed
+compilers may still fail it until they include the fix.
 
 The current value contract is null, boolean, Int64, Float64, String and `Binary`.
 SQLite BLOB binding/decoding preserves arbitrary bytes, including NUL and empty

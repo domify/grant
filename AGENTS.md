@@ -85,7 +85,9 @@ The subtree bootstrap uses local commits on `feature/phase-0-native-iyi`, keepin
 original Crystal history. Do not push or change public default branches without
 user instructions. Keep source imports and native changes in separate commits.
 
-The source-free artifact gate is currently failing: the installed compiler
-rejects a synthetic trait witness, and the local compiler builds a consumer
-with a mismatched trait-field layout that crashes. Keep this failure visible.
-Do not add synthetic witness declarations to application code as a workaround.
+Source-free artifacts require the compiler fix in iyi commit a03fc3438. Use
+IYI=/home/priit/contribute/iyi/bin/iyi with scripts/check.sh until the installed
+compiler includes it. The gate must remain enabled and exercise model/lifecycle,
+normalization, uniqueness, dependency and binary consumers. Do not introduce
+synthetic witness declarations in application code as a workaround. See
+doc/ARTIFACT-ISSUE.md for the diagnosed ABI regression and fix.
