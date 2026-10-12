@@ -1,9 +1,11 @@
 module grant/model
 
 import grant/value::{Value, Row, Attributes}
-import grant/errors::{DatabaseError, ValidationError}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
 import grant/database::{Database}
 import grant/query::{Query, Table}
+import grant/lifecycle::{Pipeline, Event}
+import grant/unit_of_work::{UnitOfWork, Observer}
 
 # Applications explicitly map their sealed record types to a table. The ORM
 # never reopens those types or discovers their fields through a global macro.
@@ -17,8 +19,11 @@ end
 pub class Repository(T)
   @database : Database
   @mapping : Mapping(T)
+  @events : Pipeline(T)?
+  @unit : UnitOfWork
 
-  def initialize(@database : Database, @mapping : Mapping(T))
+  def initialize(@database : Database, @mapping : Mapping(T), @events : Pipeline(T)? = nil, unit : UnitOfWork? = nil)
+    @unit = unit || UnitOfWork.new(@database)
   end
 
   def query : Query
@@ -30,25 +35,104 @@ pub class Repository(T)
     row ? @mapping.from_row(row) : nil
   end
 
-  def insert(record : T) : T | DatabaseError | ValidationError
-    @mapping.validate(record)!
-    values = write_attributes(record)
-    row = query.insert(values)!
-    @mapping.from_row(row)
+  def insert(record : T) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+    return DatabaseError.new(21, "insert", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
+    @unit.run { insert_record(record) }
   end
 
-  # Caller supplies a scoped query; retain its tenant filters during the write
-  # and the read-back rather than falling back to an unscoped primary key.
-  def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError
+  def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     return DatabaseError.new(21, "update", "scope belongs to another table") unless scope.table.name == @mapping.table.name
     return DatabaseError.new(21, "update", "scope belongs to another database") unless scope.database_identity == @database.identity
-    @mapping.validate(record)!
-    values = write_attributes(record)
+    return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
+    @unit.run { update_record(scope, id, record) }
+  end
+
+  def destroy(scope : Query, id : Int64) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+    return DatabaseError.new(21, "destroy", "scope belongs to another table") unless scope.table.name == @mapping.table.name
+    return DatabaseError.new(21, "destroy", "scope belongs to another database") unless scope.database_identity == @database.identity
+    return DatabaseError.new(21, "destroy", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
+    @unit.run { destroy_record(scope, id) }
+  end
+
+  private def validated(record : T) : T | DatabaseError | ValidationError | CallbackAbort
+    prepared = callback(Event::BeforeValidation, record)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    validation = @mapping.validate(current)
+    prepared = callback(Event::AfterValidation, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    return validation if validation.is_a?(ValidationError)
+    current
+  end
+
+  private def insert_record(record : T) : T | DatabaseError | ValidationError | CallbackAbort
+    current = validated(record)!
+    prepared = callback(Event::BeforeSave, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    prepared = callback(Event::BeforeCreate, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    row = query.insert(write_attributes(current))!
+    current = @mapping.from_row(row)!
+    observed = observe(current, row[@mapping.table.primary_key])
+    return observed if observed.is_a?(DatabaseError)
+    prepared = callback(Event::AfterCreate, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    callback(Event::AfterSave, current)
+  end
+
+  private def update_record(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort
+    current = validated(record)!
+    prepared = callback(Event::BeforeSave, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    prepared = callback(Event::BeforeUpdate, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
     selected = scope.where(@mapping.table.primary_key, id)
-    result = selected.update(values)!
-    return nil if result.changes == 0
+    changed = selected.update(write_attributes(current))!
+    return nil if changed.changes == 0
     row = selected.first!
-    row ? @mapping.from_row(row) : nil
+    return nil unless row
+    current = @mapping.from_row(row)!
+    observed = observe(current, row[@mapping.table.primary_key])
+    return observed if observed.is_a?(DatabaseError)
+    prepared = callback(Event::AfterUpdate, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    callback(Event::AfterSave, current)
+  end
+
+  private def destroy_record(scope : Query, id : Int64) : T | Nil | DatabaseError | ValidationError | CallbackAbort
+    selected = scope.where(@mapping.table.primary_key, id)
+    row = selected.first!
+    return nil unless row
+    current = @mapping.from_row(row)!
+    prepared = callback(Event::BeforeDestroy, current)
+    return prepared if prepared.is_a?(Error)
+    current = prepared
+    selected.delete!
+    observed = observe(current, row[@mapping.table.primary_key])
+    return observed if observed.is_a?(DatabaseError)
+    callback(Event::AfterDestroy, current)
+  end
+
+  private def callback(event : Event, record : T) : T | DatabaseError | ValidationError | CallbackAbort
+    if events = @events
+      events.run(event, record)
+    else
+      record
+    end
+  end
+
+  private def observe(record : T, id : Value) : Nil | DatabaseError
+    if events = @events
+      @unit.observe(RecordObserver(T).new("#{@mapping.table.name}:#{id}", events, record))!
+    end
+    nil
   end
 
   private def write_attributes(record : T) : Attributes
@@ -57,5 +141,28 @@ pub class Repository(T)
       values[name] = value unless name == @mapping.table.primary_key
     end
     values
+  end
+end
+
+class RecordObserver(T)
+  getter identity : String
+  @events : Pipeline(T)
+  @record : T
+
+  def initialize(@identity : String, @events : Pipeline(T), @record : T)
+  end
+end
+
+impl Observer for RecordObserver(T) forall T
+  def committed : Nil | DatabaseError | ValidationError | CallbackAbort
+    result = @events.run(Event::AfterCommit, @record)
+    return result if result.is_a?(Error)
+    nil
+  end
+
+  def rolled_back : Nil | DatabaseError | ValidationError | CallbackAbort
+    result = @events.run(Event::AfterRollback, @record)
+    return result if result.is_a?(Error)
+    nil
   end
 end

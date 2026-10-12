@@ -27,3 +27,29 @@ impl Error for ValidationError
     "record validation failed"
   end
 end
+
+pub struct CallbackAbort
+  getter reason : String
+
+  def initialize(@reason : String)
+  end
+end
+
+impl Error for CallbackAbort
+  def message : String
+    @reason
+  end
+end
+
+pub struct AttributeError
+  getter name : String
+
+  def initialize(@name : String)
+  end
+end
+
+impl Error for AttributeError
+  def message : String
+    "unknown attribute: #{@name}"
+  end
+end

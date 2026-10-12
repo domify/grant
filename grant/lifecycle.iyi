@@ -1,0 +1,59 @@
+module grant/lifecycle
+
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+
+pub enum Event
+  BeforeValidation
+  AfterValidation
+  BeforeSave
+  BeforeCreate
+  AfterCreate
+  BeforeUpdate
+  AfterUpdate
+  AfterSave
+  BeforeDestroy
+  AfterDestroy
+  AfterCommit
+  AfterRollback
+end
+
+pub trait Callback(T)
+  abstract def call(event : Event, record : T) : T | DatabaseError | ValidationError | CallbackAbort
+end
+
+struct Entry(T)
+  getter callback : Callback(T)
+  getter events : Array(Event)
+
+  def initialize(@callback : Callback(T), events : Array(Event))
+    @events = events.map { |event| event }
+  end
+end
+
+# Conditions and transformations are typed callback implementations, not macro
+# strings or inherited methods. Ordering is explicit, including prepended hooks.
+pub class Pipeline(T)
+  @entries : Array(Entry(T))
+
+  def initialize
+    @entries = [] of Entry(T)
+  end
+
+  def add(callback : Callback(T), events : Array(Event), prepend : Bool = false) : Pipeline(T)
+    entry = Entry(T).new(callback, events)
+    @entries = prepend ? [entry] + @entries : @entries + [entry]
+    self
+  end
+
+  def run(event : Event, record : T) : T | DatabaseError | ValidationError | CallbackAbort
+    current = record
+    @entries.each do |entry|
+      if entry.events.includes?(event)
+        result = entry.callback.call(event, current)
+        return result if result.is_a?(Error)
+        current = result
+      end
+    end
+    current
+  end
+end

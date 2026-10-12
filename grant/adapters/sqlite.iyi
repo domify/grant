@@ -3,7 +3,7 @@ module grant/adapters/sqlite
 import grant/cstring::{cstring}
 import grant/value::{Value, Row, Attributes}
 import grant/errors::{DatabaseError}
-import grant/database::{Database, Mutation}
+import grant/database::{Database, Mutation, Dialect}
 
 @[Link("sqlite3")]
 lib SQLite
@@ -27,15 +27,18 @@ lib SQLite
   fun column_bytes = sqlite3_column_bytes(statement : Void*, index : Int32) : Int32
   fun changes = sqlite3_changes64(database : Void*) : Int64
   fun last_id = sqlite3_last_insert_rowid(database : Void*) : Int64
+  fun autocommit = sqlite3_get_autocommit(database : Void*) : Int32
   fun busy_timeout = sqlite3_busy_timeout(database : Void*, milliseconds : Int32) : Int32
 end
 
 pub class Connection
   @handle : Void*
   @closed : Bool
+  @savepoint_sequence : UInt64
 
   def initialize(@handle : Void*)
     @closed = false
+    @savepoint_sequence = 0_u64
   end
 
   def self.open(path : String, busy_timeout_ms : Int32 = 5000) : Connection | DatabaseError
@@ -104,6 +107,19 @@ pub class Connection
     end
     code = SQLite.finalize(statement)
     code == 0 ? rows : failure(code, "finalize")
+  end
+
+  def in_transaction? : Bool
+    !@closed && SQLite.autocommit(@handle) == 0
+  end
+
+  def savepoint_name : String
+    @savepoint_sequence += 1_u64
+    "grant_savepoint_#{@savepoint_sequence}"
+  end
+
+  def dialect : Dialect
+    Dialect::SQLite
   end
 
   def identity : UInt64

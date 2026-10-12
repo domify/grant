@@ -3,6 +3,11 @@ module grant/database
 import grant/value::{Value, Row}
 import grant/errors::{DatabaseError}
 
+pub enum Dialect
+  SQLite
+  PostgreSQL
+end
+
 pub struct Mutation
   getter changes : Int64
   getter last_insert_id : Int64
@@ -13,7 +18,10 @@ end
 
 # Every adapter declares the same contract. No global registry or class reopening.
 pub trait Database
+  abstract def dialect : Dialect
   abstract def identity : UInt64
+  abstract def in_transaction? : Bool
+  abstract def savepoint_name : String
   abstract def execute(sql : String, parameters : Array(Value)) : Mutation | DatabaseError
   abstract def query(sql : String, parameters : Array(Value)) : Array(Row) | DatabaseError
   abstract def close : Nil | DatabaseError

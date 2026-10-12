@@ -1,0 +1,123 @@
+module lifecycle_test
+import std/indexable
+
+import grant/adapters/sqlite::{Connection}
+import grant/database::{Database}
+import grant/model::{Repository, Mapping}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Event, Callback}
+import grant/unit_of_work::{UnitOfWork}
+
+struct Person
+  getter id : Int64?
+  getter name : String
+
+  def initialize(@name : String, @id : Int64? = nil)
+  end
+end
+
+struct PersonMapping
+end
+
+impl Mapping(Person) for PersonMapping
+  def table : Table
+    Table.new("people")
+  end
+
+  def attributes(record : Person) : Attributes
+    {"id" => record.id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Person | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    if id.is_a?(Int64) && name.is_a?(String)
+      Person.new(name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid person row")
+    end
+  end
+
+  def validate(record : Person) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+class Recording
+  @log : Array(String)
+  @database : Database
+
+  def initialize(@log : Array(String), @database : Database)
+  end
+end
+
+impl Callback(Person) for Recording
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    @log << event.to_s
+    if event == Event::AfterCommit
+      assert !@database.in_transaction?
+    end
+    return CallbackAbort.new("cancel create") if event == Event::AfterCreate && record.name == "abort"
+    event == Event::BeforeValidation ? Person.new(record.name.strip.downcase, record.id) : record
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+log = [] of String
+pipeline = Pipeline(Person).new.add(Recording.new(log, connection), [
+  Event::BeforeValidation, Event::AfterValidation, Event::BeforeSave, Event::BeforeCreate,
+  Event::AfterCreate, Event::AfterSave, Event::BeforeUpdate, Event::AfterUpdate,
+  Event::BeforeDestroy, Event::AfterDestroy, Event::AfterCommit, Event::AfterRollback,
+])
+unit = UnitOfWork.new(connection)
+repository = Repository(Person).new(connection, PersonMapping.new, pipeline, unit)
+person = repository.insert(Person.new("  ALICE ")).or_panic
+assert person.name == "alice"
+assert log == ["BeforeValidation", "AfterValidation", "BeforeSave", "BeforeCreate", "AfterCreate", "AfterSave", "AfterCommit"]
+log.clear
+unit.run do
+  result = repository.insert(Person.new("Bob"))
+  assert !result.is_a?(Error)
+  assert !log.includes?("AfterCommit")
+  result
+end.or_panic
+assert log.last == "AfterCommit"
+log.clear
+assert repository.insert(Person.new("abort")).is_a?(CallbackAbort)
+assert log.last == "AfterRollback"
+assert !log.includes?("AfterCommit")
+assert repository.query.count.or_panic == 2
+log.clear
+assert repository.insert(Person.new("   ")).is_a?(ValidationError)
+assert log == ["BeforeValidation", "AfterValidation"]
+log.clear
+id = person.id || 0_i64
+repository.update(repository.query, id, Person.new("Updated", id)).or_panic
+assert log == ["BeforeValidation", "AfterValidation", "BeforeSave", "BeforeUpdate", "AfterUpdate", "AfterSave", "AfterCommit"]
+log.clear
+removed = repository.destroy(repository.query, id).or_panic
+assert !removed.nil?
+assert log == ["BeforeDestroy", "AfterDestroy", "AfterCommit"]
+assert repository.query.count.or_panic == 1
+log.clear
+unit.run do
+  first = repository.insert(Person.new("outer"))
+  assert !first.is_a?(Error)
+  failed = unit.run(requires_new: true) do
+    inner = repository.insert(Person.new("inner"))
+    assert !inner.is_a?(Error)
+    CallbackAbort.new("rollback nested work")
+  end
+  assert failed.is_a?(CallbackAbort)
+  assert log.includes?("AfterRollback")
+  assert !log.includes?("AfterCommit")
+  last = repository.insert(Person.new("outer2"))
+  assert !last.is_a?(Error)
+  last
+end.or_panic
+assert log.select { |event| event == "AfterCommit" }.size == 2
+assert repository.query.count.or_panic == 3
+connection.close.or_panic

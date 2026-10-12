@@ -4,13 +4,14 @@ import std/text
 import grant/cstring::{cstring}
 import grant/value::{Value, Row, Attributes}
 import grant/errors::{DatabaseError}
-import grant/database::{Database, Mutation}
+import grant/database::{Database, Mutation, Dialect}
 import grant/sql/placeholder_scanner::{rewrite}
 
 @[Link("pq")]
 lib PostgreSQL
   fun connect = PQconnectdb(info : UInt8*) : Void*
   fun status = PQstatus(connection : Void*) : Int32
+  fun transaction_status = PQtransactionStatus(connection : Void*) : Int32
   fun finish = PQfinish(connection : Void*) : Void
   fun error = PQerrorMessage(connection : Void*) : UInt8*
   fun execute = PQexecParams(connection : Void*, command : UInt8*, count : Int32,
@@ -33,9 +34,11 @@ end
 pub class Connection
   @handle : Void*
   @closed : Bool
+  @savepoint_sequence : UInt64
 
   def initialize(@handle : Void*)
     @closed = false
+    @savepoint_sequence = 0_u64
   end
 
   def self.open(connection_info : String) : Connection | DatabaseError
@@ -88,6 +91,21 @@ pub class Connection
     end
     PostgreSQL.clear(result)
     rows
+  end
+
+  def in_transaction? : Bool
+    return false if @closed
+    status = PostgreSQL.transaction_status(@handle)
+    status == 2 || status == 3
+  end
+
+  def savepoint_name : String
+    @savepoint_sequence += 1_u64
+    "grant_savepoint_#{@savepoint_sequence}"
+  end
+
+  def dialect : Dialect
+    Dialect::PostgreSQL
   end
 
   def identity : UInt64

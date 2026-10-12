@@ -4,24 +4,30 @@ import grant/database::{Database}
 import grant/errors::{DatabaseError}
 import grant/value::{Value}
 
-# Error unions roll back; success commits. A child task contains a panic so
-# cleanup runs without relying on Crystal's exception unwinding.
-# Nested transactions/savepoints are not yet part of this contract.
-pub def transaction(database : Database, &block : -> T) : T | DatabaseError | Panicked | Cancelled forall T
-  database.execute("BEGIN", [] of Value)!
-  outcome = group do |tasks|
-    tasks.spawn { block.call }.value
+# Joined nested blocks share the outer transaction. requires_new uses a
+# savepoint. Explicit error values propagate to the owning transaction.
+pub def transaction(database : Database, requires_new : Bool = false, &block : -> T) : T | DatabaseError | Panicked | Cancelled forall T
+  inside = database.in_transaction?
+  if inside && !requires_new
+    return group { |tasks| tasks.spawn { block.call }.value }
   end
+  name = inside ? database.savepoint_name : nil
+  begin_sql = name ? "SAVEPOINT #{name}" : "BEGIN"
+  commit_sql = name ? "RELEASE SAVEPOINT #{name}" : "COMMIT"
+  rollback_sql = name ? "ROLLBACK TO SAVEPOINT #{name}" : "ROLLBACK"
+  release_sql = name ? "RELEASE SAVEPOINT #{name}" : nil
+  database.execute(begin_sql, [] of Value)!
+  outcome = group { |tasks| tasks.spawn { block.call }.value }
   if outcome.is_a?(Error)
-    cleanup = database.execute("ROLLBACK", [] of Value)
+    cleanup = rollback(database, rollback_sql, release_sql)
     if cleanup.is_a?(DatabaseError)
       return DatabaseError.new(cleanup.code, "rollback", "#{cleanup.detail}; original error: #{outcome.message}")
     end
     outcome
   else
-    committed = database.execute("COMMIT", [] of Value)
+    committed = database.execute(commit_sql, [] of Value)
     if committed.is_a?(DatabaseError)
-      cleanup = database.execute("ROLLBACK", [] of Value)
+      cleanup = rollback(database, rollback_sql, release_sql)
       if cleanup.is_a?(DatabaseError)
         return DatabaseError.new(cleanup.code, "rollback", "#{cleanup.detail}; commit error: #{committed.detail}")
       end
@@ -30,4 +36,10 @@ pub def transaction(database : Database, &block : -> T) : T | DatabaseError | Pa
       outcome
     end
   end
+end
+
+def rollback(database : Database, command : String, release : String?) : Nil | DatabaseError
+  database.execute(command, [] of Value)!
+  database.execute(release, [] of Value)! if release
+  nil
 end

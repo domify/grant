@@ -1,0 +1,70 @@
+module grant/normalization
+
+import std/text
+import grant/value::{Value, Attributes}
+
+pub trait Normalizer
+  abstract def normalize(value : Value) : Value
+end
+
+pub struct TrimLowercase
+end
+
+impl Normalizer for TrimLowercase
+  def normalize(value : Value) : Value
+    value.is_a?(String) ? value.strip.downcase : value
+  end
+end
+
+pub struct DefaultIfNil
+  @default : Value
+
+  def initialize(@default : Value)
+  end
+end
+
+impl Normalizer for DefaultIfNil
+  def normalize(value : Value) : Value
+    value.nil? ? @default : value
+  end
+end
+
+struct Entry
+  getter attribute : String
+  getter normalizer : Normalizer
+  getter apply_to_nil : Bool
+
+  def initialize(@attribute : String, @normalizer : Normalizer, @apply_to_nil : Bool)
+  end
+end
+
+# Explicit shared coercion for assignments and equality query arguments.
+# Hydration bypasses this plan, matching Grant/ActiveRecord behavior.
+pub class Plan
+  @entries : Array(Entry)
+
+  def initialize
+    @entries = [] of Entry
+  end
+
+  def add(attribute : String, normalizer : Normalizer, apply_to_nil : Bool = false) : Plan
+    @entries << Entry.new(attribute, normalizer, apply_to_nil)
+    self
+  end
+
+  def value_for(attribute : String, value : Value) : Value
+    normalized = value
+    @entries.each do |entry|
+      if entry.attribute == attribute && (!normalized.nil? || entry.apply_to_nil)
+        normalized = entry.normalizer.normalize(normalized)
+      end
+    end
+    normalized
+  end
+
+  def apply(attributes : Attributes) : Attributes
+    result = Attributes.new
+    attributes.each { |attribute, value| result[attribute] = value_for(attribute, value) }
+    result
+  end
+end

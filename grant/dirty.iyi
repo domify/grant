@@ -1,0 +1,157 @@
+module grant/dirty
+
+import grant/value::{Value}
+import grant/errors::{AttributeError}
+
+pub trait Snapshot(T)
+  abstract def copy(value : T) : T
+end
+
+pub struct ScalarSnapshot
+end
+
+impl Snapshot(Value) for ScalarSnapshot
+  def copy(value : Value) : Value
+    value
+  end
+end
+
+pub struct Unfiltered
+end
+
+# Snapshot policy is explicit: mutable arrays/serialized values supply their
+# own copying implementation. Every reader returns an independent snapshot.
+pub class State(T)
+  @values : Hash(String, T)
+  @baseline : Hash(String, T)
+  @previous : Hash(String, Tuple(T, T))
+  @forced : Array(String)
+  @snapshot : Snapshot(T)
+
+  def initialize(values : Hash(String, T), @snapshot : Snapshot(T))
+    @values = copy_values(values)
+    @baseline = copy_values(values)
+    @previous = {} of String => Tuple(T, T)
+    @forced = [] of String
+  end
+
+  def [](name : String) : T
+    @snapshot.copy(@values[name])
+  end
+
+  def []=(name : String, value : T) : T
+    set(name, value).or_panic
+    value
+  end
+
+  # Use this error-returning API for attribute names supplied at runtime.
+  # The declared field set remains fixed throughout the record's lifetime.
+  def set(name : String, value : T) : Nil | AttributeError
+    return AttributeError.new(name) unless @baseline.has_key?(name)
+    @values[name] = @snapshot.copy(value)
+    nil
+  end
+
+  def attributes : Hash(String, T)
+    copy_values(@values)
+  end
+
+  def changes_to_save : Hash(String, Tuple(T, T))
+    changes = {} of String => Tuple(T, T)
+    @values.each do |name, value|
+      if @baseline.has_key?(name)
+        original = @baseline[name]
+        if original != value || @forced.includes?(name)
+          changes[name] = {@snapshot.copy(original), @snapshot.copy(value)}
+        end
+      end
+    end
+    changes
+  end
+
+  def has_changes_to_save? : Bool
+    !changes_to_save.empty?
+  end
+
+  def changed : Array(String)
+    changes_to_save.keys
+  end
+
+  def attribute_change_to_be_saved(name : String) : Tuple(T, T)?
+    changes_to_save[name]?
+  end
+
+  def attribute_in_database(name : String) : T
+    @snapshot.copy(@baseline[name])
+  end
+
+  def saved_changes : Hash(String, Tuple(T, T))
+    result = {} of String => Tuple(T, T)
+    @previous.each { |name, values| result[name] = {@snapshot.copy(values[0]), @snapshot.copy(values[1])} }
+    result
+  end
+
+  def saved_change_to_attribute(name : String) : Tuple(T, T)?
+    saved_changes[name]?
+  end
+
+  def saved_change_to_attribute?(name : String, from : T | Unfiltered = Unfiltered.new, to : T | Unfiltered = Unfiltered.new) : Bool
+    if change = @previous[name]?
+      (from.is_a?(Unfiltered) || change[0] == from) && (to.is_a?(Unfiltered) || change[1] == to)
+    else
+      false
+    end
+  end
+
+  def attribute_previously_was(name : String) : T
+    if change = @previous[name]?
+      @snapshot.copy(change[0])
+    else
+      @snapshot.copy(@values[name])
+    end
+  end
+
+  def restore_attribute(name : String) : Nil
+    @values[name] = @snapshot.copy(@baseline[name])
+    @forced = @forced.reject { |field| field == name }
+    nil
+  end
+
+  def attribute_will_change(name : String) : Nil | AttributeError
+    return AttributeError.new(name) unless @baseline.has_key?(name)
+    @forced << name unless @forced.includes?(name)
+    nil
+  end
+
+  def clear_attribute_changes(names : Array(String)) : Nil | AttributeError
+    # Validate the whole request before changing any baseline.
+    names.each do |name|
+      return AttributeError.new(name) unless @baseline.has_key?(name)
+    end
+    names.each do |name|
+      @baseline[name] = @snapshot.copy(@values[name])
+      @forced = @forced.reject { |field| field == name }
+    end
+    nil
+  end
+
+  def clear_changes_information : Nil
+    @baseline = copy_values(@values)
+    @previous = {} of String => Tuple(T, T)
+    @forced = [] of String
+    nil
+  end
+
+  def changes_applied : Nil
+    @previous = changes_to_save
+    @baseline = copy_values(@values)
+    @forced = [] of String
+    nil
+  end
+
+  private def copy_values(values : Hash(String, T)) : Hash(String, T)
+    copy = {} of String => T
+    values.each { |name, value| copy[name] = @snapshot.copy(value) }
+    copy
+  end
+end

@@ -1,0 +1,89 @@
+module grant/unit_of_work
+
+import grant/database::{Database}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/transaction::{transaction}
+
+pub trait Observer
+  abstract def identity : String
+  abstract def committed : Nil | DatabaseError | ValidationError | CallbackAbort
+  abstract def rolled_back : Nil | DatabaseError | ValidationError | CallbackAbort
+end
+
+class Frame
+  getter observers : Array(Observer)
+
+  def initialize
+    @observers = [] of Observer
+  end
+
+  def add(observer : Observer) : Nil
+    # The first registration of a record wins, matching the source's commit
+    # callback deduplication for multiple saves in one transaction.
+    return nil if @observers.any? { |old| old.identity == observer.identity }
+    @observers << observer
+    nil
+  end
+end
+
+# A session is explicitly shared by repositories participating in one logical
+# transaction. It never stores request state in a global connection registry.
+pub class UnitOfWork
+  @database : Database
+  @frames : Array(Frame)
+
+  def initialize(@database : Database)
+    @frames = [] of Frame
+  end
+
+  def database_identity : UInt64
+    @database.identity
+  end
+
+  def active? : Bool
+    !@frames.empty?
+  end
+
+  def observe(observer : Observer) : Nil | DatabaseError
+    return DatabaseError.new(21, "observe", "no managed transaction") if @frames.empty?
+    @frames.last.add(observer)
+    nil
+  end
+
+  def run(requires_new : Bool = false, &block : -> T) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled forall T
+    if @frames.empty? && @database.in_transaction?
+      return DatabaseError.new(21, "transaction", "outer transaction is not owned by this unit of work")
+    end
+    if !@frames.empty? && !requires_new
+      return transaction(@database) { block.call }
+    end
+    frame = Frame.new
+    @frames << frame
+    result = transaction(@database, requires_new: requires_new) { block.call }
+    @frames.pop
+    if result.is_a?(Error)
+      frame.observers.each do |observer|
+        error = notify(observer, false)
+        if error.is_a?(Error)
+          return DatabaseError.new(21, "after_rollback", "#{error.message}; original error: #{result.message}")
+        end
+      end
+      result
+    elsif @frames.empty?
+      frame.observers.each do |observer|
+        error = notify(observer, true)
+        return error if error.is_a?(Error)
+      end
+      result
+    else
+      frame.observers.each { |observer| @frames.last.add(observer) }
+      result
+    end
+  end
+end
+
+def notify(observer : Observer, commit : Bool) : Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+  group do |tasks|
+    tasks.spawn { commit ? observer.committed : observer.rolled_back }.value
+  end
+end

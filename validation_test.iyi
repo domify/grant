@@ -1,0 +1,39 @@
+module validation_test
+
+import grant/value::{Value}
+import grant/validation::{Errors, Rules, Presence, Length, Inclusion, Confirmation, Context, Options}
+import grant/errors::{ValidationError}
+
+errors = Errors.new
+errors.add("first_name", "is too short (minimum is 3 characters)", "too_short", {"count" => 3_i64} of String => Value)
+errors.add("base", "is bad")
+assert errors.full_messages == ["First name is too short (minimum is 3 characters)", "is bad"]
+assert errors.of_type?("first_name", "too_short", {"count" => 3_i64} of String => Value)
+assert !errors.of_type?("first_name", "too_short", {"count" => 4_i64} of String => Value)
+assert errors["missing"].empty?
+copy = errors.objects
+copy[0].options["count"] = 99_i64
+assert errors.of_type?("first_name", "too_short", {"count" => 3_i64} of String => Value)
+other = Errors.new
+other.merge(errors)
+errors.clear
+assert other.size == 2
+assert other.delete("first_name") == ["is too short (minimum is 3 characters)"]
+assert other.result.is_a?(ValidationError)
+
+rules = Rules.new
+rules.add(Presence.new("name"))
+rules.add(Length.new("name", minimum: 3, options: Options.new(allow_nil: true)))
+rules.add(Inclusion.new("role", ["reader", "admin"] of Value))
+rules.add(Confirmation.new("password", case_sensitive: false))
+invalid = rules.validate({"name" => "ab", "role" => "bad", "password" => "ABC", "password_confirmation" => "no"} of String => Value)
+assert invalid["name"] == ["is too short (minimum is 3 characters)"]
+assert invalid["role"] == ["is not included in the list"]
+assert invalid["password_confirmation"] == ["doesn't match password"]
+assert rules.validate({"name" => "Tõnu", "role" => "reader", "password" => "ABC", "password_confirmation" => "abc"} of String => Value).empty?
+assert rules.validate({"name" => nil, "role" => "reader"} of String => Value)["name"] == ["can't be blank"]
+assert Rules.new.add(Presence.new("accepted")).validate({"accepted" => false} of String => Value)["accepted"] == ["can't be blank"]
+create_rules = Rules.new.add(Presence.new("token", options: Options.new(on: "create")))
+assert !create_rules.validate({} of String => Value, Context.new("create")).empty?
+assert create_rules.validate({} of String => Value, Context.new("update")).empty?
+assert Rules.new.add(Length.new("name", exact: 1)).validate({"name" => "õ"} of String => Value).empty?

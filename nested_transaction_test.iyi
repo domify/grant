@@ -1,0 +1,44 @@
+module nested_transaction_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/transaction::{transaction}
+import grant/errors::{ValidationError}
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE items(id INTEGER PRIMARY KEY)").or_panic
+transaction(connection) do
+  connection.execute("INSERT INTO items VALUES(1)").or_panic
+  inner = transaction(connection, requires_new: true) do
+    connection.execute("INSERT INTO items VALUES(2)").or_panic
+    ValidationError.new({"name" => ["bad"]})
+  end
+  assert inner.is_a?(ValidationError)
+  assert connection.in_transaction?
+  connection.execute("INSERT INTO items VALUES(3)").or_panic
+  0
+end.or_panic
+assert !connection.in_transaction?
+assert connection.query("SELECT * FROM items").or_panic.size == 2
+transaction(connection) do
+  joined = transaction(connection) do
+    connection.execute("INSERT INTO items VALUES(4)").or_panic
+    7
+  end.or_panic
+  assert joined == 7
+  assert connection.in_transaction?
+  0
+end.or_panic
+assert connection.query("SELECT * FROM items").or_panic.size == 3
+# A contained panic in a savepoint rolls back only that savepoint.
+transaction(connection) do
+  outcome = transaction(connection, requires_new: true) do
+    connection.execute("INSERT INTO items VALUES(5)").or_panic
+    raise "deliberate savepoint panic"
+    0
+  end
+  assert outcome.is_a?(Panicked)
+  connection.execute("INSERT INTO items VALUES(6)").or_panic
+  0
+end.or_panic
+assert connection.query("SELECT * FROM items").or_panic.size == 4
+connection.close.or_panic

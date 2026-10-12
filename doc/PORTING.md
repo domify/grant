@@ -34,12 +34,24 @@ No code delegates native model behavior to the archived Crystal ORM.
   replace an earlier tenant predicate.
 - Typed `Mapping(T)` and `Repository(T)` with validation, decoding, lookup,
   insertion, and scoped update. A scope for another database is rejected.
-- Basic transaction success/error/panic rollback behavior on SQLite.
+- Transaction success/error/panic rollback, joined nesting, and `requires_new`
+  savepoint behavior on SQLite.
+- Explicit shared units of work, ordered validation/save/create/update/destroy
+  callbacks, deferred commit hooks, rollback hooks and first-record deduplication.
+- Structured validation errors and presence/absence, length, inclusion/exclusion
+  and confirmation rules with explicit contexts and nil/blank options.
+- Explicit normalization plans, plus snapshot-based dirty state supporting
+  mutable values through a supplied copying trait. Unknown runtime writes return
+  `AttributeError`; batch clearing validates names before changing any baseline.
+- Basic table/index definitions, SQLite/PostgreSQL column introspection and
+  transactional SQL migration ordering, targets, rollback and checksum checking.
+  PostgreSQL behavior beyond connection failure remains unverified.
 - Native port of the original placeholder scanner, with 15 parity assertions
   covering strings, escape strings, quoted identifiers, comments, casts,
   Unicode text, dollar quotes, and escaped question-mark operators.
-- Typed model artifact build using `--emit-iyimod`, plus a successful
-  source-free consumer build/run using `--use-iyimod`.
+- The earlier core passed typed model artifact consumption. The expanded port
+  currently fails that gate due to a compiler trait-field layout mismatch; see
+  `ARTIFACT-ISSUE.md`. Source execution passes all 13 native test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
@@ -50,11 +62,10 @@ been translated wholesale to native iyi yet.
 
 1. Verify real PostgreSQL CRUD, transactions, and result types in an isolated
    server, then add exact decimal, date/time, and binary value types.
-2. Port schema definitions/introspection and migrations; add adapters' feature
-   capability contracts, connection pools, prepared-statement caches, and
-   scheduling without blocking request tasks.
-3. Port validations, normalization, lifecycle/commit callbacks, dirty tracking,
-   timestamps, defaults, and scoped operations with parity cases.
+2. Complete schema alteration/dumping, composite keys and migration capabilities;
+   add connection pools, prepared-statement caches and nonblocking scheduling.
+3. Complete remaining validators, conditional normalization, around callbacks,
+   dirty-state repository integration, timestamps and defaults with parity cases.
 4. Port association loading/writing, nested attributes, STI, eager loading,
    dependent behavior, and scoped relation APIs.
 5. Port bulk operations, locking, encryption, serialization, multiple databases,
@@ -84,8 +95,9 @@ separate work and separate commits. No remote or public branch has been changed.
 - The imported `crystal-upstream/` Git tree matches the source baseline's root
   tree exactly (`b298faa7a10c7bff3d4e433032938f94348eb8fd`).
 - All archived source-inventory hashes match the corresponding subtree files.
-- `scripts/check.sh` passes: six native test programs, type/format checks,
-  and a source-free `.iyimod` consumer build/run.
+- At layout bootstrap, `scripts/check.sh` passed six native test programs and
+  the artifact consumer. The current expanded port passes 13 source tests; its
+  artifact consumer is blocked as described above.
 - The upstream script recognizes an already imported revision as a no-op.
 - In disposable repositories, a new source revision imports only into the
   subtree, leaves the native library tree unchanged, and matches the new

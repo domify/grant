@@ -1,0 +1,27 @@
+module normalization_test
+
+import grant/normalization::{Plan, TrimLowercase, DefaultIfNil}
+import grant/value::{Value}
+import grant/adapters/sqlite::{Connection}
+import grant/query::{Query, Table}
+
+plan = Plan.new.add("email", TrimLowercase.new).add("handle", DefaultIfNil.new("anonymous"), apply_to_nil: true)
+input = {"email" => "  ALICE@EXAMPLE.COM  ", "handle" => nil, "age" => 21_i64} of String => Value
+normalized = plan.apply(input)
+assert normalized["email"] == "alice@example.com"
+assert normalized["handle"] == "anonymous"
+assert normalized["age"] == 21_i64
+assert input["email"] == "  ALICE@EXAMPLE.COM  "
+assert plan.value_for("email", nil).nil?
+assert plan.value_for("email", 12_i64) == 12_i64
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, email TEXT, handle TEXT, age INTEGER)").or_panic
+query = Query.new(connection, Table.new("users"))
+query.insert(normalized).or_panic
+assert query.where("email", plan.value_for("email", " ALICE@EXAMPLE.COM ")).count.or_panic == 1
+# A raw legacy value is read as stored; the mapping does not normalize hydration.
+query.insert({"email" => "  LEGACY@EXAMPLE.COM  "} of String => Value).or_panic
+row = query.where("id", 2_i64).first.or_panic
+assert !row.nil?
+assert row["email"] == "  LEGACY@EXAMPLE.COM  " if row
+connection.close.or_panic

@@ -1,0 +1,134 @@
+module grant/migrations
+
+import std/digest::{SHA256}
+import grant/database::{Database}
+import grant/errors::{DatabaseError}
+import grant/value::{Value}
+import grant/query::{identifier}
+import grant/transaction::{transaction}
+
+pub trait Migration
+  abstract def version : Int64
+  abstract def checksum : String
+  abstract def up(database : Database) : Nil | DatabaseError
+  abstract def down(database : Database) : Nil | DatabaseError
+end
+
+pub struct SQLMigration
+  getter version : Int64
+  @up : Array(String)
+  @down : Array(String)
+
+  def initialize(@version : Int64, up : Array(String), down : Array(String))
+    @up = up.map { |sql| sql }
+    @down = down.map { |sql| sql }
+  end
+
+  def checksum : String
+    # Length framing distinguishes adjacent SQL strings without separator ambiguity.
+    text = ""
+    (@up + @down).each { |sql| text += "#{sql.bytesize}:#{sql}" }
+    SHA256.hexdigest("#{@up.size}:#{@down.size}:#{text}")
+  end
+end
+
+impl Migration for SQLMigration
+  def up(database : Database) : Nil | DatabaseError
+    @up.each { |sql| database.execute(sql, [] of Value)! }
+    nil
+  end
+
+  def down(database : Database) : Nil | DatabaseError
+    return DatabaseError.new(21, "migration", "migration has no rollback statements") if @down.empty?
+    @down.each { |sql| database.execute(sql, [] of Value)! }
+    nil
+  end
+end
+
+# Version bookkeeping and DDL share a transaction. The caller owns the migration
+# connection exclusively; concurrent migrator/advisory locking is a separate layer.
+pub class Runner
+  @database : Database
+  @migrations : Array(Migration)
+  @table : String
+
+  def initialize(@database : Database, migrations : Array(Migration), @table : String = "grant_schema_migrations")
+    @migrations = migrations.map { |migration| migration }.sorted_by { |migration| migration.version }
+  end
+
+  def migrate(target : Int64? = nil) : Int32 | DatabaseError | Panicked | Cancelled
+    validate_plan!
+    setup!
+    count = 0
+    applied = versions!
+    @migrations.each do |migration|
+      next if target && migration.version > target
+      if checksum = applied[migration.version]?
+        return DatabaseError.new(21, "migration", "applied migration #{migration.version} changed") unless checksum == migration.checksum
+        next
+      end
+      table = identifier(@table)!
+      transaction(@database, requires_new: true) do
+        prepared = migration.up(@database)
+        next prepared if prepared.is_a?(DatabaseError)
+        stored = @database.execute("INSERT INTO #{table} (version, checksum) VALUES (?, ?)", [migration.version, migration.checksum] of Value)
+        stored.is_a?(DatabaseError) ? stored : 0
+      end!
+      count += 1
+    end
+    count
+  end
+
+  def rollback(steps : Int32 = 1) : Int32 | DatabaseError | Panicked | Cancelled
+    return DatabaseError.new(21, "migration", "negative rollback steps") if steps < 0
+    validate_plan!
+    setup!
+    applied = versions!
+    selected = @migrations.select { |migration| applied.has_key?(migration.version) }.sorted_by { |migration| -migration.version }
+    # Do not silently skip a version whose implementation is absent.
+    return DatabaseError.new(21, "migration", "unknown applied migration") unless selected.size == applied.size
+    count = 0
+    selected.each do |migration|
+      break if count == steps
+      return DatabaseError.new(21, "migration", "applied migration #{migration.version} changed") unless applied[migration.version] == migration.checksum
+      table = identifier(@table)!
+      transaction(@database, requires_new: true) do
+        prepared = migration.down(@database)
+        next prepared if prepared.is_a?(DatabaseError)
+        stored = @database.execute("DELETE FROM #{table} WHERE version = ?", [migration.version] of Value)
+        stored.is_a?(DatabaseError) ? stored : 0
+      end!
+      count += 1
+    end
+    count
+  end
+
+  def versions : Hash(Int64, String) | DatabaseError
+    table = identifier(@table)!
+    rows = @database.query("SELECT version, checksum FROM #{table} ORDER BY version", [] of Value)!
+    result = {} of Int64 => String
+    rows.each do |row|
+      version = row["version"]
+      checksum = row["checksum"]
+      return DatabaseError.new(20, "migration", "invalid migration bookkeeping row") unless version.is_a?(Int64) && checksum.is_a?(String)
+      result[version] = checksum
+    end
+    result
+  end
+
+  private def setup : Nil | DatabaseError
+    table = identifier(@table)!
+    @database.execute("CREATE TABLE IF NOT EXISTS #{table} (version BIGINT PRIMARY KEY NOT NULL, checksum TEXT NOT NULL)", [] of Value)!
+    nil
+  end
+
+  private def validate_plan : Nil | DatabaseError
+    seen = [] of Int64
+    @migrations.each do |migration|
+      return DatabaseError.new(21, "migration", "migration versions must be positive") if migration.version <= 0
+      return DatabaseError.new(21, "migration", "duplicate migration version") if seen.includes?(migration.version)
+      seen << migration.version
+    end
+    nil
+  end
+end

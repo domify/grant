@@ -1,0 +1,274 @@
+module grant/validation
+
+import std/text
+import grant/value::{Value, Attributes}
+import grant/errors::{ValidationError}
+
+pub struct Issue
+  getter attribute : String
+  getter code : String
+  getter message : String
+  getter options : Attributes
+
+  def initialize(@attribute : String, @code : String, @message : String, options : Attributes = Attributes.new)
+    @options = copy_attributes(options)
+  end
+
+  def full_message : String
+    return message if attribute == "base"
+    label = attribute.split("_").join(" ")
+    first = label[0, 1].upcase
+    "#{first}#{label[1, label.bytesize - 1]} #{message}"
+  end
+end
+
+# Validation errors are ordered data. All returned collections are snapshots.
+pub class Errors
+  @issues : Array(Issue)
+
+  def initialize
+    @issues = [] of Issue
+  end
+
+  def add(attribute : String, message : String, code : String = "invalid", options : Attributes = Attributes.new) : Issue
+    issue = Issue.new(attribute, code, message, options)
+    @issues << issue
+    issue
+  end
+
+  def size : Int32
+    @issues.size
+  end
+
+  def empty? : Bool
+    @issues.empty?
+  end
+
+  def clear : Nil
+    @issues = [] of Issue
+    nil
+  end
+
+  def objects : Array(Issue)
+    @issues.map { |issue| Issue.new(issue.attribute, issue.code, issue.message, issue.options) }
+  end
+
+  def where(attribute : String, code : String? = nil, options : Attributes = Attributes.new) : Array(Issue)
+    objects.select do |issue|
+      issue.attribute == attribute && (!code || issue.code == code) && matches_options(issue.options, options)
+    end
+  end
+
+  def of_type?(attribute : String, code : String, options : Attributes = Attributes.new) : Bool
+    !where(attribute, code, options).empty?
+  end
+
+  def [](attribute : String) : Array(String)
+    where(attribute).map { |issue| issue.message }
+  end
+
+  def full_messages : Array(String)
+    @issues.map { |issue| issue.full_message }
+  end
+
+  def to_hash(full_messages : Bool = false) : Hash(String, Array(String))
+    result = {} of String => Array(String)
+    @issues.each do |issue|
+      result[issue.attribute] = [] of String unless result.has_key?(issue.attribute)
+      result[issue.attribute] << (full_messages ? issue.full_message : issue.message)
+    end
+    result
+  end
+
+  def delete(attribute : String, code : String? = nil) : Array(String)
+    removed = [] of String
+    retained = [] of Issue
+    @issues.each do |issue|
+      if issue.attribute == attribute && (!code || issue.code == code)
+        removed << issue.message
+      else
+        retained << issue
+      end
+    end
+    @issues = retained
+    removed
+  end
+
+  def merge(other : Errors, attribute : String? = nil) : Nil
+    other.objects.each do |issue|
+      add(attribute || issue.attribute, issue.message, issue.code, issue.options)
+    end
+    nil
+  end
+
+  def result : Nil | ValidationError
+    empty? ? nil : ValidationError.new(to_hash)
+  end
+end
+
+pub struct Context
+  getter operation : String
+  getter name : String
+
+  def initialize(@operation : String = "save", @name : String = "save")
+  end
+end
+
+pub trait Validator
+  abstract def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+end
+
+pub struct Options
+  getter allow_nil : Bool
+  getter allow_blank : Bool
+  getter on : String?
+  getter message : String?
+
+  def initialize(@allow_nil : Bool = false, @allow_blank : Bool = false, @on : String? = nil, @message : String? = nil)
+  end
+
+  def applies?(value : Value, context : Context) : Bool
+    return false if allow_nil && value.nil?
+    return false if allow_blank && blank?(value)
+    !on || on == "save" || on == context.operation || on == context.name
+  end
+end
+
+pub struct Presence
+  @attribute : String
+  @absence : Bool
+  @options : Options
+
+  def initialize(@attribute : String, @absence : Bool = false, @options : Options = Options.new)
+  end
+end
+
+impl Validator for Presence
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    value = attributes[@attribute]?
+    return nil unless @options.applies?(value, context)
+    invalid = @absence ? !blank?(value) : blank?(value)
+    errors.add(@attribute, @options.message || (@absence ? "must be blank" : "can't be blank"), @absence ? "present" : "blank") if invalid
+    nil
+  end
+end
+
+pub struct Length
+  @attribute : String
+  @minimum : Int32?
+  @maximum : Int32?
+  @exact : Int32?
+  @options : Options
+
+  def initialize(@attribute : String, @minimum : Int32? = nil, @maximum : Int32? = nil,
+                 @exact : Int32? = nil, @options : Options = Options.new)
+  end
+end
+
+impl Validator for Length
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    value = attributes[@attribute]?
+    return nil unless @options.applies?(value, context)
+    if value.nil? || value.is_a?(String)
+      size = value ? value.size : 0
+      if minimum = @minimum
+        errors.add(@attribute, @options.message || "is too short (minimum is #{minimum} characters)", "too_short", {"count" => minimum.to_i64} of String => Value) if size < minimum
+      end
+      if maximum = @maximum
+        errors.add(@attribute, @options.message || "is too long (maximum is #{maximum} characters)", "too_long", {"count" => maximum.to_i64} of String => Value) if size > maximum
+      end
+      if exact = @exact
+        errors.add(@attribute, @options.message || "is the wrong length (should be #{exact} characters)", "wrong_length", {"count" => exact.to_i64} of String => Value) unless size == exact
+      end
+    else
+      errors.add(@attribute, "has an invalid length type", "invalid")
+    end
+    nil
+  end
+end
+
+pub struct Inclusion
+  @attribute : String
+  @values : Array(Value)
+  @exclude : Bool
+  @options : Options
+
+  def initialize(@attribute : String, @values : Array(Value), @exclude : Bool = false, @options : Options = Options.new)
+  end
+end
+
+impl Validator for Inclusion
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    value = attributes[@attribute]?
+    return nil unless @options.applies?(value, context)
+    found = @values.includes?(value)
+    if @exclude ? found : !found
+      errors.add(@attribute, @options.message || (@exclude ? "is reserved" : "is not included in the list"), @exclude ? "exclusion" : "inclusion")
+    end
+    nil
+  end
+end
+
+pub struct Confirmation
+  @attribute : String
+  @case_sensitive : Bool
+  @options : Options
+
+  def initialize(@attribute : String, @case_sensitive : Bool = true, @options : Options = Options.new)
+  end
+end
+
+impl Validator for Confirmation
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    value = attributes[@attribute]?
+    confirmation = attributes[@attribute + "_confirmation"]?
+    return nil if confirmation.nil? || !@options.applies?(value, context)
+    matches = if !@case_sensitive && value.is_a?(String) && confirmation.is_a?(String)
+                value.downcase == confirmation.downcase
+              else
+                value == confirmation
+              end
+    errors.add(@attribute + "_confirmation", @options.message || "doesn't match #{@attribute.split("_").join(" ")}", "confirmation") unless matches
+    nil
+  end
+end
+
+pub class Rules
+  @validators : Array(Validator)
+
+  def initialize(@validators : Array(Validator) = [] of Validator)
+  end
+
+  def add(validator : Validator) : Rules
+    @validators << validator
+    self
+  end
+
+  def validate(attributes : Attributes, context : Context = Context.new) : Errors
+    errors = Errors.new
+    @validators.each { |validator| validator.validate(attributes, errors, context) }
+    errors
+  end
+end
+
+pub def blank?(value : Value) : Bool
+  case value
+  when Nil    then true
+  when Bool   then !value
+  when String then value.strip.empty?
+  else             false
+  end
+end
+
+def matches_options(actual : Attributes, expected : Attributes) : Bool
+  expected.each do |name, value|
+    return false unless actual.has_key?(name) && actual[name] == value
+  end
+  true
+end
+
+def copy_attributes(source : Attributes) : Attributes
+  copy = Attributes.new
+  source.each { |name, value| copy[name] = value }
+  copy
+end

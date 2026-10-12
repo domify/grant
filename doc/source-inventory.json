@@ -1298,11 +1298,18 @@
     "grant/adapters/sqlite.iyi",
     "grant/cstring.iyi",
     "grant/database.iyi",
+    "grant/dirty.iyi",
     "grant/errors.iyi",
+    "grant/lifecycle.iyi",
+    "grant/migrations.iyi",
     "grant/model.iyi",
+    "grant/normalization.iyi",
     "grant/query.iyi",
+    "grant/schema.iyi",
     "grant/sql/placeholder_scanner.iyi",
     "grant/transaction.iyi",
+    "grant/unit_of_work.iyi",
+    "grant/validation.iyi",
     "grant/value.iyi"
   ],
   "note": "Native functionality is tracked in PORTING.md; reference_only means this original file has not been fully converted."

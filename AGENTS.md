@@ -23,7 +23,10 @@ when a feature is implemented and verified.
 
 The native API currently consists of a `Database` trait, C-backed SQLite and
 PostgreSQL adapters, immutable lazy queries, `Mapping(T)`, `Repository(T)`,
-error unions, and basic transactions. The app supplies its typed record and
+error unions, nested transactions/savepoints, explicit `UnitOfWork` sessions,
+lifecycle hooks, validation rules, normalization plans, dirty snapshots, schema
+definitions and SQL migrations. These feature ports are partial; consult
+`doc/PORTING.md` and `doc/ARTIFACT-ISSUE.md` before assuming complete parity. The app supplies its typed record and
 mapping. Neither a global model registry nor an inherited macro DSL is used.
 Consumer web handlers and RPC handlers should call the same model services.
 
@@ -40,11 +43,16 @@ when needed; do not repurpose HOME. There are no runtime dependency shards;
 link the system SQLite/libpq libraries for the relevant adapter.
 
 A mutable connection is owned by one request/task at a time. Pooling,
-concurrent scheduling, nested transactions, associations, callbacks and the
-other features listed in `doc/PORTING.md` are still pending; do not assume
+concurrent scheduling, associations, around callbacks and the
+other remaining features listed in `doc/PORTING.md` are still pending; do not assume
 support. Do not silently coerce exact numeric values to floats or substitute
 fake successes for unsupported operations.
 
 The subtree bootstrap uses local commits on `feature/phase-0-native-iyi`, keeping
 original Crystal history. Do not push or change public default branches without
 user instructions. Keep source imports and native changes in separate commits.
+
+The source-free artifact gate is currently failing: the installed compiler
+rejects a synthetic trait witness, and the local compiler builds a consumer
+with a mismatched trait-field layout that crashes. Keep this failure visible.
+Do not add synthetic witness declarations to application code as a workaround.

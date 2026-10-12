@@ -22,8 +22,16 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/model.iyi`: `Mapping(T)` and `Repository(T)` for typed application
   records. Each application declares its mapping with an `impl`, rather
   than inheriting a macro-generated ActiveRecord model.
-- `grant/transaction.iyi`: commit on success, rollback on an error union,
-  cancellation, or a contained panic.
+- `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
+  on error values, cancellation, or a contained panic.
+- `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
+  sessions and ordered validation/save/destroy/commit/rollback callbacks.
+- `grant/validation.iyi`: structured errors and presence, absence, length,
+  inclusion, exclusion, and confirmation rules.
+- `grant/normalization.iyi`: explicit normalization plans.
+- `grant/dirty.iyi`: snapshot-based change tracking with fixed attribute names.
+- `grant/schema.iyi` and `grant/migrations.iyi`: table/index definitions, column
+  introspection, and ordered checksum-verified transactional SQL migrations.
 - `grant/sql/placeholder_scanner.iyi`: port of Grant's quote/comment-aware
   placeholder rewriter, including PostgreSQL dollar quotes and JSON operators.
 - `UPSTREAM.md`: source repository, reviewed commit, and update workflow.
@@ -52,6 +60,7 @@ iyi run model_test.iyi
 iyi run transaction_test.iyi
 iyi run placeholder_test.iyi
 iyi run postgresql_test.iyi
+iyi test ./*_test.iyi
 ```
 
 When the default cache is not writable, prefix commands with
@@ -72,8 +81,11 @@ import specific adapter/mapping/query names at the call site.
 
 SQLite CRUD, typed mapping, validation errors, scoped writes, SQL parameter
 binding, and transactions are exercised against actual in-memory databases.
-An artifact build of the typed model test and a separate consumer build/run
-with only `.iyimod` files (no library source in the consumer) have succeeded.
+The earlier core passed the source-free artifact consumer check. After adding
+transaction sessions, that check is currently blocked by a compiler artifact
+layout bug. Source builds pass all 13 native test programs. See
+`doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
+`./scripts/check.sh` deliberately retains the failing artifact gate.
 
 The current scalar contract is null, boolean, Int64, Float64, and String.
 SQLite returns booleans as integers; a mapping must decode them explicitly.
@@ -85,12 +97,17 @@ Connections are explicitly owned and closed by the caller. There is no pool,
 statement cache, automatic reconnection, or nonblocking database scheduling yet.
 A connection/transaction must be used by one owner at a time; it must not be
 shared across concurrent request tasks. The synchronous C calls can block the
-native scheduler. Basic transaction blocks have no savepoint/nesting support.
-Schema creation in the examples is explicit SQL; a migration API is not ported.
+native scheduler. Nested transactions join the outer transaction by default; `requires_new` uses
+a savepoint. Share one `UnitOfWork` between repositories to defer commit hooks
+until the outer transaction commits. SQL migrations and basic schema operations
+are implemented; schema alteration, dumping, and composite keys are pending.
 
-Associations, lifecycle callbacks, dirty tracking, encrypted/serialized columns,
-locking, sharding, bulk operations, schema introspection/migrations, and the
-remaining original features still need native implementations and parity cases.
+Validation, normalization, dirty tracking, callbacks, and migrations implement
+a subset of the original behavior. Normalization and dirty state are explicit
+utilities, not automatic repository behavior. Around callbacks and several
+validators remain pending. Associations, encrypted/serialized columns, locking,
+sharding, bulk operations, and the remaining original features still need native
+implementations and parity cases.
 The original parity percentages do not apply to this port. `doc/PORTING.md`
 and `doc/source-inventory.json` record the conversion status.
 

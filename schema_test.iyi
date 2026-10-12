@@ -1,0 +1,37 @@
+module schema_test
+
+import grant/schema::{Schema, Definition, Column, ColumnType, ForeignKey, DeleteAction}
+import grant/adapters/sqlite::{Connection}
+import grant/query::{Query, Table}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+
+connection = Connection.open(":memory:").or_panic
+schema = Schema.new(connection)
+schema.create_table(Definition.new("accounts", [Column.new("id", ColumnType::Integer, primary_key: true, auto: true)])).or_panic
+schema.create_table(Definition.new("banks", [
+  Column.new("id", ColumnType::Integer, primary_key: true, auto: true),
+  Column.new("account_id", ColumnType::Integer, nullable: false),
+  Column.new("name", ColumnType::Text, nullable: false, default: "quoted ' default"),
+], [ForeignKey.new("account_id", "accounts", on_delete: DeleteAction::Cascade)])).or_panic
+columns = schema.columns("banks").or_panic
+assert columns.size == 3
+assert !columns[0].nullable
+assert !columns[1].nullable
+assert columns[2].default_sql == "'quoted '' default'"
+connection.execute("INSERT INTO accounts(id) VALUES(1)").or_panic
+banks = Query.new(connection, Table.new("banks"))
+row = banks.insert({"account_id" => 1_i64} of String => Value).or_panic
+assert row["name"] == "quoted ' default"
+assert banks.insert({"account_id" => 99_i64} of String => Value).is_a?(DatabaseError)
+schema.add_index("banks", ["name"], "unique_bank_name", unique: true).or_panic
+assert banks.insert({"account_id" => 1_i64} of String => Value).is_a?(DatabaseError)
+schema.drop_index("unique_bank_name").or_panic
+connection.execute("DELETE FROM accounts WHERE id=1").or_panic
+assert banks.count.or_panic == 0
+assert schema.create_table(Definition.new("bad; DROP TABLE banks", [Column.new("id", ColumnType::Integer)])).is_a?(DatabaseError)
+assert schema.create_table(Definition.new("duplicate", [Column.new("id", ColumnType::Integer), Column.new("id", ColumnType::Text)])).is_a?(DatabaseError)
+schema.rename_table("banks", "renamed_banks").or_panic
+assert schema.columns("renamed_banks").or_panic.size == 3
+schema.drop_table("renamed_banks").or_panic
+connection.close.or_panic

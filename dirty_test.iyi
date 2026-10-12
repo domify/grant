@@ -1,0 +1,64 @@
+module dirty_test
+
+import grant/dirty::{State, Snapshot, ScalarSnapshot}
+import grant/value::{Value}
+import grant/errors::{AttributeError}
+
+state = State(Value).new({"title" => "a", "views" => 1_i64, "body" => nil} of String => Value, ScalarSnapshot.new)
+assert !state.has_changes_to_save?
+state["title"] = "b"
+state["views"] = 2_i64
+assert state.attribute_in_database("title") == "a"
+state.restore_attribute("title")
+assert state["title"] == "a"
+assert state.changed == ["views"]
+state["title"] = "c"
+state.clear_attribute_changes(["title"]).or_panic
+assert state["title"] == "c"
+assert state.changed == ["views"]
+state.changes_applied
+assert state.saved_change_to_attribute?("views", from: 1_i64, to: 2_i64)
+assert !state.saved_change_to_attribute?("views", from: 3_i64)
+assert !state.has_changes_to_save?
+state["views"] = 1_i64
+state["views"] = 2_i64
+assert !state.has_changes_to_save?
+state["body"] = "text"
+state.changes_applied
+assert state.saved_change_to_attribute?("body", from: nil, to: "text")
+state.clear_changes_information
+assert state.saved_changes.empty?
+assert state.attribute_in_database("body") == "text"
+state.attribute_will_change("title").or_panic
+assert state.has_changes_to_save?
+state.changes_applied
+assert state.saved_change_to_attribute?("title", from: "c", to: "c")
+
+struct ListSnapshot
+end
+
+impl Snapshot(Array(String)) for ListSnapshot
+  def copy(value : Array(String)) : Array(String)
+    value.map { |text| text }
+  end
+end
+
+lists = State(Array(String)).new({"tags" => ["a"]}, ListSnapshot.new)
+copy = lists["tags"]
+copy << "b"
+assert !lists.has_changes_to_save?
+lists["tags"] = copy
+assert lists.has_changes_to_save?
+lists.changes_applied
+saved = lists.saved_changes
+saved["tags"][1] << "external"
+assert lists["tags"] == ["a", "b"]
+assert lists.saved_change_to_attribute?("tags", from: ["a"], to: ["a", "b"])
+
+assert state.set("missing", "value").is_a?(AttributeError)
+assert !state.attributes.has_key?("missing")
+assert state.attribute_will_change("missing").is_a?(AttributeError)
+state["title"] = "pending"
+assert state.clear_attribute_changes(["title", "missing"]).is_a?(AttributeError)
+assert state.attribute_in_database("title") == "c"
+assert state.changed == ["title"]
