@@ -13,6 +13,8 @@ pub import grant/errors
 pub import grant/database
 pub import grant/validation
 pub import grant/validators
+pub import grant/dynamic_validation
+pub import grant/comparison_validation
 pub import grant/database_validation
 pub import grant/model_validation
 pub import std/regex
@@ -51,6 +53,7 @@ pub alias WriteContext = ::Grant::Lifecycle::WriteContext
 pub alias Clock = ::Grant::Timestamps::Clock
 pub alias SystemClock = ::Grant::Timestamps::SystemClock
 pub alias Timestamps = ::Grant::Timestamps::Timestamps
+pub alias Action = ::Grant::UnitOfWork::Action
 pub alias UnitOfWork = ::Grant::UnitOfWork::UnitOfWork
 
 # Strict checked hydration: a missing column is not an implicitly defaulted
@@ -176,6 +179,21 @@ pub macro model(declaration)
     ::Grant::Model::ModelMapping({{declaration[:name].id}}).new
   end
 
+  # Repository ownership is explicit even for source-compatible model helpers.
+  {% for method in ["valid?", "invalid?", "validate"] %}
+    def {{method.id}}(repository : ::Grant::Model::Repository({{declaration[:name].id}}),
+                     context : String | Array(String) | Nil = nil, persisted_id : Int64? = nil,
+                     skip_normalization : Bool = false) : Bool | ::Grant::Model::DatabaseError | ::Grant::Model::CallbackAbort | Panicked | Cancelled
+      repository.{% if method == "invalid?" %}invalid?{% else %}valid?{% end %}(self, context, persisted_id, skip_normalization)
+    end
+  {% end %}
+
+  def validated(repository : ::Grant::Model::Repository({{declaration[:name].id}}),
+                context : String | Array(String) | Nil = nil, persisted_id : Int64? = nil,
+                skip_normalization : Bool = false) : {{declaration[:name].id}} | ::Grant::Lifecycle::AroundError
+    repository.validate(self, context, persisted_id, skip_normalization)
+  end
+
   def self.__grant_model_table : ::Grant::Model::Table
     ::Grant::Model::Table.new(GRANT_MODEL_TABLE_NAME, GRANT_MODEL_PRIMARY_KEY)
   end
@@ -183,6 +201,8 @@ pub macro model(declaration)
   def self.__grant_model_validate(record : self, context : ::Grant::Model::Context = ::Grant::Model::Context.new, database : ::Grant::Model::Database? = nil) : Nil | ::Grant::Model::ValidationError | ::Grant::Model::DatabaseError
     errors = ::Grant::Model::Errors.new
     values = record.to_attributes
+    {% comparison_fields = fields.any? { |field| @type.has_constant?("GRANT_MODEL_VALIDATION_" + field[:name][1..].upcase) && @type.constant("GRANT_MODEL_VALIDATION_" + field[:name][1..].upcase)[:comparison] } %}
+    comparison_values = {% if comparison_fields %}record.__grant_comparison_attributes{% else %}values{% end %}
     {% for name in presence_names %}
       ::Grant::Model::Presence.new({{name.id.stringify}}).validate(values, errors, context)
     {% end %}
@@ -195,10 +215,15 @@ pub macro model(declaration)
             {% raise "uniq references unknown scope field #{scoped}" %}
           {% end %}
         {% end %}
+        {% for operand in config[:operands] %}
+          {% unless fields.any? { |other| other[:name][1..] == operand } %}
+            {% raise "comparison references unknown model field #{operand}" %}
+          {% end %}
+        {% end %}
         {% if config[:confirmation] && !fields.any? { |other| other[:name][1..] == field[:name][1..] + "_confirmation" } %}
           {% raise "confirmation requires a declared #{field[:name][1..]}_confirmation field" %}
         {% end %}
-        rule_result = __grant_col_validate_{{field[:name][1..].id}}(values, errors, context, database)
+        rule_result = __grant_col_validate_{{field[:name][1..].id}}(values, errors, context, database, comparison_values)
         return rule_result if rule_result.is_a?(::Grant::Model::DatabaseError)
       {% end %}
     {% end %}
@@ -264,6 +289,16 @@ pub macro mapped_record(declaration)
     {
       {% for field in fields %}
         {{ field[:name][1..] }} => {% if @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) %} ::Grant::ModelSchema.stored_attribute({{ field[:name].id }}, {{@type.constant("GRANT_MODEL_FIELD_" + field[:name][1..].upcase)[:precision]}}) {% else %} {{field[:name].id}} {% end %},
+      {% end %}
+    } of String => ::Grant::Model::Value
+  end
+
+  # Comparison validates assigned scalars before timestamp storage precision is
+  # applied. Other rules keep the existing stored attribute boundary.
+  def __grant_comparison_attributes : ::Grant::Model::Attributes
+    {
+      {% for field in fields %}
+        {{field[:name][1..]}} => {% if field[:type].union_types.includes?(::Std::Json::Any) %} ::Grant::ModelSchema.stored_attribute({{field[:name].id}}) {% else %} {{field[:name].id}} {% end %},
       {% end %}
     } of String => ::Grant::Model::Value
   end
@@ -362,7 +397,7 @@ pub macro col(name, kind = nil, **options)
     {% options[:uniq] = options[aliases.first.id] %}
   {% end %}
   {% for option in options.keys %}
-    {% unless ["belongs_to", "to", "to_table", "index", "default", "null", "limit", "precision", "scale", "collation", "primary_key", "as", "presence", "absence", "length", "inclusion", "exclusion", "format", "numericality", "acceptance", "confirmation", "uniq", "uniqueness", "uniquness", "allow_nil", "allow_blank", "on", "message"].includes?(option.id.stringify) %}
+    {% unless ["belongs_to", "to", "to_table", "index", "default", "null", "limit", "precision", "scale", "collation", "primary_key", "as", "presence", "absence", "length", "inclusion", "exclusion", "format", "email", "url", "comparison", "numericality", "acceptance", "confirmation", "uniq", "uniqueness", "uniquness", "allow_nil", "allow_blank", "on", "message"].includes?(option.id.stringify) %}
       {% raise "col option #{option} is not supported; options are never silently ignored" %}
     {% end %}
   {% end %}
@@ -541,7 +576,7 @@ pub macro col(name, kind = nil, **options)
     {% end %}
   end
 
-  {% validation_options = options.select(:presence, :absence, :length, :inclusion, :exclusion, :format, :numericality, :acceptance, :confirmation, :uniq, :allow_nil, :allow_blank, :on, :message) %}
+  {% validation_options = options.select(:presence, :absence, :length, :inclusion, :exclusion, :format, :email, :url, :comparison, :numericality, :acceptance, :confirmation, :uniq, :allow_nil, :allow_blank, :on, :message) %}
   col_validations({{name}}, {{kind}}{% unless validation_options.empty? %}, {{validation_options.double_splat}}{% end %})
 
   def self.__grant_schema_field_{{name.id}} : ::Grant::ModelSchema::Field
@@ -761,8 +796,13 @@ pub macro col_validations(name, kind, **options)
     {% if options.has_key?(option.id) && !options[option.id].is_a?(BoolLiteral) %}{% raise "validation #{option} requires true or false" %}{% end %}
   {% end %}
   {% if options[:message] && !options[:message].is_a?(StringLiteral) %}{% raise "validation message requires a literal string" %}{% end %}
-  {% if options[:on] && !options[:on].is_a?(SymbolLiteral) && !options[:on].is_a?(StringLiteral) %}{% raise "validation on requires one operation/context symbol or string" %}{% end %}
-  {% rules = ["presence", "absence", "length", "inclusion", "exclusion", "format", "numericality", "acceptance", "confirmation", "uniq"] %}
+  {% if options.has_key?(:on) && !options[:on].is_a?(NilLiteral) %}
+    {% terms = options[:on].is_a?(ArrayLiteral) ? options[:on] : [options[:on]] %}
+    {% for term in terms %}
+      {% unless term.is_a?(SymbolLiteral) || term.is_a?(StringLiteral) %}{% raise "validation on requires operation/context symbols or strings" %}{% end %}
+    {% end %}
+  {% end %}
+  {% rules = ["presence", "absence", "length", "inclusion", "exclusion", "format", "email", "url", "comparison", "numericality", "acceptance", "confirmation", "uniq"] %}
   {% active = rules.select { |rule| options.has_key?(rule.id) && options[rule.id] != false } %}
   {% unless active.empty? %}
     {% scope = [] of ASTNode %}
@@ -772,10 +812,18 @@ pub macro col_validations(name, kind, **options)
         {% unless field.is_a?(SymbolLiteral) %}{% raise "uniq scope requires a symbol or array of symbols" %}{% end %}
       {% end %}
     {% end %}
-    GRANT_MODEL_VALIDATION_{{name.id.stringify.upcase.id}} = {scope: [{% for field in scope %} {{field.id.stringify}}, {% end %}] of String, confirmation: {{active.includes?("confirmation")}}}
+    {% operands = [] of ASTNode %}
+    {% if options[:comparison].is_a?(NamedTupleLiteral) %}
+      {% for key, operand in options[:comparison] %}
+        {% if ["greater_than", "greater_than_or_equal_to", "less_than", "less_than_or_equal_to", "equal_to", "other_than"].includes?(key.id.stringify) && operand.is_a?(SymbolLiteral) %}
+          {% operands << operand %}
+        {% end %}
+      {% end %}
+    {% end %}
+    GRANT_MODEL_VALIDATION_{{name.id.stringify.upcase.id}} = {scope: [{% for field in scope %} {{field.id.stringify}}, {% end %}] of String, operands: [{% for field in operands %} {{field.id.stringify}}, {% end %}] of String, comparison: {{active.includes?("comparison")}}, confirmation: {{active.includes?("confirmation")}}}
 
     def self.__grant_col_validate_{{name.id}}(values : ::Grant::Model::Attributes, errors : ::Grant::Model::Errors,
-        context : ::Grant::Model::Context, database : ::Grant::Model::Database?) : Nil | ::Grant::Model::DatabaseError
+        context : ::Grant::Model::Context, database : ::Grant::Model::Database?, comparison_values : ::Grant::Model::Attributes) : Nil | ::Grant::Model::DatabaseError
       {% for rule in active %}
         {% value = options[rule.id] %}
         {% unless value == true || value.is_a?(NamedTupleLiteral) %}
@@ -783,7 +831,7 @@ pub macro col_validations(name, kind, **options)
         {% end %}
         {% config = value.is_a?(NamedTupleLiteral) ? value : {} of Symbol => ASTNode %}
         {% allowed = ["allow_nil", "allow_blank", "on", "message"] %}
-        {% extra = rule == "length" ? ["minimum", "maximum", "is"] : (rule == "inclusion" || rule == "exclusion" ? ["in"] : (rule == "format" ? ["with", "without"] : (rule == "numericality" ? ["only_integer", "only_numeric", "odd", "even", "greater_than", "greater_than_or_equal_to", "less_than", "less_than_or_equal_to", "equal_to", "other_than"] : (rule == "acceptance" ? ["accept"] : (rule == "confirmation" ? ["case_sensitive"] : (rule == "uniq" ? ["scope", "case_sensitive"] : [] of ASTNode)))))) %}
+        {% extra = rule == "length" ? ["minimum", "maximum", "is"] : (rule == "inclusion" || rule == "exclusion" ? ["in"] : (rule == "format" ? ["with", "without"] : (rule == "comparison" ? ["greater_than", "greater_than_or_equal_to", "less_than", "less_than_or_equal_to", "equal_to", "other_than"] : (rule == "numericality" ? ["only_integer", "only_numeric", "odd", "even", "greater_than", "greater_than_or_equal_to", "less_than", "less_than_or_equal_to", "equal_to", "other_than"] : (rule == "acceptance" ? ["accept"] : (rule == "confirmation" ? ["case_sensitive"] : (rule == "uniq" ? ["scope", "case_sensitive"] : [] of ASTNode))))))) %}
         {% for option in config.keys %}
           {% unless allowed.includes?(option.id.stringify) || extra.includes?(option.id.stringify) %}
             {% raise "unsupported #{rule} option #{option}" %}
@@ -804,13 +852,16 @@ pub macro col_validations(name, kind, **options)
         {% if config[:message] && !config[:message].is_a?(StringLiteral) %}
           {% raise "validation message requires a literal string" %}
         {% end %}
-        {% if config[:on] && !config[:on].is_a?(SymbolLiteral) && !config[:on].is_a?(StringLiteral) %}
-          {% raise "validation on requires one operation/context symbol or string" %}
+        {% if config.has_key?(:on) && !config[:on].is_a?(NilLiteral) %}
+          {% terms = config[:on].is_a?(ArrayLiteral) ? config[:on] : [config[:on]] %}
+          {% for term in terms %}
+            {% unless term.is_a?(SymbolLiteral) || term.is_a?(StringLiteral) %}{% raise "validation on requires operation/context symbols or strings" %}{% end %}
+          {% end %}
         {% end %}
         rule_options = ::Grant::Validation::Options.new(
           allow_nil: {{config.has_key?(:allow_nil) ? config[:allow_nil] : rule == "acceptance"}},
           allow_blank: {{config[:allow_blank] || false}},
-          on: {{config[:on] ? config[:on].id.stringify : nil}}, message: {{config[:message] || nil}})
+          on: {% if config[:on].is_a?(ArrayLiteral) %} [ {% for term in config[:on] %} {{term.id.stringify}}, {% end %} ] of String {% else %} {{config[:on] ? config[:on].id.stringify : nil}} {% end %}, message: {{config[:message] || nil}})
 
         {% if rule == "presence" || rule == "absence" %}
           ::Grant::ModelValidation.presence({{name.id.stringify}}, {{kind}}, values, errors, context, rule_options, absence: {{rule == "absence"}})
@@ -842,6 +893,9 @@ pub macro col_validations(name, kind, **options)
           {% else %}
             ::Grant::Validation::Inclusion.new({{name.id.stringify}}, accepted, exclude: {{rule == "exclusion"}}, options: rule_options).validate(values, errors, context)
           {% end %}
+        {% elsif rule == "email" || rule == "url" %}
+          {% unless ["string", "text"].includes?(kind) %}{% raise "inline #{rule} requires a string/text column" %}{% end %}
+          ::Grant::Validators::{% if rule == "email" %}Email{% else %}Url{% end %}.new({{name.id.stringify}}, options: rule_options).validate(values, errors, context)
         {% elsif rule == "format" %}
           {% unless ["string", "text"].includes?(kind) %}{% raise "inline format requires a string/text column" %}{% end %}
           {% if !config[:with] && !config[:without] || config[:with] && config[:without] %}{% raise "format requires exactly one of with or without" %}{% end %}
@@ -853,6 +907,27 @@ pub macro col_validations(name, kind, **options)
           {% end %}
           pattern = ::Std::Regex::Regex.compile({{pattern}})
           ::Grant::Validators::Format.new({{name.id.stringify}}, pattern, without: {{config.has_key?(:without)}}, options: rule_options).validate(values, errors, context)
+        {% elsif rule == "comparison" %}
+          {% if kind == "json" %}{% raise "inline comparison does not compare serialized JSON; use an explicit typed policy" %}{% end %}
+          constraints = [] of ::Grant::ComparisonValidation::ValueConstraint
+          {% comparisons = {"greater_than" => "GreaterThan", "greater_than_or_equal_to" => "GreaterThanOrEqual", "equal_to" => "EqualTo", "less_than" => "LessThan", "less_than_or_equal_to" => "LessThanOrEqual", "other_than" => "OtherThan"} %}
+          {% unless comparisons.keys.any? { |key| config.has_key?(key.id) } %}{% raise "comparison requires at least one comparison operand" %}{% end %}
+          {% for key, comparison in comparisons %}
+            {% if config.has_key?(key.id) %}
+              {% bound = config[key.id] %}
+              {% if bound.is_a?(SymbolLiteral) %}
+                operand = ::Grant::DynamicValidation::AttributeOperand.new({{bound.id.stringify}})
+              {% elsif bound.is_a?(StringLiteral) || bound.is_a?(BoolLiteral) || bound.is_a?(NilLiteral) %}
+                operand = ::Grant::ComparisonValidation::LiteralOperand.new({{bound}})
+              {% elsif bound.is_a?(NumberLiteral) && ["i32", "i64", "f32", "f64"].includes?(bound.kind.id.stringify) %}
+                operand = ::Grant::ComparisonValidation::LiteralOperand.new(({{bound}}).{% if ["f32", "f64"].includes?(bound.kind.id.stringify) %}to_f64{% else %}to_i64{% end %})
+              {% else %}
+                {% raise "comparison operands require literal scalar values or a mapped field symbol; dynamic policies use explicit ComparisonRule" %}
+              {% end %}
+              constraints << ::Grant::ComparisonValidation::ValueConstraint.new(::Grant::Validators::Comparison::{{comparison.id}}, operand)
+            {% end %}
+          {% end %}
+          ::Grant::ComparisonValidation::ComparisonRule.new({{name.id.stringify}}, constraints, rule_options).validate(comparison_values, errors, context)!
         {% elsif rule == "numericality" %}
           {% unless ["integer", "bigint", "float", "string", "text"].includes?(kind) %}{% raise "inline numericality supports integer/float/numeric-text columns; exact Decimal uses DecimalPolicy" %}{% end %}
           constraints = [] of ::Grant::Validators::Constraint

@@ -1,0 +1,50 @@
+module format_model_test
+
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import fixtures/format_model::{Contact, OptionalContact}
+
+# Model declarations port built_in_spec.cr's conventional email/URL rules.
+invalid = Contact.mapping.validate(Contact.new(email: "invalid", website: "not-a-url"))
+assert invalid.is_a?(ValidationError)
+if invalid.is_a?(ValidationError)
+  assert invalid.messages["email"] == ["is not a valid email"]
+  assert invalid.messages["website"] == ["bad website"]
+end
+assert Contact.mapping.validate(Contact.new(email: "user@example.com", website: "https://example.com")).nil?
+assert Contact.mapping.validate(Contact.new).is_a?(ValidationError)
+assert OptionalContact.mapping.validate(OptionalContact.new(website: " "), Context.new("create")).nil?
+assert OptionalContact.mapping.validate(OptionalContact.new(email: "bad", website: ""), Context.new("update")).nil?
+assert OptionalContact.mapping.validate(OptionalContact.new(email: "bad", website: ""), Context.new("create")).is_a?(ValidationError)
+optional_error = OptionalContact.mapping.validate(OptionalContact.new(website: "bad"))
+assert optional_error.is_a?(ValidationError)
+assert optional_error.messages["website"] == ["bad link"] if optional_error.is_a?(ValidationError)
+
+database = Connection.open(":memory:").or_panic
+Contact.schema.create(database).or_panic
+OptionalContact.schema.create(database).or_panic
+repository = Repository(Contact).new(database, Contact.mapping)
+assert repository.insert(Contact.new(email: "invalid", website: "not-a-url")).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+saved = repository.insert(Contact.new(email: "USER@EXAMPLE.COM", website: "https://example.com/path?q=1")).or_panic
+id = saved.id || 0_i64
+assert id > 0_i64
+assert saved.email == "USER@EXAMPLE.COM"
+assert repository.update(repository.query, id, Contact.new(email: "bad", website: "http://example.com")).is_a?(ValidationError)
+assert repository.update(repository.query, id, Contact.new(email: "user@example.com", website: "ftp://example.com")).is_a?(ValidationError)
+loaded = repository.find(id).or_panic
+assert !loaded.nil?
+assert loaded.email == saved.email && loaded.website == saved.website if loaded
+repository.unit_of_work.run do
+  assert repository.insert(Contact.new(email: "bad", website: "http://example.com")).is_a?(ValidationError)
+  repository.insert(Contact.new(email: "other@example.com", website: "http://example.com"))
+end.or_panic
+assert repository.query.count.or_panic == 2_i64
+optional_repository = Repository(OptionalContact).new(database, OptionalContact.mapping)
+optional = optional_repository.insert(OptionalContact.new(website: "")).or_panic
+assert optional.email.nil?
+assert optional_repository.insert(OptionalContact.new(email: "bad", website: "")).is_a?(ValidationError)
+changed = optional_repository.update(optional_repository.query, optional.id || 0_i64, OptionalContact.new(email: "bad", website: "")).or_panic
+assert !changed.nil?
+assert changed.email == "bad" if changed
+database.close.or_panic

@@ -137,6 +137,48 @@ impl Validator for Format
   end
 end
 
+# Shared upstream convenience patterns. The native regex engine has no flags,
+# so the email pattern spells out ASCII case pairs instead of using /i.
+pub def email_pattern : Regex
+  Regex.compile("\\A[\\w+\\-.]+@[a-zA-Z\\d\\-]+(\\.[a-zA-Z\\d\\-]+)*\\.[a-zA-Z]+\\z")
+end
+
+pub def url_pattern : Regex
+  Regex.compile("\\Ahttps?://(www\\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_+.~#?&/=]*)\\z")
+end
+
+pub struct Email
+  @format : Format
+
+  def initialize(attribute : String, options : Options = Options.new, without : Bool = false)
+    configured = Options.new(options.allow_nil, options.allow_blank, options.on,
+      options.message || "is not a valid email")
+    @format = Format.new(attribute, email_pattern, without, configured)
+  end
+end
+
+impl Validator for Email
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    @format.validate(attributes, errors, context)
+  end
+end
+
+pub struct Url
+  @format : Format
+
+  def initialize(attribute : String, options : Options = Options.new, without : Bool = false)
+    configured = Options.new(options.allow_nil, options.allow_blank, options.on,
+      options.message || "is not a valid URL")
+    @format = Format.new(attribute, url_pattern, without, configured)
+  end
+end
+
+impl Validator for Url
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    @format.validate(attributes, errors, context)
+  end
+end
+
 pub struct Acceptance
   @attribute : String
   @accepted : Array(String)
@@ -167,6 +209,27 @@ end
 # without Ruby symbols, global callbacks, or generated method lookup.
 pub trait Condition
   abstract def applies?(attributes : Attributes, context : Context) : Bool
+end
+
+# Shared by scalar When and checked DatabaseWhen. Lists are snapshots while
+# policy objects remain caller-owned, just as for lifecycle conditions.
+pub class ConditionSet
+  @if_all : Array(Condition)
+  @unless_any : Array(Condition)
+
+  def initialize(if_all : Array(Condition) = [] of Condition,
+                 unless_any : Array(Condition) = [] of Condition)
+    @if_all = if_all.map { |condition| condition }
+    @unless_any = unless_any.map { |condition| condition }
+  end
+end
+
+impl Condition for ConditionSet
+  def applies?(attributes : Attributes, context : Context) : Bool
+    @if_all.each { |condition| return false unless condition.applies?(attributes, context) }
+    @unless_any.each { |condition| return false if condition.applies?(attributes, context) }
+    true
+  end
 end
 
 pub class When

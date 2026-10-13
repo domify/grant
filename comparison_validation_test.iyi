@@ -1,0 +1,149 @@
+module comparison_validation_test
+
+import std/float
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/scalars::{Decimal, Date, DateTime}
+import grant/value::{Value, Attributes, Row, decode_decimal}
+import grant/errors::{DatabaseError, ValidationError}
+import grant/validation::{CheckedRules, Options, Context}
+import grant/validators::{Comparison}
+import grant/dynamic_validation::{Operand, AttributeOperand}
+import grant/comparison_validation::{ComparisonRule, ValueConstraint, LiteralOperand}
+
+struct FailingOperand
+end
+
+impl Operand for FailingOperand
+  def resolve(attributes : Attributes, context : Context) : Value | DatabaseError
+    DatabaseError.new(20, "operand", "deliberate evaluation failure")
+  end
+end
+
+pub def rule(kind : Comparison, bound : Value, options : Options = Options.new) : CheckedRules
+  CheckedRules.new.add(ComparisonRule.new("value", [ValueConstraint.new(kind, LiteralOperand.new(bound))], options))
+end
+
+age = rule(Comparison::GreaterThanOrEqual, 18_i64)
+assert age.validate({"value" => 21_i64} of String => Value).or_panic.empty?
+issues = age.validate({"value" => 17_i64} of String => Value).or_panic
+assert issues.of_type?("value", "greater_than_or_equal_to", {"count" => 18_i64, "value" => 17_i64} of String => Value)
+assert age.validate(Attributes.new).or_panic.of_type?("value", "blank", {"value" => nil} of String => Value)
+assert age.validate({"value" => "17"} of String => Value).is_a?(DatabaseError)
+assert rule(Comparison::OtherThan, "archived").validate({"value" => "active"} of String => Value).or_panic.empty?
+assert !rule(Comparison::OtherThan, "archived").validate({"value" => "archived"} of String => Value).or_panic.empty?
+assert rule(Comparison::EqualTo, true).validate({"value" => true} of String => Value).or_panic.empty?
+assert !rule(Comparison::EqualTo, true).validate({"value" => 1_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, "b").validate({"value" => "a"} of String => Value).or_panic.empty?
+assert rule(Comparison::GreaterThan, 2.0).validate({"value" => 3_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, 3_i64).validate({"value" => 2.5} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, 3.0).validate({"value" => Float64::NAN} of String => Value).is_a?(DatabaseError)
+assert rule(Comparison::LessThan, Float64::INFINITY).validate({"value" => 2_i64} of String => Value).is_a?(DatabaseError)
+
+assert rule(Comparison::GreaterThan, 9007199254740992.0).validate({"value" => 9007199254740993_i64} of String => Value).or_panic.empty?
+assert !rule(Comparison::EqualTo, 9007199254740992.0).validate({"value" => 9007199254740993_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, 9007199254740993_i64).validate({"value" => 9007199254740992.0} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, 9223372036854775808.0).validate({"value" => 9223372036854775807_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::EqualTo, -9223372036854775808.0).validate({"value" => -9223372036854775808_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::GreaterThan, -2.5).validate({"value" => -2_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, -2_i64).validate({"value" => -2.5} of String => Value).or_panic.empty?
+
+# Exact scalar comparisons do not round through Float64 or lexical text order.
+small = Decimal.parse("9007199254740993.000000000000000000001").or_panic
+large = Decimal.parse("9007199254740993.000000000000000000002").or_panic
+assert rule(Comparison::GreaterThan, small).validate({"value" => large} of String => Value).or_panic.empty?
+assert !rule(Comparison::GreaterThan, large).validate({"value" => small} of String => Value).or_panic.empty?
+assert rule(Comparison::EqualTo, 5_i64).validate({"value" => Decimal.parse("5.00").or_panic} of String => Value).or_panic.empty?
+assert rule(Comparison::EqualTo, Decimal.from_integer(5_i64)).validate({"value" => 5_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::GreaterThan, 5_i64).validate({"value" => Decimal.parse("5.0001").or_panic} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, Decimal.parse("5.0001").or_panic).validate({"value" => 5_i64} of String => Value).or_panic.empty?
+assert rule(Comparison::GreaterThan, 5.0).validate({"value" => small} of String => Value).is_a?(DatabaseError)
+day = Date.parse("2024-02-29").or_panic
+next_day = Date.parse("2024-03-01").or_panic
+assert rule(Comparison::LessThanOrEqual, next_day).validate({"value" => day} of String => Value).or_panic.empty?
+instant = DateTime.parse("2024-03-01T00:00:00.000000001Z").or_panic
+later = DateTime.parse("2024-03-01T00:00:00.000000002Z").or_panic
+same = DateTime.parse("2024-03-01T02:00:00.000000001+02:00").or_panic
+assert rule(Comparison::GreaterThan, instant).validate({"value" => later} of String => Value).or_panic.empty?
+assert rule(Comparison::EqualTo, instant).validate({"value" => same} of String => Value).or_panic.empty?
+assert rule(Comparison::LessThan, instant).validate({"value" => day} of String => Value).is_a?(DatabaseError)
+
+# Source nil-bound comparison failure differs from operand evaluation failure.
+assert rule(Comparison::EqualTo, nil).validate({"value" => "x"} of String => Value).or_panic.of_type?("value", "comparison")
+failed = CheckedRules.new.add(ComparisonRule.new("value", [ValueConstraint.new(Comparison::GreaterThan, FailingOperand.new)]))
+assert failed.validate({"value" => 1_i64} of String => Value).is_a?(DatabaseError)
+assert failed.validate(Attributes.new).or_panic.of_type?("value", "blank")
+skipped = CheckedRules.new.add(ComparisonRule.new("value", [ValueConstraint.new(Comparison::GreaterThan, FailingOperand.new)], Options.new(allow_nil: true)))
+assert skipped.validate(Attributes.new).or_panic.empty?
+assert rule(Comparison::EqualTo, "x", Options.new(on: "publish")).validate(Attributes.new, Context.new("create")).or_panic.empty?
+assert !rule(Comparison::EqualTo, "x", Options.new(on: "publish")).validate(Attributes.new, Context.new("create", "publish")).or_panic.empty?
+assert rule(Comparison::GreaterThan, 2_i64, Options.new(message: "too low")).validate({"value" => 1_i64} of String => Value).or_panic["value"] == ["too low"]
+constraints = [ValueConstraint.new(Comparison::GreaterThan, LiteralOperand.new(10_i64)), ValueConstraint.new(Comparison::LessThan, LiteralOperand.new(0_i64))]
+multiple = CheckedRules.new.add(ComparisonRule.new("value", constraints))
+constraints.clear
+issues = multiple.validate({"value" => 5_i64} of String => Value).or_panic
+assert issues.objects.map { |issue| issue.code } == ["greater_than", "less_than"]
+
+dynamic = CheckedRules.new.add(ComparisonRule.new("ended_at", [ValueConstraint.new(Comparison::GreaterThan, AttributeOperand.new("started_at"))], Options.new(allow_nil: true)))
+assert dynamic.validate({"started_at" => 10_i64, "ended_at" => 20_i64} of String => Value).or_panic.empty?
+assert !dynamic.validate({"started_at" => 10_i64, "ended_at" => 5_i64} of String => Value).or_panic.empty?
+assert dynamic.validate({"ended_at" => 5_i64} of String => Value).is_a?(DatabaseError)
+
+struct Interval
+  getter id : Int64?
+  getter lower : Decimal
+  getter upper : Decimal
+
+  def initialize(@lower : Decimal, @upper : Decimal, @id : Int64? = nil)
+  end
+end
+
+struct IntervalMapping
+  @rules : CheckedRules
+
+  def initialize
+    @rules = CheckedRules.new.add(ComparisonRule.new("upper", [ValueConstraint.new(Comparison::GreaterThan, AttributeOperand.new("lower"))]))
+  end
+end
+
+impl Mapping(Interval) for IntervalMapping
+  def table : Table
+    Table.new("intervals")
+  end
+
+  def attributes(record : Interval) : Attributes
+    {"id" => record.id, "lower" => record.lower, "upper" => record.upper} of String => Value
+  end
+
+  def from_row(row : Row) : Interval | DatabaseError
+    id = row["id"]
+    return DatabaseError.new(20, "mapping", "invalid interval ID") unless id.is_a?(Int64)
+    lower = decode_decimal(row["lower"])!
+    upper = decode_decimal(row["upper"])!
+    Interval.new(lower, upper, id)
+  end
+
+  def validate(record : Interval) : Nil | ValidationError | DatabaseError
+    @rules.check(attributes(record))
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE intervals(id INTEGER PRIMARY KEY, lower TEXT NOT NULL, upper TEXT NOT NULL)").or_panic
+repository = Repository(Interval).new(connection, IntervalMapping.new)
+assert repository.insert(Interval.new(large, small)).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+saved = repository.insert(Interval.new(small, large)).or_panic
+id = saved.id || 0_i64
+assert repository.update(repository.query, id, Interval.new(large, small)).is_a?(ValidationError)
+loaded = repository.find(id).or_panic
+assert !loaded.nil?
+assert loaded.lower == small && loaded.upper == large if loaded
+repository.unit_of_work.run do
+  assert repository.insert(Interval.new(large, small)).is_a?(ValidationError)
+  repository.insert(Interval.new(small, large))
+end.or_panic
+assert repository.query.count.or_panic == 2_i64
+connection.close.or_panic

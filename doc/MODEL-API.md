@@ -108,3 +108,14 @@ Shared ModelContext registrations distinguish target type as well as table, so
 STI subclasses and storage/domain mappings can coexist. Collection all/to_a, each,
 count, size, length, any?, none?, reset and reload follow Crystal Grant naming;
 count reads fresh storage while size reuses a loaded cache.
+
+
+Standalone validation uses `record.valid?(repository, context: "publish")`,
+`record.invalid?(repository)` and the Boolean alias `record.validate(repository)`.
+`record.validated(repository)` returns the validated/rebuilt model or an error
+union. Repository.validate has that same record-returning contract. The original
+record is not persisted; normalization and validation callbacks still run. An
+Int64 mapped key selects update validation by default; a nil key selects create.
+Errors/context remain per-call values rather than mutable record fields. See
+[VALIDATION.md](VALIDATION.md#standalone-validation) for explicit IDs, skipping
+normalization, error propagation and savepoint semantics.

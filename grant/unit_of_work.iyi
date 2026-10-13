@@ -4,10 +4,26 @@ import grant/database::{Database}
 import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
 import grant/transaction::{transaction}
 
+pub enum Action
+  Create
+  Update
+  Destroy
+end
+
 pub trait Observer
   abstract def identity : String
   abstract def committed : Nil | DatabaseError | ValidationError | CallbackAbort
   abstract def rolled_back : Nil | DatabaseError | ValidationError | CallbackAbort
+
+  def action : Action?
+    nil
+  end
+
+  # Existing application observers retain first-registration deduplication.
+  # Model observers merge surviving write metadata while retaining that record.
+  def merge(other : Observer) : Nil
+    nil
+  end
 end
 
 class Frame
@@ -20,7 +36,12 @@ class Frame
   def add(observer : Observer) : Nil
     # The first registration of a record wins, matching the source's commit
     # callback deduplication for multiple saves in one transaction.
-    return nil if @observers.any? { |old| old.identity == observer.identity }
+    @observers.each do |old|
+      if old.identity == observer.identity
+        old.merge(observer)
+        return nil
+      end
+    end
     @observers << observer
     nil
   end

@@ -7,7 +7,7 @@ import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
 import grant/database::{Database}
 import grant/query::{Query, Table}
 import grant/lifecycle::{Pipeline, Event, AroundError, WriteContext}
-import grant/unit_of_work::{UnitOfWork, Observer}
+import grant/unit_of_work::{UnitOfWork, Observer, Action}
 import grant/validation::{Context}
 import grant/normalization::{Plan}
 import grant/dirty::{State}
@@ -139,23 +139,67 @@ pub class Repository(T)
     row ? hydrate(row) : nil
   end
 
-  def insert(record : T) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    return DatabaseError.new(21, "association", "model context belongs to another database") unless @model_context.database_identity == @database.identity
-    return DatabaseError.new(21, "insert", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run(requires_new: true) { insert_record(record) }
+  # Standalone validation runs the same normalization and validation callbacks
+  # as a save, but never writes the record or observes it for commit callbacks.
+  # Callback side effects belong to a savepoint, including inside an outer unit.
+  def validate(record : T, context : String | Array(String) | Nil = nil,
+               persisted_id : Int64? = nil, skip_normalization : Bool = false) : T | AroundError
+    return DatabaseError.new(21, "validation", "model context belongs to another database") unless @model_context.database_identity == @database.identity
+    return DatabaseError.new(21, "validation", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
+    @unit.run(requires_new: true) do
+      active = standalone_context(record, context, persisted_id)
+      if active.is_a?(DatabaseError)
+        active
+      else
+        validated(record, active, skip_normalization: skip_normalization)
+      end
+    end
   end
 
-  def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+  def valid?(record : T, context : String | Array(String) | Nil = nil,
+             persisted_id : Int64? = nil, skip_normalization : Bool = false) : Bool | DatabaseError | CallbackAbort | Panicked | Cancelled
+    result = validate(record, context, persisted_id, skip_normalization)
+    return false if result.is_a?(ValidationError)
+    return result if result.is_a?(Error)
+    true
+  end
+
+  def invalid?(record : T, context : String | Array(String) | Nil = nil,
+               persisted_id : Int64? = nil, skip_normalization : Bool = false) : Bool | DatabaseError | CallbackAbort | Panicked | Cancelled
+    result = valid?(record, context, persisted_id, skip_normalization)!
+    !result
+  end
+
+  private def standalone_context(record : T, context : String | Array(String) | Nil, persisted_id : Int64?) : Context | DatabaseError
+    key = persisted_id || @mapping.attributes(record)[@mapping.table.primary_key]?
+    unless key.nil? || key.is_a?(Int64)
+      return DatabaseError.new(20, "validation", "standalone validation requires an Int64 or nil primary key")
+    end
+    operation = key.nil? ? "create" : "update"
+    if context.is_a?(Array(String))
+      Context.new(operation, persisted_id: key, contexts: context)
+    else
+      Context.new(operation, context, persisted_id: key)
+    end
+  end
+
+  def insert(record : T, validation_context : Array(String)? = nil) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+    return DatabaseError.new(21, "association", "model context belongs to another database") unless @model_context.database_identity == @database.identity
+    return DatabaseError.new(21, "insert", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
+    @unit.run(requires_new: true) { insert_record(record, validation_context) }
+  end
+
+  def update(scope : Query, id : Int64, record : T, validation_context : Array(String)? = nil) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     valid_scope(scope)!
     return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
     context = write_context(record)!
-    @unit.run(requires_new: true) { update_record(scope, id, record, context) }
+    @unit.run(requires_new: true) { update_record(scope, id, record, context, validation_context) }
   end
 
   # The application supplies the loaded snapshot, rather than comparing against
   # a fresh row (which would overwrite changes made by a sibling record).
   def update_changed(scope : Query, id : Int64, record : T, baseline : Attributes,
-                     forced : Array(String) = [] of String, skip_timestamps : Bool = false) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+                     forced : Array(String) = [] of String, skip_timestamps : Bool = false, validation_context : Array(String)? = nil) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     valid_scope(scope)!
     return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
     values = @mapping.attributes(record)
@@ -168,17 +212,17 @@ pub class Repository(T)
       return DatabaseError.new(21, "update", "cannot force a primary key write") if name == @mapping.table.primary_key
     end
     context = write_context(record, baseline, forced, !skip_timestamps)!
-    @unit.run(requires_new: true) { update_record(scope, id, record, context) }
+    @unit.run(requires_new: true) { update_record(scope, id, record, context, validation_context) }
   end
 
-  def update_changed(scope : Query, id : Int64, record : T, state : State(Value), skip_timestamps : Bool = false) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+  def update_changed(scope : Query, id : Int64, record : T, state : State(Value), skip_timestamps : Bool = false, validation_context : Array(String)? = nil) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
     values = @mapping.attributes(record)
     pending = state.attributes
     return DatabaseError.new(21, "update", "record attributes do not match the supplied dirty state") unless values.size == pending.size
     values.each do |name, value|
       return DatabaseError.new(21, "update", "record attributes do not match the supplied dirty state") unless pending.has_key?(name) && pending[name] == value
     end
-    update_changed(scope, id, record, state.baseline_attributes, state.forced_changes, skip_timestamps)
+    update_changed(scope, id, record, state.baseline_attributes, state.forced_changes, skip_timestamps, validation_context)
   end
 
   def destroy(scope : Query, id : Int64) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
@@ -212,30 +256,31 @@ pub class Repository(T)
     row = query.where_stored(key, id).first!
     return DatabaseError.new(20, "touch", "updated row could not be hydrated") unless row
     current = hydrate(row)!
-    observe(current, row[key])!
+    observe(current, row[key], Action::Update)!
     callback(Event::AfterTouch, current)
   end
 
-  private def validated(record : T, context : Context, write_context : WriteContext = WriteContext.new) : T | AroundError
-    normalized = @mapping.normalize(contextual(record), context)
+  private def validated(record : T, context : Context, write_context : WriteContext = WriteContext.new,
+                        skip_normalization : Bool = false) : T | AroundError
+    normalized = skip_normalization ? contextual(record) : @mapping.normalize(contextual(record), context)
     return normalized if normalized.is_a?(DatabaseError)
-    around_required(Event::AroundValidation, contextual(normalized)) { |current| validate_prepared(current, context, write_context) }
+    around_required(Event::AroundValidation, contextual(normalized), context) { |current| validate_prepared(current, context, write_context) }
   end
 
   private def validate_prepared(record : T, context : Context, write_context : WriteContext) : T | DatabaseError | ValidationError | CallbackAbort
-    prepared = callback(Event::BeforeValidation, record, write_context)
+    prepared = callback(Event::BeforeValidation, record, write_context, context)
     return prepared if prepared.is_a?(Error)
     current = prepared
     validation = @mapping.validate(current, @database, context)
-    prepared = callback(Event::AfterValidation, current, write_context)
+    prepared = callback(Event::AfterValidation, current, write_context, context)
     return prepared if prepared.is_a?(Error)
     current = prepared
     return validation if validation.is_a?(Error)
     current
   end
 
-  private def insert_record(record : T) : T | AroundError
-    current = validated(record, Context.new("create"))!
+  private def insert_record(record : T, validation_context : Array(String)?) : T | AroundError
+    current = validated(record, Context.new("create", contexts: validation_context))!
     around_required(Event::AroundSave, current) { |saving| insert_saved(saving) }
   end
 
@@ -255,15 +300,15 @@ pub class Repository(T)
     current = prepared
     row = query.insert(write_attributes(current))!
     current = hydrate(row)!
-    observed = observe(current, row[@mapping.table.primary_key])
+    observed = observe(current, row[@mapping.table.primary_key], Action::Create)
     return observed if observed.is_a?(DatabaseError)
     prepared = callback(Event::AfterCreate, current)
     return prepared if prepared.is_a?(Error)
     prepared
   end
 
-  private def update_record(scope : Query, id : Int64, record : T, context : WriteContext) : T | Nil | AroundError
-    current = validated(record, Context.new("update", persisted_id: id), context)!
+  private def update_record(scope : Query, id : Int64, record : T, context : WriteContext, validation_context : Array(String)? = nil) : T | Nil | AroundError
+    current = validated(record, Context.new("update", persisted_id: id, contexts: validation_context), context)!
     around(Event::AroundSave, current) { |saving| update_saved(scope, id, saving, context) }
   end
 
@@ -288,7 +333,7 @@ pub class Repository(T)
       row = selected.first!
       return nil unless row
       current = hydrate(row)!
-      observe(current, row[@mapping.table.primary_key])!
+      observe(current, row[@mapping.table.primary_key], Action::Update)!
       return callback(Event::AfterUpdate, current, context)
     end
     changed = selected.update(values)!
@@ -298,7 +343,7 @@ pub class Repository(T)
     row = query.where(@mapping.table.primary_key, id).first!
     return nil unless row
     current = hydrate(row)!
-    observed = observe(current, row[@mapping.table.primary_key])
+    observed = observe(current, row[@mapping.table.primary_key], Action::Update)
     return observed if observed.is_a?(DatabaseError)
     prepared = callback(Event::AfterUpdate, current, context)
     return prepared if prepared.is_a?(Error)
@@ -320,14 +365,14 @@ pub class Repository(T)
     current = prepared
     deleted = selected.delete!
     return nil if deleted.changes == 0
-    observed = observe(current, id)
+    observed = observe(current, id, Action::Destroy)
     return observed if observed.is_a?(DatabaseError)
     callback(Event::AfterDestroy, current)
   end
 
-  private def around(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
+  private def around(event : Event, record : T, validation_context : Context = Context.new, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
     result = if events = @events
-               events.wrap(event, contextual(record), &operation)
+               events.wrap(event, contextual(record), validation_context, &operation)
              else
                operation.call(contextual(record))
              end
@@ -335,14 +380,14 @@ pub class Repository(T)
     contextual(result)
   end
 
-  private def around_required(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | AroundError
-    result = around(event, record, &operation)
+  private def around_required(event : Event, record : T, validation_context : Context = Context.new, &operation : T -> T | Nil | AroundError) : T | AroundError
+    result = around(event, record, validation_context, &operation)
     result.nil? ? CallbackAbort.new("around callback returned no record for #{event}") : result
   end
 
-  private def callback(event : Event, record : T, context : WriteContext = WriteContext.new) : T | DatabaseError | ValidationError | CallbackAbort
+  private def callback(event : Event, record : T, context : WriteContext = WriteContext.new, validation_context : Context = Context.new) : T | DatabaseError | ValidationError | CallbackAbort
     if events = @events
-      current = events.run(event, contextual(record), context)
+      current = events.run(event, contextual(record), context, validation_context)
       return current if current.is_a?(Error)
       contextual(current)
     else
@@ -350,9 +395,9 @@ pub class Repository(T)
     end
   end
 
-  private def observe(record : T, id : Value) : Nil | DatabaseError
+  private def observe(record : T, id : Value, action : Action) : Nil | DatabaseError
     if events = @events
-      @unit.observe(RecordObserver(T).new("#{@mapping.table.name}:#{id}", events, record))!
+      @unit.observe(RecordObserver(T).new("#{@mapping.table.name}:#{id}", events, record, action))!
     end
     nil
   end
@@ -382,20 +427,38 @@ class RecordObserver(T)
   getter identity : String
   @events : Pipeline(T)
   @record : T
+  @action : Action
 
-  def initialize(@identity : String, @events : Pipeline(T), @record : T)
+  def initialize(@identity : String, @events : Pipeline(T), @record : T, @action : Action)
   end
 end
 
 impl Observer for RecordObserver(T) forall T
+  def action : Action?
+    @action
+  end
+
+  def merge(other : Observer) : Nil
+    if incoming = other.action
+      if @action == Action::Destroy || incoming == Action::Destroy
+        @action = Action::Destroy
+      elsif @action == Action::Create || incoming == Action::Create
+        @action = Action::Create
+      else
+        @action = Action::Update
+      end
+    end
+    nil
+  end
+
   def committed : Nil | DatabaseError | ValidationError | CallbackAbort
-    result = @events.run(Event::AfterCommit, @record)
+    result = @events.run(Event::AfterCommit, @record, action: @action)
     return result if result.is_a?(Error)
     nil
   end
 
   def rolled_back : Nil | DatabaseError | ValidationError | CallbackAbort
-    result = @events.run(Event::AfterRollback, @record)
+    result = @events.run(Event::AfterRollback, @record, action: @action)
     return result if result.is_a?(Error)
     nil
   end

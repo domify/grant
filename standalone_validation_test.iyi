@@ -1,0 +1,251 @@
+module standalone_validation_test
+
+import fixtures/context_model::{Publication}
+import fixtures/standalone_validation::{Login}
+import grant/normalization::{Plan, TrimLowercase}
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/validation::{Context, Rules, Presence, Options}
+import grant/lifecycle::{Pipeline, Callback, Around, Continuation, AroundError, Event, WriteContext, CallbackCondition, CallbackConditions}
+
+struct Article
+  getter title : String
+  getter slug : String?
+  getter summary : String?
+  getter notes : String?
+  getter id : Int64?
+
+  def initialize(@title : String = "Title", @slug : String? = "slug", @summary : String? = nil,
+                 @notes : String? = nil, @id : Int64? = nil)
+  end
+end
+
+struct ArticleMapping
+  @seen : Array(String)
+
+  def initialize(@seen : Array(String))
+  end
+end
+
+impl Mapping(Article) for ArticleMapping
+  def table : Table
+    Table.new("articles")
+  end
+
+  def attributes(record : Article) : Attributes
+    {"id" => record.id, "title" => record.title, "slug" => record.slug,
+     "summary" => record.summary, "notes" => record.notes} of String => Value
+  end
+
+  def normalization : Plan?
+    Plan.new.add("title", TrimLowercase.new)
+  end
+
+  def with_attributes(record : Article, attributes : Attributes) : Article | DatabaseError
+    title = attributes["title"]?
+    if title.is_a?(String)
+      Article.new(title, record.slug, record.summary, record.notes, record.id)
+    else
+      DatabaseError.new(20, "assignment", "invalid normalized title")
+    end
+  end
+
+  def from_row(row : Row) : Article | DatabaseError
+    id = row["id"]
+    title = row["title"]
+    slug = row["slug"]
+    summary = row["summary"]
+    notes = row["notes"]
+    if id.is_a?(Int64) && title.is_a?(String) && (slug.nil? || slug.is_a?(String)) && (summary.nil? || summary.is_a?(String)) && (notes.nil? || notes.is_a?(String))
+      Article.new(title, slug, summary, notes, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid article")
+    end
+  end
+
+  def validate(record : Article) : Nil | ValidationError
+    validate(record, Context.new)
+  end
+
+  def validate(record : Article, context : Context) : Nil | ValidationError
+    @seen << "#{context.operation}:#{context.names.join(",")}:#{context.persisted_id}"
+    Rules.new.add(Presence.new("title"))
+      .add(Presence.new("slug", options: Options.new(on: "create")))
+      .add(Presence.new("notes", options: Options.new(on: "update")))
+      .add(Presence.new("summary", options: Options.new(on: "publish")))
+      .validate(attributes(record), context).result
+  end
+end
+
+struct Hook
+  @log : Array(String)
+  @label : String
+  @abort : Bool
+
+  def initialize(@log : Array(String), @label : String, @abort : Bool = false)
+  end
+end
+
+impl Callback(Article) for Hook
+  def call(event : Event, record : Article) : Article | DatabaseError | ValidationError | CallbackAbort
+    @log << @label
+    @abort ? CallbackAbort.new("context halt") : record
+  end
+end
+
+struct Wrapper
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Around(Article) for Wrapper
+  def call(event : Event, record : Article, continuation : Continuation(Article)) : Article | Nil | AroundError
+    @log << "around:before"
+    result = continuation.call(record)
+    @log << "around:after"
+    result
+  end
+end
+
+struct Never
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl CallbackCondition(Article) for Never
+  def applies?(event : Event, record : Article) : Bool
+    @log << "predicate"
+    false
+  end
+end
+
+# Focused contexts_spec.cr valid?/invalid? cases use caller-owned repositories.
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, title TEXT, slug TEXT, summary TEXT, notes TEXT)").or_panic
+connection.execute("CREATE TABLE audit(message TEXT)").or_panic
+seen = [] of String
+log = [] of String
+pipeline = Pipeline(Article).new
+pipeline.add_validation(Hook.new(log, "create"), [Event::BeforeValidation], ["create"]).or_panic
+pipeline.add_validation(Hook.new(log, "update_or_publish"), [Event::AfterValidation], ["update", "publish"]).or_panic
+pipeline.add_around_validation(Wrapper.new(log), ["publish"])
+pipeline.add(Hook.new(log, "never_save"), [Event::BeforeSave, Event::AfterSave, Event::AfterCommit, Event::AfterRollback])
+repository = Repository(Article).new(connection, ArticleMapping.new(seen), pipeline)
+original = Article.new(title: "  TITLE  ")
+checked = repository.validate(original).or_panic
+assert checked.title == "title" && original.title == "  TITLE  "
+assert checked.id.nil?
+assert repository.query.count.or_panic == 0_i64
+assert log == ["create"]
+assert seen.last == "create:create:"
+log.clear
+assert repository.valid?(Article.new).or_panic
+assert repository.invalid?(Article.new(slug: nil)).or_panic
+failure = repository.validate(Article.new(slug: nil)).as(ValidationError)
+assert failure.messages.keys == ["slug"]
+assert repository.valid?(Article.new).or_panic # Previous errors do not linger.
+assert repository.valid?(Article.new, "publish").or_panic == false
+assert repository.invalid?(Article.new, context: "publish").or_panic
+assert repository.valid?(Article.new(slug: nil, summary: "s"), context: "publish").or_panic
+failure = repository.validate(Article.new(title: "", summary: nil), "publish").as(ValidationError)
+assert failure.messages.size == 2 && failure.messages.has_key?("title") && failure.messages.has_key?("summary")
+assert repository.valid?(Article.new(slug: nil), context: "other").or_panic
+failure = repository.validate(Article.new(slug: nil), "save").as(ValidationError)
+assert failure.messages.size == 3 && failure.messages.has_key?("notes") && failure.messages.has_key?("summary") && failure.messages.has_key?("slug")
+assert repository.valid?(Article.new, context: ["create", "publish"]).or_panic == false
+assert repository.valid?(Article.new(slug: nil), context: [] of String).or_panic
+assert repository.validate(original, skip_normalization: true).or_panic.title == "  TITLE  "
+log.clear
+repository.validate(Article.new(summary: "s"), "publish").or_panic
+assert log == ["around:before", "update_or_publish", "around:after"]
+assert seen.last == "create:publish:"
+# Default context derives from the mapped key; explicit IDs support nil-ID inputs.
+assert repository.invalid?(Article.new(id: 7_i64)).or_panic
+assert seen.last == "update:update:7"
+assert repository.valid?(Article.new(slug: nil, notes: "n", id: 7_i64)).or_panic
+assert repository.valid?(Article.new(slug: nil, notes: "n"), persisted_id: 8_i64).or_panic
+assert seen.last == "update:update:8"
+assert repository.valid?(Article.new).or_panic
+assert seen.last == "create:create:"
+assert !log.includes?("never_save")
+assert repository.query.count.or_panic == 0_i64
+# Derived model policies and SQL uniqueness share the standalone path.
+Publication.schema.create(connection).or_panic
+publications = Repository(Publication).new(connection, Publication.mapping)
+assert !publications.valid?(Publication.new).or_panic
+assert publications.valid?(Publication.new(title: "Title")).or_panic
+assert Publication.new(title: "Title").valid?(publications).or_panic
+assert Publication.new.invalid?(publications).or_panic
+assert !Publication.new.validate(publications).or_panic
+assert Publication.new(title: "Title").validated(publications).or_panic.title == "Title"
+assert Publication.new.validated(publications).is_a?(ValidationError)
+assert Publication.new(title: "Title").valid?(publications, context: "publish").or_panic == false
+assert !publications.valid?(Publication.new(title: "Title"), "publish").or_panic
+assert publications.valid?(Publication.new(summary: "s"), "review").or_panic
+Login.schema.create(connection).or_panic
+logins = Repository(Login).new(connection, Login.mapping)
+assert logins.valid?(Login.new(handle: "ada")).or_panic
+assert logins.query.count.or_panic == 0_i64
+saved = logins.insert(Login.new(handle: "ada")).or_panic
+assert logins.valid?(saved).or_panic
+assert logins.valid?(Login.new(handle: "ada"), persisted_id: saved.id).or_panic
+assert logins.invalid?(Login.new(handle: "ada")).or_panic
+assert logins.validate(Login.new(handle: "ada")).is_a?(ValidationError)
+connection.execute("DROP TABLE logins").or_panic
+assert logins.valid?(Login.new(handle: "ada")).is_a?(DatabaseError)
+assert logins.invalid?(Login.new(handle: "ada")).is_a?(DatabaseError)
+
+# Callback SQL, aborts and panics are contained in a validation savepoint.
+struct AuditHook
+  @connection : Connection
+  @mode : String
+
+  def initialize(@connection : Connection, @mode : String)
+  end
+end
+
+impl Callback(Article) for AuditHook
+  def call(event : Event, record : Article) : Article | DatabaseError | ValidationError | CallbackAbort
+    @connection.execute("INSERT INTO audit(message) VALUES(?)", [@mode] of Value)!
+    raise "validation callback panic" if @mode == "panic"
+    return CallbackAbort.new("validation halt") if @mode == "halt"
+    record
+  end
+end
+
+halt_pipeline = Pipeline(Article).new.add(AuditHook.new(connection, "halt"), [Event::BeforeValidation])
+halted = Repository(Article).new(connection, ArticleMapping.new(seen), halt_pipeline)
+assert halted.validate(Article.new).is_a?(CallbackAbort)
+assert halted.valid?(Article.new).is_a?(CallbackAbort)
+assert halted.invalid?(Article.new).is_a?(CallbackAbort)
+assert connection.query("SELECT COUNT(*) AS n FROM audit").or_panic[0]["n"] == 0_i64
+panic_pipeline = Pipeline(Article).new.add(AuditHook.new(connection, "panic"), [Event::AfterValidation])
+panicking = Repository(Article).new(connection, ArticleMapping.new(seen), panic_pipeline)
+assert panicking.valid?(Article.new).is_a?(Panicked)
+assert connection.query("SELECT COUNT(*) AS n FROM audit").or_panic[0]["n"] == 0_i64
+# Catching an invalid result inside an outer unit does not commit callback writes.
+audit_pipeline = Pipeline(Article).new.add(AuditHook.new(connection, "ok"), [Event::BeforeValidation])
+audited = Repository(Article).new(connection, ArticleMapping.new(seen), audit_pipeline)
+audited.unit_of_work.run do
+  assert !audited.valid?(Article.new(slug: nil)).or_panic
+  assert connection.query("SELECT COUNT(*) AS n FROM audit").or_panic[0]["n"] == 0_i64
+  audited.validate(Article.new)
+end.or_panic
+assert connection.query("SELECT COUNT(*) AS n FROM audit").or_panic[0]["n"] == 1_i64
+assert !audited.unit_of_work.active?
+assert repository.query.count.or_panic == 0_i64
+other = Connection.open(":memory:").or_panic
+wrong_unit = Repository(Article).new(connection, ArticleMapping.new(seen), unit: Repository(Article).new(other, ArticleMapping.new(seen)).unit_of_work)
+assert wrong_unit.valid?(Article.new).is_a?(DatabaseError)
+wrong_context = Repository(Article).new(connection, ArticleMapping.new(seen), context: Repository(Article).new(other, ArticleMapping.new(seen)).model_context)
+assert wrong_context.valid?(Article.new).is_a?(DatabaseError)
+other.close.or_panic
+connection.close.or_panic

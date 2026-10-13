@@ -1,0 +1,209 @@
+module validation_context_test
+
+import fixtures/context_model::{Publication}
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/validation::{Context, Rules, Presence, Options}
+import grant/lifecycle::{Pipeline, Callback, Around, Continuation, AroundError, Event, WriteContext, CallbackCondition, CallbackConditions}
+
+struct Article
+  getter title : String
+  getter slug : String?
+  getter summary : String?
+  getter notes : String?
+  getter id : Int64?
+
+  def initialize(@title : String = "Title", @slug : String? = "slug", @summary : String? = nil,
+                 @notes : String? = nil, @id : Int64? = nil)
+  end
+end
+
+struct ArticleMapping
+  @seen : Array(String)
+
+  def initialize(@seen : Array(String))
+  end
+end
+
+impl Mapping(Article) for ArticleMapping
+  def table : Table
+    Table.new("articles")
+  end
+
+  def attributes(record : Article) : Attributes
+    {"id" => record.id, "title" => record.title, "slug" => record.slug,
+     "summary" => record.summary, "notes" => record.notes} of String => Value
+  end
+
+  def from_row(row : Row) : Article | DatabaseError
+    id = row["id"]
+    title = row["title"]
+    slug = row["slug"]
+    summary = row["summary"]
+    notes = row["notes"]
+    if id.is_a?(Int64) && title.is_a?(String) && (slug.nil? || slug.is_a?(String)) && (summary.nil? || summary.is_a?(String)) && (notes.nil? || notes.is_a?(String))
+      Article.new(title, slug, summary, notes, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid article")
+    end
+  end
+
+  def validate(record : Article) : Nil | ValidationError
+    validate(record, Context.new)
+  end
+
+  def validate(record : Article, context : Context) : Nil | ValidationError
+    @seen << "#{context.operation}:#{context.names.join(",")}:#{context.persisted_id}"
+    Rules.new.add(Presence.new("title"))
+      .add(Presence.new("slug", options: Options.new(on: "create")))
+      .add(Presence.new("notes", options: Options.new(on: "update")))
+      .add(Presence.new("summary", options: Options.new(on: "publish")))
+      .validate(attributes(record), context).result
+  end
+end
+
+struct Hook
+  @log : Array(String)
+  @label : String
+  @abort : Bool
+
+  def initialize(@log : Array(String), @label : String, @abort : Bool = false)
+  end
+end
+
+impl Callback(Article) for Hook
+  def call(event : Event, record : Article) : Article | DatabaseError | ValidationError | CallbackAbort
+    @log << @label
+    @abort ? CallbackAbort.new("context halt") : record
+  end
+end
+
+struct Wrapper
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Around(Article) for Wrapper
+  def call(event : Event, record : Article, continuation : Continuation(Article)) : Article | Nil | AroundError
+    @log << "around:before"
+    result = continuation.call(record)
+    @log << "around:after"
+    result
+  end
+end
+
+struct Never
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl CallbackCondition(Article) for Never
+  def applies?(event : Event, record : Article) : Bool
+    @log << "predicate"
+    false
+  end
+end
+
+# Upstream contexts_spec.cr: custom contexts replace create/update, arrays
+# select any matching context and explicit save runs every validator.
+contexts = ["publish"]
+context = Context.new("update", persisted_id: 7_i64, contexts: contexts)
+contexts << "create"
+assert context.names == ["publish"]
+copy = context.names
+copy.clear
+assert context.name == "publish" && context.persisted_id == 7_i64
+assert !context.applies_to?("create") && context.applies_to?("publish")
+assert context.applies_to?(nil) && context.applies_to?("save")
+assert Context.new("create").name == "create"
+assert Context.new("create", contexts: [] of String).names.empty?
+assert Context.new("create", "save").applies_to?("publish")
+filters = ["create", "publish"]
+options = Options.new(on: filters)
+filters.clear
+assert options.applies?(nil, Context.new("create"))
+assert options.applies?(nil, Context.new("update", "publish"))
+assert !options.applies?(nil, Context.new("update"))
+assert !Options.new(on: [] of String).applies?(nil, Context.new("create"))
+assert Options.new(on: [] of String).applies?(nil, Context.new("create", "save"))
+assert Options.new(allow_nil: true, on: ["publish"]).applies?(nil, Context.new("create", "save")) == false
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE articles(id INTEGER PRIMARY KEY, title TEXT, slug TEXT, summary TEXT, notes TEXT)").or_panic
+seen = [] of String
+log = [] of String
+pipeline = Pipeline(Article).new
+on_create = ["create"]
+pipeline.add_validation(Hook.new(log, "before_create"), [Event::BeforeValidation], on_create).or_panic
+on_create.clear
+pipeline.add_validation(Hook.new(log, "after_update_or_publish"), [Event::AfterValidation], ["update", "publish"]).or_panic
+pipeline.add_around_validation(Wrapper.new(log), ["publish"])
+pipeline.add_validation(Hook.new(log, "unreachable"), [Event::BeforeValidation], [] of String).or_panic
+pipeline.add_validation(Hook.new(log, "conditional"), [Event::BeforeValidation], ["publish"], conditions: CallbackConditions(Article).new(if_all: [Never.new(log)] of CallbackCondition(Article))).or_panic
+assert pipeline.add_validation(Hook.new(log, "invalid"), [Event::BeforeSave], ["create"]).is_a?(DatabaseError)
+repository = Repository(Article).new(connection, ArticleMapping.new(seen), pipeline)
+saved = repository.insert(Article.new).or_panic
+id = saved.id.as(Int64)
+assert log == ["before_create"]
+assert seen.last == "create:create:"
+log.clear
+assert repository.update(repository.query, id, Article.new(slug: nil)).is_a?(ValidationError)
+assert log == ["after_update_or_publish"]
+log.clear
+assert repository.insert(Article.new, validation_context: ["publish"]).is_a?(ValidationError)
+assert log == ["around:before", "predicate", "after_update_or_publish", "around:after"]
+assert seen.last == "create:publish:"
+log.clear
+published = repository.insert(Article.new(slug: nil, summary: "s"), validation_context: ["publish"]).or_panic
+assert !published.id.nil?
+assert !log.includes?("before_create")
+assert !log.includes?("conditional")
+# An explicit custom context does not activate create/update-only validators.
+repository.update(repository.query, id, Article.new(slug: nil, summary: "s"), validation_context: ["publish"]).or_panic
+assert seen.last == "update:publish:#{id}"
+assert repository.find(id).or_panic.as(Article).slug.nil?
+log.clear
+assert repository.insert(Article.new(summary: "s"), validation_context: ["create", "update"]).is_a?(ValidationError)
+assert log == ["before_create", "after_update_or_publish"]
+log.clear
+assert repository.insert(Article.new, validation_context: ["save"]).is_a?(ValidationError)
+# Unlike validators, callback context names match literally (save is not a
+# wildcard for before_create or after_update_or_publish).
+assert log.empty?
+assert repository.insert(Article.new(title: ""), validation_context: [] of String).is_a?(ValidationError)
+repository.insert(Article.new(slug: nil), validation_context: [] of String).or_panic
+
+# Context-selected halts rollback and do not poison an outer transaction.
+halt = Pipeline(Article).new
+halt.add_validation(Hook.new(log, "halt", true), [Event::AfterValidation], ["publish"]).or_panic
+halt_repository = Repository(Article).new(connection, ArticleMapping.new(seen), halt)
+count = repository.query.count.or_panic
+halt_repository.unit_of_work.run do
+  assert halt_repository.insert(Article.new(summary: "s"), validation_context: ["publish"]).is_a?(CallbackAbort)
+  halt_repository.insert(Article.new)
+end.or_panic
+assert repository.query.count.or_panic == count + 1_i64
+# Context from a failed write does not leak into the next operation.
+assert seen.last == "create:create:"
+# Inline col policies share the native context list semantics, including
+# per-rule overrides of shared options and mixed string/symbol names.
+Publication.schema.create(connection).or_panic
+publications = Repository(Publication).new(connection, Publication.mapping)
+assert publications.insert(Publication.new).is_a?(ValidationError)
+publication = publications.insert(Publication.new(title: "Title", code: "bad")).or_panic
+assert publications.insert(Publication.new(title: "Title"), validation_context: ["publish"]).is_a?(ValidationError)
+publications.insert(Publication.new(summary: "summary"), validation_context: ["review"]).or_panic
+assert publications.update(publications.query, publication.id || 0_i64, Publication.new).is_a?(ValidationError)
+publications.update(publications.query, publication.id || 0_i64, Publication.new(summary: "summary"), validation_context: ["review"]).or_panic
+assert publications.insert(Publication.new(title: "Title", summary: "summary", notes: "notes", code: "bad"), validation_context: ["save"]).is_a?(ValidationError)
+assert publications.insert(Publication.new(title: "Title", summary: "summary"), validation_context: ["publish", "update"]).is_a?(ValidationError)
+publications.insert(Publication.new(title: "Title", summary: "summary", notes: "notes", code: "a@b.com"), validation_context: ["save"]).or_panic
+connection.close.or_panic

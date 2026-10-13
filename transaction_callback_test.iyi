@@ -1,0 +1,212 @@
+module transaction_callback_test
+import std/indexable
+
+import grant/adapters/sqlite::{Connection}
+import grant/database::{Database}
+import grant/model::{Repository, Mapping}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Event, Callback}
+import grant/unit_of_work::{UnitOfWork, Action}
+
+struct Person
+  getter id : Int64?
+  getter name : String
+
+  def initialize(@name : String, @id : Int64? = nil)
+  end
+end
+
+struct PersonMapping
+end
+
+impl Mapping(Person) for PersonMapping
+  def table : Table
+    Table.new("people")
+  end
+
+  def attributes(record : Person) : Attributes
+    {"id" => record.id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Person | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    if id.is_a?(Int64) && name.is_a?(String)
+      Person.new(name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid person row")
+    end
+  end
+
+  def validate(record : Person) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct Label
+  @log : Array(String)
+  @name : String
+
+  def initialize(@log : Array(String), @name : String)
+  end
+end
+
+impl Callback(Person) for Label
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    @log << @name
+    record
+  end
+end
+
+struct AbortAfterWrite
+end
+
+impl Callback(Person) for AbortAfterWrite
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    record.name == "halt" ? CallbackAbort.new("after write halt") : record
+  end
+end
+
+# commit_on_option_spec.cr and commit_dedup_savepoint_spec.cr parity.
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+log = [] of String
+pipeline = Pipeline(Person).new
+on = [Action::Create, Action::Update]
+pipeline.add_transaction(Label.new(log, "cu"), [Event::AfterCommit], on).or_panic
+on.clear # Registration owns its filter list.
+pipeline.add_transaction(Label.new(log, "destroy"), [Event::AfterCommit], [Action::Destroy]).or_panic
+pipeline.after_commit(Label.new(log, "any")).or_panic
+pipeline.add_transaction(Label.new(log, "rb_create"), [Event::AfterRollback], [Action::Create]).or_panic
+pipeline.add_transaction(Label.new(log, "rb_ud"), [Event::AfterRollback], [Action::Update, Action::Destroy]).or_panic
+pipeline.after_rollback(Label.new(log, "rb_any")).or_panic
+pipeline.add_transaction(Label.new(log, "never"), [Event::AfterCommit], [] of Action).or_panic
+assert pipeline.add_transaction(Label.new(log, "invalid"), [Event::AfterCommit, Event::BeforeSave], [Action::Create]).is_a?(DatabaseError)
+pipeline.add(AbortAfterWrite.new, [Event::AfterCreate, Event::AfterUpdate])
+unit = UnitOfWork.new(connection)
+repository = Repository(Person).new(connection, PersonMapping.new, pipeline, unit)
+record = repository.insert(Person.new("a")).or_panic
+id = record.id || 0_i64
+assert log == ["cu", "any"]
+log.clear
+repository.update(repository.query, id, Person.new("b", id)).or_panic
+assert log == ["cu", "any"]
+log.clear
+repository.destroy(repository.query, id).or_panic
+assert log == ["destroy", "any"]
+log.clear
+assert unit.run do
+  repository.insert(Person.new("rollback create")).or_panic
+  CallbackAbort.new("rollback")
+end.is_a?(CallbackAbort)
+assert log == ["rb_create", "rb_any"]
+log.clear
+record = repository.insert(Person.new("persisted")).or_panic
+id = record.id || 0_i64
+log.clear
+assert unit.run do
+  repository.update(repository.query, id, Person.new("changed", id)).or_panic
+  CallbackAbort.new("rollback")
+end.is_a?(CallbackAbort)
+assert log == ["rb_ud", "rb_any"]
+assert repository.find(id).or_panic.as(Person).name == "persisted"
+log.clear
+unit.run do
+  fresh = repository.insert(Person.new("new")).or_panic
+  fresh_id = fresh.id || 0_i64
+  repository.update(repository.query, fresh_id, Person.new("v2", fresh_id)).or_panic
+  repository.update(repository.query, fresh_id, Person.new("v3", fresh_id)).or_panic
+  assert log.empty?
+  nil
+end.or_panic
+assert log == ["cu", "any"]
+# Separate explicit operation filters demonstrate create winning over update.
+operations = [] of String
+operation_pipeline = Pipeline(Person).new
+operation_pipeline.add_transaction(Label.new(operations, "create"), [Event::AfterCommit, Event::AfterRollback], [Action::Create]).or_panic
+operation_pipeline.add_transaction(Label.new(operations, "update"), [Event::AfterCommit, Event::AfterRollback], [Action::Update]).or_panic
+operation_pipeline.add_transaction(Label.new(operations, "destroy"), [Event::AfterCommit, Event::AfterRollback], [Action::Destroy]).or_panic
+operation_repository = Repository(Person).new(connection, PersonMapping.new, operation_pipeline)
+operation_unit = operation_repository.unit_of_work
+operation_unit.run do
+  fresh = operation_repository.insert(Person.new("create/update")).or_panic
+  operation_repository.update(operation_repository.query, fresh.id || 0_i64, Person.new("updated")).or_panic
+  nil
+end.or_panic
+assert operations == ["create"]
+operations.clear
+operation_unit.run do
+  fresh = operation_repository.insert(Person.new("create/destroy")).or_panic
+  operation_repository.destroy(operation_repository.query, fresh.id || 0_i64).or_panic
+  nil
+end.or_panic
+assert operations == ["destroy"]
+operations.clear
+persisted = operation_repository.insert(Person.new("update/destroy")).or_panic
+operations.clear
+assert operation_unit.run do
+  operation_repository.update(operation_repository.query, persisted.id || 0_i64, Person.new("updated")).or_panic
+  operation_repository.destroy(operation_repository.query, persisted.id || 0_i64).or_panic
+  CallbackAbort.new("rollback both")
+end.is_a?(CallbackAbort)
+assert operations == ["destroy"]
+assert !operation_repository.find(persisted.id || 0_i64).or_panic.nil?
+operations.clear
+operation_unit.run do
+  fresh = operation_repository.insert(Person.new("survives")).or_panic
+  fresh_id = fresh.id || 0_i64
+  assert operation_unit.run(requires_new: true) do
+    operation_repository.destroy(operation_repository.query, fresh_id).or_panic
+    CallbackAbort.new("undo destroy")
+  end.is_a?(CallbackAbort)
+  assert operations == ["destroy"] # The savepoint gets its own rollback action.
+  assert !operation_repository.find(fresh_id).or_panic.nil?
+  nil
+end.or_panic
+assert operations == ["destroy", "create"] # Destroy never merges into parent.
+operations.clear
+# Nested successful frames contribute to the outer action and notify once.
+operation_unit.run do
+  fresh = operation_repository.insert(Person.new("nested destroy")).or_panic
+  operation_unit.run(requires_new: true) do
+    operation_repository.destroy(operation_repository.query, fresh.id || 0_i64)
+  end.or_panic
+  assert operations.empty?
+  nil
+end.or_panic
+assert operations == ["destroy"]
+log.clear
+unit.run do
+  repository.insert(Person.new("one")).or_panic
+  repository.insert(Person.new("two")).or_panic
+  nil
+end.or_panic
+assert log == ["cu", "any", "cu", "any"]
+log.clear
+repository.update(repository.query, id, Person.new("later")).or_panic
+assert log == ["cu", "any"]
+log.clear
+assert repository.insert(Person.new("halt")).is_a?(CallbackAbort)
+assert log == ["rb_create", "rb_any"]
+assert repository.query.where("name", "halt").count.or_panic == 0_i64
+log.clear
+assert repository.update(repository.query, id, Person.new("halt")).is_a?(CallbackAbort)
+assert log == ["rb_ud", "rb_any"]
+assert repository.find(id).or_panic.as(Person).name == "later"
+# Touch and clean updates resolve to update; failed/missing operations do not
+# invent contributions or notifications.
+log.clear
+repository.touch(repository.query, id, {"name" => "touched"} of String => Value).or_panic
+assert log == ["cu", "any"]
+log.clear
+baseline = repository.attributes(repository.find(id).or_panic.as(Person))
+repository.update_changed(repository.query, id, Person.new("touched", id), baseline).or_panic
+assert log == ["cu", "any"]
+log.clear
+assert repository.destroy(repository.query, -1_i64).or_panic.nil?
+assert log.empty?
+assert repository.insert(Person.new("")).is_a?(ValidationError)
+assert log.empty?
+connection.close.or_panic

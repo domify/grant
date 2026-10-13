@@ -1,0 +1,126 @@
+module format_convenience_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError}
+import grant/validation::{Rules, Options, Context}
+import grant/validators::{Email, Url, Format, When, Condition, email_pattern, url_pattern}
+
+email = Rules.new.add(Email.new("email"))
+["user@example.com", "USER@EXAMPLE.COM", "a+b.c-d_0@sub-domain.example.co.uk", ".@x.c", "a@-x.example"].each do |value|
+  assert email.validate({"email" => value} of String => Value).empty?
+end
+["invalid", "a@localhost", "a@b.123", "a@@b.com", "a b@c.com", "a@b_com.c", " a@b.com", "a@b.com\n"].each do |value|
+  issues = email.validate({"email" => value} of String => Value)
+  assert issues["email"] == ["is not a valid email"]
+  assert issues.of_type?("email", "invalid", {"value" => value} of String => Value)
+end
+assert !email.validate({"email" => nil} of String => Value).empty?
+assert !email.validate({"email" => 42_i64} of String => Value).empty?
+assert Rules.new.add(Email.new("email", Options.new(allow_nil: true))).validate({"email" => nil} of String => Value).empty?
+assert Rules.new.add(Email.new("email", Options.new(allow_blank: true))).validate({"email" => " "} of String => Value).empty?
+assert Rules.new.add(Email.new("email", Options.new(message: "bad address"))).validate({"email" => "bad"} of String => Value)["email"] == ["bad address"]
+assert Rules.new.add(Email.new("email", without: true)).validate({"email" => "bad"} of String => Value).empty?
+assert !Rules.new.add(Email.new("email", without: true)).validate({"email" => "a@b.com"} of String => Value).empty?
+
+url = Rules.new.add(Url.new("url"))
+["http://example.com", "https://www.example.com", "https://example.com/path?q=1&b=two#fragment", "https://EXAMPLE.COM", "http://127.0.0.1", "http://a.x/", "https://example.com:443"].each do |value|
+  assert url.validate({"url" => value} of String => Value).empty?
+end
+["not-a-url", "ftp://example.com", "HTTP://example.com", "https://localhost", "https://example.toolong", "https://example.com/a b", "https://example.com\n"].each do |value|
+  issues = url.validate({"url" => value} of String => Value)
+  assert issues["url"] == ["is not a valid URL"]
+  assert issues.of_type?("url", "invalid", {"value" => value} of String => Value)
+end
+assert url.validate({"url" => "https://" + "a" * 256 + ".com"} of String => Value).empty?
+assert !url.validate({"url" => "https://" + "a" * 257 + ".com"} of String => Value).empty?
+assert !url.validate({"url" => nil} of String => Value).empty?
+assert !url.validate({"url" => false} of String => Value).empty?
+assert Rules.new.add(Url.new("url", Options.new(allow_nil: true))).validate({"url" => nil} of String => Value).empty?
+assert Rules.new.add(Url.new("url", Options.new(allow_blank: true))).validate({"url" => ""} of String => Value).empty?
+assert Rules.new.add(Url.new("url", Options.new(message: "bad link"))).validate({"url" => "bad"} of String => Value)["url"] == ["bad link"]
+assert Rules.new.add(Url.new("url", without: true)).validate({"url" => "bad"} of String => Value).empty?
+assert !Rules.new.add(Url.new("url", without: true)).validate({"url" => "http://a.com"} of String => Value).empty?
+# Reusable patterns support the existing Format API and custom messages.
+assert Rules.new.add(Format.new("email", email_pattern)).validate({"email" => "a@B.COM"} of String => Value).empty?
+assert Rules.new.add(Format.new("url", url_pattern)).validate({"url" => "http://a.com"} of String => Value).empty?
+contextual = Rules.new.add(Email.new("email", Options.new(on: "create"))).add(Url.new("url", Options.new(on: "publish")))
+assert contextual.validate(Attributes.new, Context.new("update")).empty?
+assert contextual.validate(Attributes.new, Context.new("create")).size == 1
+assert contextual.validate(Attributes.new, Context.new("update", "publish")).size == 1
+
+struct Enabled
+end
+
+impl Condition for Enabled
+  def applies?(attributes : Attributes, context : Context) : Bool
+    attributes["enabled"]? == true
+  end
+end
+
+conditional = Rules.new.add(When.new(Email.new("email"), Enabled.new))
+assert conditional.validate({"enabled" => false} of String => Value).empty?
+assert !conditional.validate({"enabled" => true} of String => Value).empty?
+
+struct Contact
+  getter id : Int64?
+  getter email : String
+  getter url : String
+
+  def initialize(@email : String, @url : String, @id : Int64? = nil)
+  end
+end
+
+struct ContactMapping
+  @rules : Rules
+
+  def initialize
+    @rules = Rules.new.add(Email.new("email")).add(Url.new("url"))
+  end
+end
+
+impl Mapping(Contact) for ContactMapping
+  def table : Table
+    Table.new("contacts")
+  end
+
+  def attributes(record : Contact) : Attributes
+    {"id" => record.id, "email" => record.email, "url" => record.url} of String => Value
+  end
+
+  def from_row(row : Row) : Contact | DatabaseError
+    id = row["id"]
+    email = row["email"]
+    url = row["url"]
+    if id.is_a?(Int64) && email.is_a?(String) && url.is_a?(String)
+      Contact.new(email, url, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid contact row")
+    end
+  end
+
+  def validate(record : Contact) : Nil | ValidationError
+    @rules.validate(attributes(record)).result
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE contacts(id INTEGER PRIMARY KEY, email TEXT NOT NULL, url TEXT NOT NULL)").or_panic
+repository = Repository(Contact).new(connection, ContactMapping.new)
+assert repository.insert(Contact.new("invalid", "invalid")).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+saved = repository.insert(Contact.new("USER@EXAMPLE.COM", "https://example.com")).or_panic
+id = saved.id || 0_i64
+assert saved.email == "USER@EXAMPLE.COM"
+assert repository.update(repository.query, id, Contact.new("bad", "bad")).is_a?(ValidationError)
+loaded = repository.find(id).or_panic
+assert !loaded.nil?
+assert loaded.email == saved.email && loaded.url == saved.url if loaded
+repository.unit_of_work.run do
+  assert repository.insert(Contact.new("bad", "http://example.com")).is_a?(ValidationError)
+  repository.insert(Contact.new("another@example.com", "http://example.com"))
+end.or_panic
+assert repository.query.count.or_panic == 2_i64
+connection.close.or_panic

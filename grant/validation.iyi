@@ -111,7 +111,29 @@ pub struct Context
   getter name : String
   getter persisted_id : Int64?
 
-  def initialize(@operation : String = "save", @name : String = "save", @persisted_id : Int64? = nil)
+  @contexts : Array(String)
+
+  def initialize(@operation : String = "save", name : String? = nil, @persisted_id : Int64? = nil,
+                 contexts : Array(String)? = nil)
+    @contexts = contexts ? contexts.map { |value| value } : [name || operation]
+    @name = @contexts.empty? ? "" : @contexts.first
+  end
+
+  def names : Array(String)
+    @contexts.map { |value| value }
+  end
+
+  def includes?(name : String) : Bool
+    @contexts.includes?(name)
+  end
+
+  def applies_to?(on : String | Array(String) | Nil) : Bool
+    return true if on.nil? || includes?("save")
+    if on.is_a?(Array(String))
+      on.any? { |name| name == "save" || includes?(name) }
+    else
+      on == "save" || includes?(on)
+    end
   end
 end
 
@@ -128,16 +150,22 @@ end
 pub struct Options
   getter allow_nil : Bool
   getter allow_blank : Bool
-  getter on : String?
+  @on : String | Array(String) | Nil
   getter message : String?
 
-  def initialize(@allow_nil : Bool = false, @allow_blank : Bool = false, @on : String? = nil, @message : String? = nil)
+  def initialize(@allow_nil : Bool = false, @allow_blank : Bool = false, on : String | Array(String) | Nil = nil, @message : String? = nil)
+    @on = on.is_a?(Array(String)) ? on.map { |name| name } : on
+  end
+
+  def on : String | Array(String) | Nil
+    value = @on
+    value.is_a?(Array(String)) ? value.map { |name| name } : value
   end
 
   def applies?(value : Value, context : Context) : Bool
     return false if allow_nil && value.nil?
     return false if allow_blank && blank?(value)
-    !on || on == "save" || on == context.operation || on == context.name
+    context.applies_to?(on)
   end
 end
 

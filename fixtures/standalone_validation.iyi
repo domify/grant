@@ -1,0 +1,10 @@
+module fixtures/standalone_validation
+
+import grant/model::*
+
+pub class Login
+  table "logins"
+  col :id, :primary
+  col :handle, :string, presence: true, uniq: true
+  derive model
+end

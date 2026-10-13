@@ -1,0 +1,13 @@
+module fixtures/context_model
+
+import grant/model::*
+
+pub class Publication
+  table "publications"
+  col :id, :primary
+  col :title, :string, presence: {on: [:create, "publish"]}
+  col :summary, :text, presence: {message: "required"}, on: [:publish, "review"]
+  col :notes, :text, presence: {on: :update}, on: [:create]
+  col :code, :string, email: {on: [] of String}
+  derive model
+end

@@ -1,0 +1,20 @@
+module fixtures/format_model
+
+import grant/model::*
+
+pub class Contact
+  table "contacts"
+  col :id, :primary
+  col :email, :string, email: true
+  col :website, :text, url: {message: "bad website"}
+  derive model
+end
+
+pub class OptionalContact
+  table "optional_contacts"
+  col :id, :primary
+  col :email, :string, email: {allow_nil: true, on: :create}, allow_nil: false
+  col :website, :string, url: {allow_blank: true, message: "bad link"}, message: "shared"
+  col :ignored, :integer, email: false, url: false
+  derive model
+end

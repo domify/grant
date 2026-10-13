@@ -135,3 +135,162 @@ Still pending:
 associated-record validation, strict error policies, translation/message
 callbacks and the remaining imported behavior cases. Native rule coverage is
 partial, not a claim of complete Crystal validator parity.
+
+## Email and URL convenience rules
+
+`Email.new(attribute, options: Options.new, without: false)` and
+`Url.new(attribute, options: Options.new, without: false)` in `grant/validators`
+wrap Format with the imported Grant common patterns. Default messages are
+"is not a valid email" and "is not a valid URL"; issue code remains `invalid`,
+including the supplied value. Nil/blank/context/custom message options and typed
+When conditions retain Format semantics. These validators do not normalize,
+parse or rewrite the stored value.
+
+`email_pattern` and `url_pattern` return the reusable Regex patterns for explicit
+Format rules. The native email pattern expands ASCII upper/lowercase pairs
+because iyi Regex has no case-insensitive flag. The URL pattern preserves the
+source's lowercase http/https scheme, 256-character host portion, 1–6-character
+suffix and allowed path/query/fragment characters. It accepts port suffixes.
+These are the source's conventional format checks, including its permissive
+address/domain forms; they are not comprehensive email or URL parsers.
+
+`format_convenience_test.iyi` translates email/URL cases from upstream
+`spec/grant/validators/built_in_spec.cr` and adds anchored patterns, boundary
+lengths, options, details, conditional rules and SQLite insert/update/rollback
+checks. The source-free artifact gate includes it. Derived models support inline `col :email, :string, email: true` and
+`col :website, :text, url: true`; see RAILS-DSL.md. Remaining general validators
+are still pending.
+
+## General comparison rules
+
+`ComparisonRule` in `grant/comparison_validation` implements the source's
+`validates_comparison_of` separately from Numericality. Register it in CheckedRules
+with a copied array of `ValueConstraint(Comparison, Operand)` values. Use
+`LiteralOperand(value)`, existing `AttributeOperand(name)` or an application
+Operand policy evaluated against attributes/context. Unlike Numericality, it
+does not parse numeric text or coerce strings to numbers.
+
+Ordered comparisons support String/String, Date/Date, DateTime/DateTime, exact
+Decimal/Decimal, Decimal/Int64 and finite Int64/Float64 combinations. Integer/float
+comparisons preserve integer precision, including integers beyond 2^53 and Int64
+boundaries. Decimal values never pass through Float64. Equality/other-than also
+support the remaining Value types, with exact Decimal/Int64 equality. UTC
+DateTime comparison uses the instant, independent of its parsed offset.
+
+Nil input produces `blank` before operand evaluation. A resolved nil bound
+produces a `comparison` issue. Each false comparison reports its own code, count
+and value, using the standard imported messages or Options.message. Nil/blank,
+context and checked conditional policies retain their usual semantics.
+Operand evaluation failures and incompatible ordered types return DatabaseError;
+this adapts source configuration errors without inventing a passing result.
+Ordering non-finite floats, mixing decimal with float, or mixing Date with
+DateTime is explicitly rejected. Convert with an application policy if intended.
+
+`comparison_validation_test.iyi` ports the focused upstream age, attribute-bound
+interval and other-than status cases and verifies string/temporal/exact-decimal
+ordering, integer/float precision, issue details/order, nil bounds, evaluation
+errors, options, copied constraints and SQLite validation rollback. It is also a
+source-free artifact consumer. Derived models support inline comparison
+declarations with literal or mapped field operands; see RAILS-DSL.md. Dynamic application Operand policies remain
+explicit typed rules in mapping validation.
+
+## Validator condition lists
+
+`ConditionSet.new(if_all: [...], unless_any: [...])` implements Condition and
+can be supplied to scalar When, checked DatabaseWhen or normalization Plan.add.
+Every positive term must hold and every negative term must be false. Empty lists
+pass. Evaluation short-circuits in list order; positive terms precede negative
+terms. Lists are copied, policies remain caller-owned, and nested sets are valid.
+Existing single-condition and inversion APIs remain compatible. Policies receive
+the same attributes/Context as the rule; checked evaluation failures propagate
+through eligible DatabaseWhen rules, and skipped rules execute no SQL.
+
+`condition_arrays_test.iyi` ports focused cases from upstream
+`spec/grant/validations/condition_arrays_spec.cr`: AND/UNLESS lists, combined
+lists and custom rules, with additional copied-list, nesting, context, inversion,
+normalization, conditional SQLite uniqueness and repository rollback cases.
+A condition panic returns Panicked from repository writes and rolls back their
+transaction; direct rule/plan calls retain the native panic semantics.
+
+`format_model_test.iyi` verifies inline email/URL declarations in a separate
+producer module, options and disabled declarations, create-only validation,
+SQLite writes, rejected updates and nested transaction recovery. Both test
+programs are included in the native and source-free artifact gates.
+
+`comparison_model_test.iyi` repeats the focused upstream comparison cases through
+separate derived-model declarations, checking unknown/incompatible operands,
+options and nil bounds, exact decimal/date/time values and SQLite write rollback.
+Inline comparison receives assigned typed values, preserving nanoseconds before
+col timestamp storage precision is applied. Hydration still follows declared
+storage precision. The test joins the native and source-free artifact gates.
+
+## Explicit validation contexts
+
+Context retains the write `operation` and authoritative `persisted_id`, separately
+from its copied active `names`. Without an explicit name/list, the operation is
+its active context. A supplied name or `contexts: ["create", "publish"]` replaces
+that default; `name` exposes the first active name (empty string for an empty
+list). Returned name lists are copies. Context.includes? matches literally.
+
+Options.on accepts a string, copied string list, or nil. A rule runs if any of its
+contexts match; nil and the rule context save run unconditionally. An explicit
+active save context runs every rule, as in upstream Grant. Nil/blank skipping
+still applies before context selection. An empty active list runs only
+unconditional/save rules; an empty on list runs only for an explicit active save.
+
+Repository insert/update/update_changed accept `validation_context: ["publish"]`.
+An update still exposes operation update and the actual persisted ID to SQL rules,
+even with a custom validation context and a nil input record ID. Before/after/
+around validation callback filters use the same active names; see LIFECYCLE.md.
+This replaces source record-local context mutation with an immutable caller-owned
+value. Inline model declarations accept literal on arrays of symbols/strings, shared
+or per rule. Standalone model and repository helpers are described below.
+
+`validation_context_test.iyi` translates focused default/custom/array/save context
+cases from upstream `spec/grant/validations/contexts_spec.cr`, and exercises actual
+SQLite insert/update validation, callback ordering, nested rollback and source-free
+consumption. Existing uniqueness tests cover persisted-ID exclusion.
+
+
+## Standalone validation
+
+`repository.validate(record, context: "publish")` returns the rebuilt `T` or
+`ValidationError`, `DatabaseError`, `CallbackAbort`, `Panicked` or `Cancelled`.
+It runs normalization, AroundValidation, BeforeValidation, mapping validators and
+AfterValidation without saving or observing the record for transaction callbacks.
+`context` accepts a string, copied string list or nil, with the same selection
+rules as save validation. Default operation/context is create for a nil mapped
+primary key and update for an Int64 key. A non-Int64 key fails explicitly while
+composite/string model keys remain unported. A non-nil key is treated as persisted;
+there is no hidden new-record flag. `persisted_id:` supplies an authoritative
+update key for nil-ID inputs and uniqueness self-exclusion without fetching a row.
+Validation does not check that the referenced row exists.
+
+`repository.valid?` returns false only for evaluated ValidationError and true for
+success. `invalid?` reverses that Boolean. SQL/configuration failures, callback
+halts and task failures remain error values in both helpers. Callers can inspect
+full validation messages via `validate`. No previous run's errors/context are
+stored on the record. `skip_normalization: true` affects only this run; the default
+applies the mapping's assignment policy and returns a rebuilt record. The original
+input remains unchanged unless an application callback itself mutates a class.
+
+Derived models offer `record.valid?(repository)`, `invalid?`, and the source
+Boolean alias `validate`, accepting the same optional context, persisted ID and
+normalization controls. `record.validated(repository)` returns the rebuilt record
+or error, replacing the source's exception-raising validate! with a native error
+union. Supplying the repository preserves the caller-owned connection/session
+boundary; instance helpers do not discover or open a connection.
+
+Standalone validation owns a nested savepoint through the repository UnitOfWork.
+Callback SQL commits on successful validation and rolls back on validation errors,
+halts, invalid continuations or panics, even when a caller catches the error in
+an outer transaction. This strengthens the source's non-transactional standalone
+callback behavior consistently with native save semantics. No save/create/update/
+commit/rollback record callbacks are dispatched for validation itself. Callbacks
+that deliberately save other records retain those records' usual lifecycle.
+
+`standalone_validation_test.iyi` ports focused valid?/invalid?/context cases from
+upstream `spec/grant/validations/contexts_spec.cr` and checks normalization/skip,
+no persistence, explicit IDs, derived model helpers, uniqueness SQL failures,
+conditional validation callbacks, panic/abort rollback, outer savepoint recovery
+and mismatched contexts/sessions. It is registered in the source-free gate.

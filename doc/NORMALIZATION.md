@@ -58,3 +58,11 @@ for model normalization and lifecycle behavior.
 conditional rules, automatic query coercion, unchanged inputs, legacy hydration
 and invalid transformed field types. It is partial parity coverage, not a full
 replacement for every imported normalization case.
+
+
+Standalone Repository.validate and the model validated helper use this same
+normalization boundary. They return a rebuilt record without writing it.
+`skip_normalization: true` bypasses the mapping normalizer for that call; it is not
+stored on a model or session and does not affect subsequent saves/validations.
+Standalone valid?/invalid? run normalization but return Boolean/error values;
+use the record-returning helper when the normalized attributes are needed.

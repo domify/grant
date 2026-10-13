@@ -1,0 +1,211 @@
+module callback_conditions_test
+
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Callback, Around, Continuation, AroundError, Event, CallbackCondition, CallbackConditions}
+
+struct Document
+  getter id : Int64?
+  getter name : String
+
+  def initialize(@name : String, @id : Int64? = nil)
+  end
+end
+
+struct DocumentMapping
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Mapping(Document) for DocumentMapping
+  def table : Table
+    Table.new("documents")
+  end
+
+  def attributes(record : Document) : Attributes
+    {"id" => record.id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Document | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    if id.is_a?(Int64) && name.is_a?(String)
+      Document.new(name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid document row")
+    end
+  end
+
+  def validate(record : Document) : Nil | ValidationError
+    @log << "validation"
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+class Predicate
+  @log : Array(String)
+  @label : String
+  property matches : String
+  property panic : Bool
+
+  def initialize(@log : Array(String), @label : String, @matches : String)
+    @panic = false
+  end
+end
+
+impl CallbackCondition(Document) for Predicate
+  def applies?(event : Event, record : Document) : Bool
+    @log << "#{@label}:#{event}:#{record.name}"
+    raise "condition panic" if @panic
+    record.name == @matches
+  end
+end
+
+struct Hook
+  @log : Array(String)
+  @name : String
+  @replacement : String?
+  @abort : Bool
+
+  def initialize(@log : Array(String), @name : String, @replacement : String? = nil, @abort : Bool = false)
+  end
+end
+
+impl Callback(Document) for Hook
+  def call(event : Event, record : Document) : Document | DatabaseError | ValidationError | CallbackAbort
+    @log << @name
+    return CallbackAbort.new("conditional abort") if @abort
+    name = @replacement
+    name ? Document.new(name, record.id) : record
+  end
+
+  def readonly_attributes : Array(String)
+    ["created_at"]
+  end
+end
+
+struct Wrapper
+  @log : Array(String)
+  @label : String
+  @replacement : String?
+
+  def initialize(@log : Array(String), @label : String, @replacement : String? = nil)
+  end
+end
+
+impl Around(Document) for Wrapper
+  def call(event : Event, record : Document, continuation : Continuation(Document)) : Document | Nil | AroundError
+    @log << "#{@label}:before"
+    name = @replacement
+    result = continuation.call(name ? Document.new(name, record.id) : record)
+    @log << "#{@label}:after"
+    result
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE documents(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+log = [] of String
+positive = Predicate.new(log, "positive", "enabled")
+second = Predicate.new(log, "second", "enabled")
+negative = Predicate.new(log, "negative", "blocked")
+terms = [positive, second] of CallbackCondition(Document)
+negatives = [negative] of CallbackCondition(Document)
+conditions = CallbackConditions(Document).new(terms, negatives)
+terms.clear
+negatives.clear
+pipeline = Pipeline(Document).new
+pipeline.add(Hook.new(log, "enabled"), [Event::BeforeSave], conditions: conditions)
+pipeline.add(Hook.new(log, "after"), [Event::AfterSave], conditions: CallbackConditions(Document).new(unless_any: [negative] of CallbackCondition(Document)))
+repository = Repository(Document).new(connection, DocumentMapping.new(log), pipeline)
+repository.insert(Document.new("enabled")).or_panic
+assert log == ["validation", "positive:BeforeSave:enabled", "second:BeforeSave:enabled", "negative:BeforeSave:enabled", "enabled", "negative:AfterSave:enabled", "after"]
+log.clear
+repository.insert(Document.new("disabled")).or_panic
+assert log == ["validation", "positive:BeforeSave:disabled", "negative:AfterSave:disabled", "after"]
+log.clear
+repository.insert(Document.new("blocked")).or_panic
+assert log == ["validation", "positive:BeforeSave:blocked", "negative:AfterSave:blocked"]
+negative.matches = "enabled"
+log.clear
+repository.insert(Document.new("enabled")).or_panic
+assert !log.includes?("enabled") && !log.includes?("after")
+negative.matches = "blocked"
+assert pipeline.readonly_attributes == ["created_at"]
+
+# Empty condition lists pass; later negative terms can veto, and evaluations
+# short-circuit without inspecting policies for an unrelated event.
+log.clear
+assert CallbackConditions(Document).new.applies?(Event::BeforeSave, Document.new("anything"))
+assert !CallbackConditions(Document).new(unless_any: [negative, positive] of CallbackCondition(Document)).applies?(Event::BeforeSave, Document.new("enabled"))
+assert log == ["negative:BeforeSave:enabled", "positive:BeforeSave:enabled"]
+log.clear
+pipeline.run(Event::BeforeDestroy, Document.new("enabled")).or_panic
+assert log.empty?
+second.matches = "different"
+log.clear
+assert !conditions.applies?(Event::BeforeSave, Document.new("enabled"))
+assert log == ["positive:BeforeSave:enabled", "second:BeforeSave:enabled"]
+second.matches = "enabled"
+
+# Conditions see the output of earlier ordinary and around transformations.
+pipeline.add(Hook.new(log, "transform", "enabled"), [Event::BeforeSave], prepend: true)
+log.clear
+repository.insert(Document.new("disabled")).or_panic
+assert log.includes?("enabled")
+outer = Wrapper.new(log, "outer", "enabled")
+pipeline.add_around(outer, [Event::AroundSave])
+pipeline.add_around(Wrapper.new(log, "inner"), [Event::AroundSave], conditions: conditions)
+log.clear
+repository.insert(Document.new("disabled")).or_panic
+assert log.includes?("inner:before") && log.includes?("inner:after")
+assert (log.index("outer:before") || -1) < (log.index("inner:before") || -1)
+assert (log.index("inner:after") || -1) < (log.index("outer:after") || -1)
+
+# A skipped wrapper still executes SQL once and preserves validation failures.
+skipped = Pipeline(Document).new.add_around(Wrapper.new(log, "skipped"), [Event::AroundSave, Event::AroundValidation], conditions: conditions)
+skipped_repository = Repository(Document).new(connection, DocumentMapping.new(log), skipped)
+log.clear
+saved = skipped_repository.insert(Document.new("disabled")).or_panic
+assert !saved.id.nil? && !log.includes?("skipped:before")
+assert skipped_repository.insert(Document.new("")).is_a?(ValidationError)
+assert skipped_repository.query.where("name", "").count.or_panic == 0_i64
+
+# Failed conditional hooks remain atomic when caught inside an outer transaction.
+abort_pipeline = Pipeline(Document).new.add(Hook.new(log, "abort", abort: true), [Event::AfterCreate], conditions: conditions)
+abort_repository = Repository(Document).new(connection, DocumentMapping.new(log), abort_pipeline)
+abort_repository.unit_of_work.run do
+  assert abort_repository.insert(Document.new("enabled")).is_a?(CallbackAbort)
+  abort_repository.insert(Document.new("survivor"))
+end.or_panic
+assert abort_repository.query.where("name", "survivor").count.or_panic == 1_i64
+# Four prior enabled rows, including the two transformations, survive unchanged.
+assert abort_repository.query.where("name", "enabled").count.or_panic == 4_i64
+
+# Predicates run at transaction observer dispatch as well.
+observer = Pipeline(Document).new.add(Hook.new(log, "commit"), [Event::AfterCommit], conditions: conditions)
+observer_repository = Repository(Document).new(connection, DocumentMapping.new(log), observer)
+log.clear
+observer_repository.unit_of_work.run do
+  result = observer_repository.insert(Document.new("enabled"))
+  assert !log.includes?("commit")
+  result
+end.or_panic
+assert log.last == "commit"
+log.clear
+observer_repository.insert(Document.new("disabled")).or_panic
+assert !log.includes?("commit")
+
+# A condition panic after SQL or inside an around wrapper rolls the write back.
+positive.panic = true
+assert abort_repository.insert(Document.new("panicked")).is_a?(Panicked)
+assert abort_repository.query.where("name", "panicked").count.or_panic == 0_i64
+assert skipped_repository.insert(Document.new("around panic")).is_a?(Panicked)
+assert skipped_repository.query.where("name", "around panic").count.or_panic == 0_i64
+connection.close.or_panic

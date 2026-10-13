@@ -1,0 +1,156 @@
+module grant/comparison_validation
+
+import std/float
+import grant/value::{Value, Attributes, Binary}
+import grant/scalars::{Decimal, Date, DateTime}
+import grant/errors::{DatabaseError}
+import grant/validation::{CheckedValidator, Errors, Context, Options}
+import grant/validators::{Comparison}
+import grant/dynamic_validation::{Operand}
+
+pub alias ComparedValue = Bool | Int64 | Float64 | String | Binary | Decimal | Date | DateTime
+
+pub struct LiteralOperand
+  @value : Value
+
+  def initialize(@value : Value)
+  end
+end
+
+impl Operand for LiteralOperand
+  def resolve(attributes : Attributes, context : Context) : Value | DatabaseError
+    @value
+  end
+end
+
+pub struct ValueConstraint
+  getter comparison : Comparison
+  getter operand : Operand
+
+  def initialize(@comparison : Comparison, @operand : Operand)
+  end
+end
+
+# Comparison preserves scalar types rather than parsing text as numericality.
+pub struct ComparisonRule
+  @attribute : String
+  @constraints : Array(ValueConstraint)
+  @options : Options
+
+  def initialize(@attribute : String, constraints : Array(ValueConstraint), @options : Options = Options.new)
+    @constraints = constraints.map { |constraint| constraint }
+  end
+end
+
+impl CheckedValidator for ComparisonRule
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil | DatabaseError
+    value = attributes[@attribute]?
+    return nil unless @options.applies?(value, context)
+    if value.nil?
+      errors.add(@attribute, @options.message || "can't be blank", "blank", {"value" => value} of String => Value)
+      return nil
+    end
+    @constraints.each do |constraint|
+      bound = constraint.operand.resolve(attributes, context)!
+      if bound.nil?
+        errors.add(@attribute, @options.message || "failed comparison", "comparison", {"value" => value} of String => Value)
+        next
+      end
+      kind = constraint.comparison
+      satisfied = if kind == Comparison::EqualTo
+                    scalar_equal(value, bound)
+                  elsif kind == Comparison::OtherThan
+                    !scalar_equal(value, bound)
+                  else
+                    order = scalar_order(value, bound)!
+                    case kind
+                    when Comparison::GreaterThan        then order > 0
+                    when Comparison::GreaterThanOrEqual then order >= 0
+                    when Comparison::LessThan           then order < 0
+                    else                                     order <= 0
+                    end
+                  end
+      unless satisfied
+        code = comparison_code(kind)
+        errors.add(@attribute, @options.message || comparison_message(kind, bound), code,
+          {"count" => bound, "value" => value} of String => Value)
+      end
+    end
+    nil
+  end
+end
+
+def scalar_equal(value : ComparedValue, bound : ComparedValue) : Bool
+  if value.is_a?(Decimal) && bound.is_a?(Int64)
+    value == Decimal.from_integer(bound)
+  elsif value.is_a?(Int64) && bound.is_a?(Decimal)
+    Decimal.from_integer(value) == bound
+  elsif value.is_a?(Int64) && bound.is_a?(Float64)
+    bound.finite? && integer_float_order(value, bound) == 0
+  elsif value.is_a?(Float64) && bound.is_a?(Int64)
+    value.finite? && integer_float_order(bound, value) == 0
+  else
+    value == bound
+  end
+end
+
+def scalar_order(value : ComparedValue, bound : ComparedValue) : Int32 | DatabaseError
+  case value
+  when Int64
+    return value <=> bound if bound.is_a?(Int64)
+    return Decimal.from_integer(value) <=> bound if bound.is_a?(Decimal)
+    if bound.is_a?(Float64) && bound.finite?
+      return integer_float_order(value, bound)
+    end
+  when Float64
+    if value.finite?
+      return -integer_float_order(bound, value) if bound.is_a?(Int64)
+      return value <=> bound if bound.is_a?(Float64) && bound.finite?
+    end
+  when Decimal
+    return value <=> bound if bound.is_a?(Decimal)
+    return value <=> Decimal.from_integer(bound) if bound.is_a?(Int64)
+  when String
+    return value <=> bound if bound.is_a?(String)
+  when Date
+    return value <=> bound if bound.is_a?(Date)
+  when DateTime
+    return value <=> bound if bound.is_a?(DateTime)
+  end
+  DatabaseError.new(20, "comparison", "operands do not have compatible ordered scalar types")
+end
+
+# Compare integer and finite float without rounding the integer to Float64.
+# The truncated float is representable as an integer; only its fractional part
+# is inspected after exact integer comparison. Boundary floats avoid overflow.
+def integer_float_order(integer : Int64, floating : Float64) : Int32
+  return -1 if floating >= 9223372036854775808.0
+  return 1 if floating < -9223372036854775808.0
+  truncated = floating.to_i64
+  order = integer <=> truncated
+  return order unless order == 0
+  fraction = floating - truncated.to_f64
+  fraction > 0 ? -1 : (fraction < 0 ? 1 : 0)
+end
+
+def comparison_code(kind : Comparison) : String
+  case kind
+  when Comparison::GreaterThan        then "greater_than"
+  when Comparison::GreaterThanOrEqual then "greater_than_or_equal_to"
+  when Comparison::LessThan           then "less_than"
+  when Comparison::LessThanOrEqual    then "less_than_or_equal_to"
+  when Comparison::EqualTo            then "equal_to"
+  else                                     "other_than"
+  end
+end
+
+def comparison_message(kind : Comparison, bound : ComparedValue) : String
+  case kind
+  when Comparison::GreaterThan        then "must be greater than #{bound}"
+  when Comparison::GreaterThanOrEqual then "must be greater than or equal to #{bound}"
+  when Comparison::LessThan           then "must be less than #{bound}"
+  when Comparison::LessThanOrEqual    then "must be less than or equal to #{bound}"
+  when Comparison::EqualTo            then "must be equal to #{bound}"
+  else                                     "must be other than #{bound}"
+  end
+end

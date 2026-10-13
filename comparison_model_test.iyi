@@ -1,0 +1,79 @@
+module comparison_model_test
+
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import fixtures/comparison_model::{Interval, ExactInterval, RuleOptions}
+
+# Model equivalents of validators/parity_spec.cr's age/attribute/status cases.
+assert Interval.mapping.validate(Interval.new).nil?
+assert Interval.mapping.validate(Interval.new(age: 17_i64)).is_a?(ValidationError)
+assert Interval.mapping.validate(Interval.new(age: nil)).is_a?(ValidationError)
+assert Interval.mapping.validate(Interval.new(started_at: 10_i64, ended_at: 20_i64)).nil?
+assert Interval.mapping.validate(Interval.new(started_at: 10_i64, ended_at: 5_i64)).is_a?(ValidationError)
+assert Interval.mapping.validate(Interval.new(started_at: 10_i64, ended_at: 100_i64)).is_a?(ValidationError)
+assert Interval.mapping.validate(Interval.new(ended_at: 5_i64)).is_a?(ValidationError)
+assert Interval.mapping.validate(Interval.new(status: "archived")).is_a?(ValidationError)
+assert Interval.mapping.validate(Interval.new(status: "active")).nil?
+assert RuleOptions.mapping.validate(RuleOptions.new).nil?
+assert RuleOptions.mapping.validate(RuleOptions.new(value: -1_i64), Context.new("update")).nil?
+option_error = RuleOptions.mapping.validate(RuleOptions.new(value: -1_i64), Context.new("create"))
+assert option_error.is_a?(ValidationError)
+assert option_error.messages["value"] == ["outside range"] if option_error.is_a?(ValidationError)
+assert RuleOptions.mapping.validate(RuleOptions.new(nil_bound: "x")).is_a?(ValidationError)
+assert RuleOptions.mapping.validate(RuleOptions.new(mixed: "2")).is_a?(DatabaseError)
+assert RuleOptions.mapping.validate(RuleOptions.new(value: 0_i64), Context.new("create")).is_a?(ValidationError)
+assert RuleOptions.mapping.validate(RuleOptions.new(value: 10_i64), Context.new("create")).is_a?(ValidationError)
+
+small = Decimal.parse("9007199254740993.000000000000000000001").or_panic
+large = Decimal.parse("9007199254740993.000000000000000000002").or_panic
+day = Date.parse("2024-02-29").or_panic
+later_day = Date.parse("2024-03-01").or_panic
+instant = DateTime.parse("2024-03-01T00:00:00.000000001Z").or_panic
+later = DateTime.parse("2024-03-01T00:00:00.000000002Z").or_panic
+# Assignment comparison sees nanoseconds even though col storage defaults to 6.
+assert ExactInterval.mapping.validate(ExactInterval.new(published_at: instant, revised_at: later)).nil?
+assert ExactInterval.mapping.validate(ExactInterval.new(published_at: later, revised_at: instant)).is_a?(ValidationError)
+instant = DateTime.parse("2024-03-01T00:00:00.000001Z").or_panic
+later = DateTime.parse("2024-03-01T00:00:00.000002Z").or_panic
+exact = ExactInterval.new(lower: small, upper: large, start_date: day, end_date: later_day,
+  published_at: instant, revised_at: later)
+assert ExactInterval.mapping.validate(exact).nil?
+assert ExactInterval.mapping.validate(ExactInterval.new(lower: large, upper: small)).is_a?(ValidationError)
+assert ExactInterval.mapping.validate(ExactInterval.new(start_date: later_day, end_date: day)).is_a?(ValidationError)
+assert ExactInterval.mapping.validate(ExactInterval.new(published_at: later, revised_at: instant)).is_a?(ValidationError)
+
+database = Connection.open(":memory:").or_panic
+Interval.schema.create(database).or_panic
+ExactInterval.schema.create(database).or_panic
+RuleOptions.schema.create(database).or_panic
+repository = Repository(Interval).new(database, Interval.mapping)
+assert repository.insert(Interval.new(age: 17_i64)).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+saved = repository.insert(Interval.new(started_at: 10_i64, ended_at: 20_i64)).or_panic
+id = saved.id || 0_i64
+assert repository.update(repository.query, id, Interval.new(started_at: 20_i64, ended_at: 10_i64)).is_a?(ValidationError)
+loaded = repository.find(id).or_panic
+assert !loaded.nil?
+assert loaded.started_at == 10_i64 && loaded.ended_at == 20_i64 if loaded
+repository.unit_of_work.run do
+  assert repository.insert(Interval.new(status: "archived")).is_a?(ValidationError)
+  repository.insert(Interval.new)
+end.or_panic
+assert repository.query.count.or_panic == 2_i64
+exact_repository = Repository(ExactInterval).new(database, ExactInterval.mapping)
+exact_saved = exact_repository.insert(exact).or_panic
+exact_loaded = exact_repository.find(exact_saved.id || 0_i64).or_panic
+assert !exact_loaded.nil?
+if exact_loaded
+  assert exact_loaded.lower == small && exact_loaded.upper == large
+  assert exact_loaded.start_date == day && exact_loaded.end_date == later_day
+  assert exact_loaded.published_at == instant && exact_loaded.revised_at == later
+end
+option_repository = Repository(RuleOptions).new(database, RuleOptions.mapping)
+option_repository.unit_of_work.run do
+  assert option_repository.insert(RuleOptions.new(mixed: "2")).is_a?(DatabaseError)
+  assert option_repository.insert(RuleOptions.new(nil_bound: "x")).is_a?(ValidationError)
+  option_repository.insert(RuleOptions.new(value: 5_i64))
+end.or_panic
+assert option_repository.query.count.or_panic == 1_i64
+database.close.or_panic

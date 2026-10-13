@@ -1,0 +1,225 @@
+module condition_arrays_test
+
+import std/indexable
+import grant/adapters/sqlite::{Connection}
+import grant/model::{Mapping, Repository}
+import grant/query::{Table}
+import grant/value::{Value, Attributes, Row}
+import grant/errors::{DatabaseError, ValidationError}
+import grant/validation::{Rules, Validator, Errors, Context, Options, Presence, Length, Inclusion}
+import grant/validators::{Condition, ConditionSet, When}
+import grant/database_validation::{DatabaseRules, DatabaseWhen, Uniqueness}
+import grant/normalization::{Plan, TrimLowercase}
+
+struct AttributeEquals
+  @name : String
+  @value : Value
+
+  def initialize(@name : String, @value : Value)
+  end
+end
+
+impl Condition for AttributeEquals
+  def applies?(attributes : Attributes, context : Context) : Bool
+    attributes[@name]? == @value
+  end
+end
+
+struct Reserved
+end
+
+impl Validator for Reserved
+  def validate(attributes : Attributes, errors : Errors, context : Context) : Nil
+    errors.add("name", "is reserved") if attributes["name"]? == "root"
+    nil
+  end
+end
+
+pub def profile(name : String? = "Ada", plan : String? = "pro", active : Bool = true,
+                admin : Bool = false, trial : Bool = false) : Attributes
+  {"name" => name, "plan" => plan, "active" => active, "admin" => admin, "trial" => trial} of String => Value
+end
+
+pub def rules : Rules
+  active = AttributeEquals.new("active", true)
+  admin = AttributeEquals.new("admin", true)
+  trial = AttributeEquals.new("trial", true)
+  pro = AttributeEquals.new("plan", "pro")
+  positive = ConditionSet.new([active, pro] of Condition)
+  negative = ConditionSet.new(unless_any: [admin, trial] of Condition)
+  combined = ConditionSet.new([active] of Condition, [admin] of Condition)
+  Rules.new
+    .add(When.new(Presence.new("name"), positive))
+    .add(When.new(Length.new("name", minimum: 3, options: Options.new(allow_nil: true)), negative))
+    .add(When.new(Inclusion.new("plan", ["pro", "free"] of Value), combined))
+    .add(When.new(Reserved.new, combined))
+end
+
+# Focused cases from validations/condition_arrays_spec.cr: every positive term
+# must hold; any negative term skips; the two lists can be combined.
+checks = rules
+assert !checks.validate(profile(name: nil)).empty?
+assert checks.validate(profile(name: nil, active: false, plan: nil)).empty?
+assert checks.validate(profile(name: nil, plan: "free")).empty?
+assert !checks.validate(profile(name: "Al")).empty?
+assert checks.validate(profile(name: "Al", admin: true)).empty?
+assert checks.validate(profile(name: "Al", trial: true)).empty?
+assert !checks.validate(profile(plan: "gold")).empty?
+assert checks.validate(profile(plan: "gold", admin: true)).empty?
+assert checks.validate(profile(plan: "gold", active: false)).empty?
+assert checks.validate(profile(name: "root")).full_messages == ["Name is reserved"]
+assert checks.validate(profile(name: "root", admin: true)).empty?
+assert ConditionSet.new.applies?(Attributes.new, Context.new)
+empty_errors = Errors.new
+When.new(Presence.new("name"), ConditionSet.new, true).validate(Attributes.new, empty_errors, Context.new)
+assert empty_errors.empty?
+
+class LoggedCondition
+  @log : Array(String)
+  @label : String
+  property answer : Bool
+  property panic : Bool
+
+  def initialize(@log : Array(String), @label : String, @answer : Bool)
+    @panic = false
+  end
+end
+
+impl Condition for LoggedCondition
+  def applies?(attributes : Attributes, context : Context) : Bool
+    @log << "#{@label}:#{context.operation}:#{context.name}"
+    raise "deliberate validator condition panic" if @panic
+    @answer
+  end
+end
+
+log = [] of String
+first = LoggedCondition.new(log, "first", true)
+second = LoggedCondition.new(log, "second", true)
+third = LoggedCondition.new(log, "third", false)
+fourth = LoggedCondition.new(log, "fourth", false)
+positives = [first, second] of Condition
+negatives = [third, fourth] of Condition
+conditions = ConditionSet.new(positives, negatives)
+positives.clear
+negatives.clear
+assert conditions.applies?(profile, Context.new("update", "publish", 7_i64))
+assert log == ["first:update:publish", "second:update:publish", "third:update:publish", "fourth:update:publish"]
+log.clear
+first.answer = false
+assert !conditions.applies?(profile, Context.new)
+assert log == ["first:save:save"]
+log.clear
+first.answer = true
+second.answer = false
+assert !conditions.applies?(profile, Context.new)
+assert log == ["first:save:save", "second:save:save"]
+log.clear
+second.answer = true
+third.answer = true
+assert !conditions.applies?(profile, Context.new)
+assert log == ["first:save:save", "second:save:save", "third:save:save"]
+third.answer = false
+
+# Conditions retain options, nesting and inversion semantics in existing wrappers.
+on_publish = Rules.new.add(When.new(Presence.new("name", options: Options.new(on: "publish")), conditions))
+assert on_publish.validate(Attributes.new, Context.new("create")).empty?
+assert !on_publish.validate(Attributes.new, Context.new("create", "publish")).empty?
+assert Rules.new.add(When.new(Presence.new("name"), ConditionSet.new([conditions] of Condition))).validate(Attributes.new).size == 1
+inverted = Rules.new.add(When.new(Presence.new("name"), conditions, true))
+assert inverted.validate(Attributes.new).empty?
+first.answer = false
+assert inverted.validate(Attributes.new).size == 1
+first.answer = true
+
+# Normalization uses the same policies, and query arguments remain unconditional.
+plan = Plan.new.add("name", TrimLowercase.new, condition: ConditionSet.new([AttributeEquals.new("active", true)] of Condition,
+  [AttributeEquals.new("admin", true)] of Condition))
+assert plan.apply(profile(name: " ADA "), Context.new)["name"] == "ada"
+assert plan.apply(profile(name: " ADA ", admin: true), Context.new)["name"] == " ADA "
+assert plan.value_for("name", " ADA ") == " ADA "
+
+struct Profile
+  getter values : Attributes
+
+  def initialize(values : Attributes)
+    @values = Attributes.new
+    values.each { |name, value| @values[name] = value }
+  end
+end
+
+struct ProfileMapping
+  @rules : Rules
+
+  def initialize(@rules : Rules)
+  end
+end
+
+impl Mapping(Profile) for ProfileMapping
+  def table : Table
+    Table.new("profiles")
+  end
+
+  def attributes(record : Profile) : Attributes
+    record.values
+  end
+
+  def from_row(row : Row) : Profile | DatabaseError
+    return DatabaseError.new(20, "mapping", "invalid profile id") unless row["id"].is_a?(Int64)
+    attributes = Attributes.new
+    row.attributes.each { |name, value| attributes[name] = value }
+    ["active", "admin", "trial"].each do |name|
+      value = attributes[name]
+      return DatabaseError.new(20, "mapping", "invalid profile boolean") unless value == 0_i64 || value == 1_i64
+      attributes[name] = value == 1_i64
+    end
+    Profile.new(attributes)
+  end
+
+  def validate(record : Profile) : Nil | ValidationError
+    @rules.validate(attributes(record)).result
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE profiles(id INTEGER PRIMARY KEY, name TEXT, plan TEXT, active INTEGER NOT NULL, admin INTEGER NOT NULL, trial INTEGER NOT NULL)").or_panic
+repository = Repository(Profile).new(connection, ProfileMapping.new(checks))
+assert repository.insert(Profile.new(profile(name: nil))).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+saved = repository.insert(Profile.new(profile)).or_panic
+id = saved.values["id"]
+assert id.is_a?(Int64)
+if id.is_a?(Int64)
+  assert repository.update(repository.query, id, Profile.new(profile(name: "Al"))).is_a?(ValidationError)
+  repository.update(repository.query, id, Profile.new(profile(name: "Al", trial: true))).or_panic
+  loaded = repository.find(id).or_panic
+  assert !loaded.nil?
+  assert loaded.values["name"] == "Al" && loaded.values["trial"] == true if loaded
+end
+repository.unit_of_work.run do
+  assert repository.insert(Profile.new(profile(name: "root"))).is_a?(ValidationError)
+  repository.insert(Profile.new(profile(name: "survivor")))
+end.or_panic
+assert repository.query.count.or_panic == 2_i64
+
+# Checked SQL failures remain distinct, and skipped conditions execute no SQL.
+database_checks = DatabaseRules.new.add(DatabaseWhen.new(Uniqueness.new("name", repository.query), conditions))
+assert !database_checks.validate(profile(name: "Al")).or_panic.empty?
+first.answer = false
+assert database_checks.validate(profile(name: "Al")).or_panic.empty?
+connection.execute("DROP TABLE profiles").or_panic
+assert database_checks.validate(profile).or_panic.empty?
+first.answer = true
+assert database_checks.validate(profile).is_a?(DatabaseError)
+
+# A policy panic is contained by repository transactions, with no partial write.
+connection.execute("CREATE TABLE profiles(id INTEGER PRIMARY KEY, name TEXT, plan TEXT, active INTEGER NOT NULL, admin INTEGER NOT NULL, trial INTEGER NOT NULL)").or_panic
+panic_rules = Rules.new.add(When.new(Presence.new("name"), conditions))
+panic_repository = Repository(Profile).new(connection, ProfileMapping.new(panic_rules))
+second.panic = true
+assert panic_repository.insert(Profile.new(profile)).is_a?(Panicked)
+assert repository.query.count.or_panic == 0_i64
+second.panic = false
+panic_repository.insert(Profile.new(profile)).or_panic
+assert repository.query.count.or_panic == 1_i64
+connection.close.or_panic

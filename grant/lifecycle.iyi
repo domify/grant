@@ -2,6 +2,8 @@ module grant/lifecycle
 
 import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
 import grant/value::{Attributes}
+import grant/validation::{Context}
+import grant/unit_of_work::{Action}
 
 # Per-operation metadata is explicit and immutable. A nil baseline denotes an
 # ordinary full update; a supplied baseline enables changed-column writes.
@@ -75,6 +77,29 @@ pub trait Callback(T)
   end
 end
 
+# Application policies replace dynamic method/proc lookup. All positive terms
+# must hold, and every negative term must be false, in declaration order.
+pub trait CallbackCondition(T)
+  abstract def applies?(event : Event, record : T) : Bool
+end
+
+pub class CallbackConditions(T)
+  @if_all : Array(CallbackCondition(T))
+  @unless_any : Array(CallbackCondition(T))
+
+  def initialize(if_all : Array(CallbackCondition(T)) = [] of CallbackCondition(T),
+                 unless_any : Array(CallbackCondition(T)) = [] of CallbackCondition(T))
+    @if_all = if_all.map { |condition| condition }
+    @unless_any = unless_any.map { |condition| condition }
+  end
+
+  def applies?(event : Event, record : T) : Bool
+    @if_all.each { |condition| return false unless condition.applies?(event, record) }
+    @unless_any.each { |condition| return false if condition.applies?(event, record) }
+    true
+  end
+end
+
 pub alias AroundError = DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
 
 # Continuations have an operation lifetime and may be invoked once. A wrapper
@@ -120,8 +145,11 @@ end
 struct AroundEntry(T)
   getter callback : Around(T)
   getter events : Array(Event)
+  getter conditions : CallbackConditions(T)?
+  getter on : Array(String)?
 
-  def initialize(@callback : Around(T), events : Array(Event))
+  def initialize(@callback : Around(T), events : Array(Event), @conditions : CallbackConditions(T)? = nil, on : Array(String)? = nil)
+    @on = on ? on.map { |name| name } : nil
     @events = events.map { |event| event }
   end
 end
@@ -129,8 +157,14 @@ end
 struct Entry(T)
   getter callback : Callback(T)
   getter events : Array(Event)
+  getter conditions : CallbackConditions(T)?
+  getter on : Array(String)?
+  getter actions : Array(Action)?
 
-  def initialize(@callback : Callback(T), events : Array(Event))
+  def initialize(@callback : Callback(T), events : Array(Event), @conditions : CallbackConditions(T)? = nil,
+                 on : Array(String)? = nil, actions : Array(Action)? = nil)
+    @on = on ? on.map { |name| name } : nil
+    @actions = actions ? actions.map { |action| action } : nil
     @events = events.map { |event| event }
   end
 end
@@ -146,14 +180,15 @@ pub class Pipeline(T)
     @around = [] of AroundEntry(T)
   end
 
-  def add_around(callback : Around(T), events : Array(Event), prepend : Bool = false) : Pipeline(T)
-    entry = AroundEntry(T).new(callback, events)
+  def add_around(callback : Around(T), events : Array(Event), prepend : Bool = false,
+                 conditions : CallbackConditions(T)? = nil) : Pipeline(T)
+    entry = AroundEntry(T).new(callback, events, conditions)
     @around = prepend ? [entry] + @around : @around + [entry]
     self
   end
 
-  def wrap(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
-    selected = @around.select { |entry| entry.events.includes?(event) }
+  def wrap(event : Event, record : T, validation_context : Context = Context.new, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
+    selected = @around.select { |entry| entry.events.includes?(event) && matches_context?(entry.on, validation_context) }
     invoke_around(selected, 0, event, record, operation)
   end
 
@@ -164,14 +199,85 @@ pub class Pipeline(T)
     continuation = Continuation(T).new(next_operation)
     # Containing panics here lets us close escaped continuations even if the
     # wrapper panics. The owning repository still rolls its savepoint back.
-    result = group { |tasks| tasks.spawn { entries[index].callback.call(event, record, continuation).as(T | Nil | AroundError) }.value }
+    result = group do |tasks|
+      tasks.spawn do
+        entry = entries[index]
+        conditions = entry.conditions
+        if conditions.nil? || conditions.applies?(event, record)
+          entry.callback.call(event, record, continuation).as(T | Nil | AroundError)
+        else
+          continuation.call(record)
+        end
+      end.value
+    end
     continuation.complete(result)
   end
 
-  def add(callback : Callback(T), events : Array(Event), prepend : Bool = false) : Pipeline(T)
-    entry = Entry(T).new(callback, events)
+  def add(callback : Callback(T), events : Array(Event), prepend : Bool = false,
+          conditions : CallbackConditions(T)? = nil) : Pipeline(T)
+    entry = Entry(T).new(callback, events, conditions)
     @entries = prepend ? [entry] + @entries : @entries + [entry]
     self
+  end
+
+  # Context filters belong only to validation events; invalid registrations do
+  # not mutate the pipeline. Transaction action filters use a separate policy.
+  def add_validation(callback : Callback(T), events : Array(Event), on : Array(String),
+                     prepend : Bool = false, conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    unless events.all? { |event| event == Event::BeforeValidation || event == Event::AfterValidation }
+      return DatabaseError.new(21, "callback", "validation contexts require validation events")
+    end
+    entry = Entry(T).new(callback, events, conditions, on)
+    @entries = prepend ? [entry] + @entries : @entries + [entry]
+    self
+  end
+
+  def add_around_validation(callback : Around(T), on : Array(String), prepend : Bool = false,
+                            conditions : CallbackConditions(T)? = nil) : Pipeline(T)
+    entry = AroundEntry(T).new(callback, [Event::AroundValidation], conditions, on)
+    @around = prepend ? [entry] + @around : @around + [entry]
+    self
+  end
+
+  def add_transaction(callback : Callback(T), events : Array(Event), on : Array(Action),
+                      prepend : Bool = false, conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    unless events.all? { |event| event == Event::AfterCommit || event == Event::AfterRollback }
+      return DatabaseError.new(21, "callback", "transaction actions require commit or rollback events")
+    end
+    entry = Entry(T).new(callback, events, conditions, actions: on)
+    @entries = prepend ? [entry] + @entries : @entries + [entry]
+    self
+  end
+
+  def after_commit(callback : Callback(T), on : Action | Array(Action) | Nil = nil,
+                   prepend : Bool = false, conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    register_observer(callback, Event::AfterCommit, on, prepend, conditions)
+  end
+
+  def after_rollback(callback : Callback(T), on : Action | Array(Action) | Nil = nil,
+                     prepend : Bool = false, conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    register_observer(callback, Event::AfterRollback, on, prepend, conditions)
+  end
+
+  private def register_observer(callback : Callback(T), event : Event, on : Action | Array(Action) | Nil,
+                                prepend : Bool, conditions : CallbackConditions(T)?) : Pipeline(T) | DatabaseError
+    if on.nil?
+      add(callback, [event], prepend, conditions)
+    elsif on.is_a?(Action)
+      add_transaction(callback, [event], [on], prepend, conditions)
+    else
+      add_transaction(callback, [event], on, prepend, conditions)
+    end
+  end
+
+  private def matches_context?(on : Array(String)?, context : Context) : Bool
+    on.nil? || on.any? { |name| context.includes?(name) }
+  end
+
+  private def matches_action?(on : Array(Action)?, action : Action?) : Bool
+    return true if on.nil?
+    return false if action.nil?
+    on.includes?(action)
   end
 
   def readonly_attributes : Array(String)
@@ -182,10 +288,12 @@ pub class Pipeline(T)
     result
   end
 
-  def run(event : Event, record : T, context : WriteContext = WriteContext.new) : T | DatabaseError | ValidationError | CallbackAbort
+  def run(event : Event, record : T, context : WriteContext = WriteContext.new,
+          validation_context : Context = Context.new, action : Action? = nil) : T | DatabaseError | ValidationError | CallbackAbort
     current = record
     @entries.each do |entry|
-      if entry.events.includes?(event)
+      conditions = entry.conditions
+      if entry.events.includes?(event) && matches_context?(entry.on, validation_context) && matches_action?(entry.actions, action) && (conditions.nil? || conditions.applies?(event, current))
         result = entry.callback.call(event, current, context)
         return result if result.is_a?(Error)
         current = result

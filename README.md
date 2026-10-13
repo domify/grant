@@ -58,8 +58,11 @@ The original ORM's full feature set has **not** been ported yet.
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
   sessions and ordered validation/save/destroy/commit/rollback callbacks.
-- `grant/validation.iyi`: structured errors and presence, absence, length,
+- `grant/validation.iyi`: copied validation contexts and rule context arrays,
+  structured errors and presence, absence, length,
   inclusion, exclusion, and confirmation rules.
+- `grant/comparison_validation.iyi`: checked string, numeric and exact temporal/decimal
+  comparisons with literal or typed dynamic operands.
 - `grant/dynamic_validation.iyi`: typed attribute/context operands and checked
   numericality comparisons.
 - `grant/validators.iyi`: numericality/comparison bounds, odd/even, format,
@@ -120,6 +123,10 @@ iyi run has_many_model_test.iyi
 iyi run transaction_test.iyi
 iyi run nested_transaction_test.iyi
 iyi run lifecycle_test.iyi
+iyi run validation_context_test.iyi
+iyi run standalone_validation_test.iyi
+iyi run callback_conditions_test.iyi
+iyi run condition_arrays_test.iyi
 iyi run validation_test.iyi
 iyi run normalization_test.iyi
 iyi run dirty_test.iyi
@@ -140,6 +147,8 @@ iyi run association_test.iyi
 iyi run association_write_test.iyi
 iyi run dependent_test.iyi
 iyi run validators_test.iyi
+iyi run format_convenience_test.iyi
+iyi run format_model_test.iyi
 iyi run uniqueness_test.iyi
 iyi run normalization_model_test.iyi
 iyi run locking_test.iyi
@@ -147,6 +156,8 @@ iyi run timestamps_test.iyi
 iyi run touch_test.iyi
 iyi run scalars_test.iyi
 iyi run dynamic_validation_test.iyi
+iyi run comparison_validation_test.iyi
+iyi run comparison_model_test.iyi
 iyi run around_test.iyi
 iyi run belongs_to_write_test.iyi
 ```
@@ -172,14 +183,14 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, an artifact layout bug was found and fixed in iyi
 compiler commit `a03fc3438`. The fixed local compiler passes the model consumer. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 36 programs, including
+connection failure). The current SQLite-only suite has 43 programs, including
 association reads, transactional writes, dependent destruction, binary data and
 additional validators, SQLite uniqueness, model normalization, locking, timestamps,
 touch, exact scalar values, table/constraint rebuilds, schema snapshots/catalogs
 partial updates, bulk operations and decimal policies. See
 `doc/ARTIFACT-ISSUE.md` for the reproduction and observed compiler versions.
 `./scripts/check.sh` retains and expands the artifact gate. Older installed
-compilers may still fail it until they include both fixes. The gate checks twenty-two
+compilers may still fail it until they include both fixes. The gate checks thirty
 artifact test consumers and separately compiles a generated schema factory.
 
 The current value contract is null, boolean, Int64, Float64, String, `Binary`,

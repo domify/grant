@@ -203,7 +203,7 @@ No code delegates native model behavior to the archived Crystal ORM.
   The rebuilt local compiler passes twenty-two artifact test consumers, the generated
   schema factory consumer and the minimal layout reproduction. Older installed
   compilers require both fixes; see `ARTIFACT-ISSUE.md`. Current source execution
-  passes all 35 SQLite test programs.
+  passes all 44 SQLite test programs.
 - `scripts/check.sh` repeats the type/format/tests and artifact consumer checks.
 
 Native tests cover these areas, not the original ORM's entire parity tracker.
@@ -217,7 +217,8 @@ been translated wholesale to native iyi yet.
 2. Complete column collation/comment metadata and DDL size/precision options, attached/temporary schema
    dumping, composite model keys and the remaining migration capabilities;
    add connection pools, prepared-statement caches and nonblocking scheduling.
-3. Complete remaining validators, conditional callback metadata and normalization parity,
+3. Complete associated-record/strict/translated validators and remaining model
+   validation declarations, callback transaction-action filters and normalization parity,
    automatic dirty-state checkpoint/rollback integration, no-op optimistic saves,
    remaining timestamp behavior and defaults.
 4. Complete association inverses/caches, through/polymorphic and composite-key loading,
@@ -251,8 +252,8 @@ separate work and separate commits. No remote or public branch has been changed.
   tree exactly (`b298faa7a10c7bff3d4e433032938f94348eb8fd`).
 - All archived source-inventory hashes match the corresponding subtree files.
 - At layout bootstrap, `scripts/check.sh` passed six native test programs and
-  the artifact consumer. The current expanded port passes 35 SQLite source tests,
-  twenty-two artifact test consumers and a generated schema factory consumer with
+  the artifact consumer. The current expanded port passes 44 SQLite source tests,
+  thirty-one artifact test consumers and a generated schema factory consumer with
   the fixed local compiler.
 - The upstream script recognizes an already imported revision as a no-op.
 - In disposable repositories, a new source revision imports only into the
@@ -444,3 +445,164 @@ Callbacks and clocks remain caller-owned.
   collection demo passes from source-free artifacts as well. ct storage checks
   pass 441 assertions, its model API passes 36 assertions, and both in-memory
   domain/storage association examples pass. Compiler: local iyi native build.
+
+## Conditional lifecycle callbacks (2026-10-13)
+
+- Added typed CallbackCondition(T) policies and copied CallbackConditions(T)
+  lists for ordinary and around hooks. All `if` terms must hold; every `unless`
+  term must be false. Evaluation short-circuits against the current record just
+  before invocation, preserving transformations and prepend ordering.
+- Skipped wrappers proceed with the operation; errors/aborts/panics keep existing
+  savepoint rollback semantics. Observer predicates run at commit/rollback
+  dispatch. Readonly metadata is protected independently of predicate results.
+- `callback_conditions_test.iyi` ports focused upstream conditional callback cases
+  and checks array semantics, SQLite writes, failed validation, conditional abort,
+  transaction timing and panic rollback. It joins the source-free artifact gate.
+- Context/action `on:` filters, observer action folding and initialization/find
+  callbacks remain pending; see LIFECYCLE.md.
+
+- Verification for this feature: the complete check gate passed 38 native SQLite
+  test programs, 25 source-free artifact consumers and the generated-schema
+  consumer with the patched compiler and `/tmp/iyi-grant-cache`.
+
+## Email and URL validators (2026-10-13)
+
+- Added Email and Url rules plus reusable email_pattern/url_pattern helpers.
+  They preserve the upstream conventional format patterns, default messages,
+  `invalid` details, Format options and typed conditional policies. Native email
+  matching spells out ASCII case pairs in place of a regex flag.
+- `format_convenience_test.iyi` checks focused upstream cases, pattern boundaries,
+  nil/blank/context/message/inversion options, conditional rules and actual SQLite
+  insert/update validation with nested transaction recovery. It joins the artifact
+  gate. See VALIDATION.md for semantics and remaining validator/DSL work.
+
+- Verification after these additions: 39 native SQLite test programs, 26
+  source-free artifact consumers and the generated-schema consumer passed the
+  complete gate with the patched compiler and `/tmp/iyi-grant-cache`.
+
+## General scalar comparison validation (2026-10-13)
+
+- Added ComparisonRule with copied ValueConstraint arrays and LiteralOperand plus
+  existing typed dynamic operands. This ports validates_comparison_of without
+  numericality's numeric-text parsing. String, Date, UTC DateTime, exact Decimal
+  and finite native numeric ordering preserve their scalar representations.
+- Mixed integer/float comparisons retain Int64 precision at 2^53 and Int64 range
+  boundaries. Decimal/Int64 comparison and equality remain exact; decimal/float
+  ordering is explicitly rejected. Nil inputs, nil bounds, detailed failures and
+  operand configuration errors follow separate source semantics.
+- Focused upstream comparison cases and SQLite validation/savepoint rollback are
+  covered by comparison_validation_test.iyi, now registered in the native and
+  source-free artifact gates. Remaining validation and model DSL work remains
+  documented in VALIDATION.md.
+
+- Comparison verification: five relevant native test programs passed, followed
+  by a fresh source execution and source-free comparison consumer after tightening
+  private helper signatures to non-nil scalar values. The full module and format
+  checks pass. No compiler modifications or synthetic witnesses were required.
+
+- Interrupted-run recovery verification: the complete gate passed 40 native
+  SQLite test programs, 27 source-free artifact test consumers and the generated
+  schema factory consumer using the patched compiler and `/tmp/iyi-grant-cache`.
+  Conditional callbacks, email/URL rules and comparison validation are now
+  verified together with the existing suite.
+
+## Validator lists and inline format conveniences (2026-10-13)
+
+- ConditionSet implements copied AND/UNLESS condition lists usable by scalar
+  When, checked DatabaseWhen and normalization plans. Typed application policies
+  replace source Symbol/Proc lookup, preserve short-circuit order and may nest.
+  condition_arrays_test.iyi ports the upstream array cases and checks SQLite
+  uniqueness errors, validation failures and contained panic rollback.
+- Derived model col declarations now accept email/url on string/text columns,
+  sharing native convenience patterns, default messages and common rule options.
+  Disabled rules and per-rule overrides are supported; unsupported types and
+  configurations fail compilation. format_model_test.iyi uses separate producer
+  declarations and actual SQLite insert/update/transaction validation cases.
+- This session cannot create local commits: .git is mounted read-only and Git
+  fails creating index.lock. Verified native changes remain in the working tree;
+  this is an environment limitation, not a permanent language difference.
+
+## Inline model comparison validation (2026-10-13)
+
+- Added col comparison policies with six operators and literal scalar or declared
+  field operands, using checked ComparisonRule. Unknown symbols and unsupported
+  configurations fail compilation; incompatible ordered scalar types return
+  DatabaseError. Dynamic application policies remain explicit Operand values.
+- Validation preserves assigned typed DateTime values before timestamp storage
+  precision is applied. Other model validators retain stored attribute semantics.
+  comparison_model_test.iyi ports focused upstream model cases and checks exact
+  decimals, dates, nanosecond assignment, precise storage hydration, options,
+  nil operands, SQL writes and rollback after checked configuration failures.
+
+- Final verification for this run: the complete scripts/check.sh gate passed
+  43 native SQLite test programs, 30 source-free artifact test consumers and
+  the generated schema factory consumer, with the patched compiler and
+  IYI_CACHE_DIR=/tmp/iyi-grant-cache. Module and formatting checks passed.
+  Nine invalid inline email/URL/comparison declarations were separately checked
+  and rejected, including unknown operand fields and serialized JSON comparison.
+  All 258 imported source hashes still match the reviewed inventory.
+- No commit was created because Git cannot write .git/index.lock in this session.
+  No push or completion marker was created. The remaining-work list above still
+  applies; full Crystal Grant parity has not been achieved.
+
+## Validation context lists and callback filters (2026-10-13)
+
+- Context now owns copied active names separately from SQL operation/persisted ID.
+  Rule options accept copied context arrays. Custom names replace create/update
+  selection; explicit save runs every validator, while callback names match
+  literally. Existing scalar rule options and default repository writes remain.
+- Repository insert/update/update_changed accept explicit context lists.
+  Before/AfterValidation and AroundValidation registration supports context
+  filters, prepend and typed conditions. Invalid event registrations fail without
+  modifying the pipeline. Inactive wrappers proceed and callback failures retain
+  nested rollback behavior.
+- Inline col policies now accept literal mixed symbol/string context arrays,
+  shared options and per-rule overrides. Empty lists retain native rule semantics.
+- validation_context_test.iyi ports focused upstream contexts_spec.cr cases with
+  actual SQLite writes and a separate derived-model producer fixture. Standalone model validation,
+  transaction action filters/folding and the other remaining features above
+  are still pending. PostgreSQL remains explicitly deferred.
+- Local commit creation is still blocked: git add fails creating .git/index.lock
+  because .git is mounted read-only. No completion marker is appropriate.
+
+- Final verification: scripts/check.sh passed all 44 native SQLite programs,
+  31 source-free artifact test consumers and the generated schema factory
+  consumer, using IYI=/home/priit/contribute/iyi/bin/iyi and
+  IYI_CACHE_DIR=/tmp/iyi-grant-cache. Module and format checks pass. Five invalid
+  shared/per-rule context declarations were rejected, including mixed invalid
+  elements, nested lists and boolean on values. All 258 imported source hashes
+  still match the reviewed inventory. The prior interrupted changes pass this
+  same complete gate together with the new context behavior.
+
+## Interrupted-run recovery (2026-10-13)
+
+- Re-read and verified the previously uncommitted conditional callbacks, format
+  conveniences, comparison rules/model policies, condition arrays and validation
+  context/filter changes before continuing the port.
+- The full check gate passed 44 native SQLite programs, 31 source-free artifact
+  test consumers and the generated-schema consumer with the patched compiler and
+  IYI_CACHE_DIR=/tmp/iyi-grant-cache. All 258 imported source hashes match.
+- An initial single-file staging operation succeeded, but subsequent staging and
+  commit attempts failed creating .git/index.lock on the read-only filesystem.
+  The earlier Git blocker remains; verified changes remain uncommitted. No push,
+  compiler edits or other repository changes were made.
+
+## Standalone validation (2026-10-13)
+
+- Added Repository.validate returning a rebuilt record/error and valid?/invalid?
+  Boolean/error helpers. Normalization, validation callbacks and rules share the
+  save pipeline without saving or registering the record for observers. String
+  and array contexts override defaults; explicit persisted IDs preserve uniqueness
+  self-exclusion with nil-ID inputs. Normalization skipping is scoped to one call.
+- Derived sealed models expose valid?/invalid?/validate with an explicit repository
+  and validated for native record/error propagation. Key-based default context,
+  per-call errors and the savepoint boundary are documented in VALIDATION.md;
+  non-Int64 model IDs fail explicitly until that separate port is implemented.
+- standalone_validation_test.iyi translates focused upstream contexts_spec.cr
+  cases and verifies no writes, normalization/rebuilt values, create/update/custom
+  context selection, model helpers, uniqueness SQL errors, callback abort/panic,
+  outer rollback recovery and mismatched sessions/contexts. The full gate passed
+  45 native SQLite tests, 32 source-free artifact test consumers and the generated
+  schema consumer with the patched compiler and /tmp/iyi-grant-cache.
+- The Git read-only filesystem blocker still prevents local commits. PostgreSQL
+  development remains deferred. No completion marker or push is appropriate.

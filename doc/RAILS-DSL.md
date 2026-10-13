@@ -211,7 +211,11 @@ col :username, :string, presence: true, uniq: {scope: :account_id}
 col :title, :string, length: {minimum: 2, maximum: 255}
 col :role, :string, inclusion: {in: ["reader", "writer"]}
 col :reserved_name, :string, exclusion: {in: ["admin", "root"]}
+col :contact_email, :string, email: true
+col :website, :text, url: {allow_blank: true}
 col :email, :string, format: {with: /\A[^@]+@[^@]+\z/}, allow_nil: true
+col :started_at, :datetime
+col :ended_at, :datetime, comparison: {greater_than: :started_at}, allow_nil: true
 col :count, :integer, numericality: {only_integer: true, greater_than: 0}
 col :accepted, :boolean, acceptance: true
 col :unused, :string, absence: true
@@ -226,12 +230,14 @@ arrays/objects and JSON null. A string `limit` is still schema metadata, not
 an automatically inferred length validator. CT Account moves its existing
 presence check onto its name declaration without adding a uniqueness rule.
 
-Supported rules are presence, absence, length, inclusion, exclusion, format,
-numericality, acceptance, confirmation and `uniq`. Each accepts true/false or
+Supported rules are presence, absence, length, inclusion, exclusion, format, email, url,
+comparison, numericality, acceptance, confirmation and `uniq`. Each accepts true/false or
 literal named options; rules needing bounds/lists/patterns require those options.
 Common `allow_nil`, `allow_blank`, `on`, and `message` options may appear on the
 col or inside an individual rule; the individual rule takes precedence.
-`on` is one operation/context symbol or string, such as :create or :update.
+`on` accepts one operation/context symbol or string, or a literal array such
+as `[:create, "publish"]`. Shared options and per-rule overrides use the same
+context matching. Invalid array elements fail compilation.
 Messages are literal strings. Unknown/unsupported configurations fail explicitly.
 
 - Length accepts minimum/maximum or is, measured in string characters. It is
@@ -242,10 +248,23 @@ Messages are literal strings. Unknown/unsupported configurations fail explicitly
 - Format accepts with or without, as a literal string or unflagged regex. It
   compiles the source through native std/regex; flags, interpolation and engine
   features outside that engine's supported syntax are not silently emulated.
+- Email/URL use the shared Crystal Grant conventional format patterns and
+  default messages. They support common rule options on string/text columns,
+  including nullable or blank values when explicitly allowed. `false` disables
+  the declaration. Incompatible column types and unknown rule options fail
+  compilation. The rules preserve stored input text; they do not normalize it.
 - Numericality accepts only_integer, only_numeric, odd/even, greater_than,
   greater_than_or_equal_to, less_than, less_than_or_equal_to, equal_to and
   other_than with literal signed bounds. Native numeric/text fields are supported;
   exact Decimal rules remain the explicit DecimalPolicy/dynamic validation API.
+- Comparison accepts the six comparison keys with literal signed numbers,
+  strings, booleans or nil, or a mapped-field symbol. Symbols refer to declared
+  attributes, with unknown fields rejected during model derivation. Rules use
+  typed assigned scalars before timestamp storage precision is applied, preserving
+  exact decimals and nanosecond instants during validation. Numeric text is not
+  parsed. Nil bounds report comparison failure, while incompatible ordered types
+  return DatabaseError. Serialized JSON comparisons are rejected explicitly.
+  Dynamic method/Proc policies use explicit ComparisonRule.
 - Acceptance defaults to the exact values "1" and true and skips nil by default.
   `accept` can supply literal scalar value(s); no string/boolean coercion is added.
 - Confirmation requires a declared mapped `<name>_confirmation` field; it skips

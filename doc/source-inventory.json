@@ -280,12 +280,14 @@
     {
       "path": "grant/callbacks.cr",
       "sha256": "abae1d65c32bcb2559cd642a7339abc6d86dccdd81cd330ac455a01036f5006f",
-      "status": "reference_only",
+      "status": "partially_ported",
       "partial_native_module": "grant/lifecycle.iyi",
       "native_parity_tests": [
         "lifecycle_test.iyi",
         "around_test.iyi",
-        "touch_test.iyi"
+        "touch_test.iyi",
+        "callback_conditions_test.iyi",
+        "validation_context_test.iyi"
       ],
       "porting_notes": "doc/LIFECYCLE.md"
     },
@@ -305,7 +307,9 @@
         "grant/model_validation.iyi"
       ],
       "native_parity_tests": [
-        "model_api_test.iyi"
+        "model_api_test.iyi",
+        "format_model_test.iyi",
+        "comparison_model_test.iyi"
       ],
       "porting_notes": "doc/MODEL-API.md and doc/RAILS-DSL.md: typed column plus symbol col declarations, literal defaults, checked JSON hydration and explicit SQLite schema plans. Original inherited Crystal column DSL and remaining annotations are partial. col also accepts inline validation policies delegated to native scalar/database validators; source-free validation consumers are verified.",
       "native_examples": [
@@ -1291,7 +1295,14 @@
     {
       "path": "grant/validation.cr",
       "sha256": "74641de057b6b000b9a9d9698c6b6dd32af98febe0f11fb0ed66b5c6c436b457",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_module": "grant/validators.iyi",
+      "native_parity_tests": [
+        "condition_arrays_test.iyi",
+        "callback_conditions_test.iyi",
+        "validation_context_test.iyi"
+      ],
+      "porting_notes": "doc/VALIDATION.md"
     },
     {
       "path": "grant/validation_helpers/blank.cr",
@@ -1341,7 +1352,12 @@
     {
       "path": "grant/validators/built_in.cr",
       "sha256": "fbcb64c5893a7449c412ec184bd1cc492995c29828ad598a2dcde6a0817d62f8",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_module": "grant/validators.iyi",
+      "native_parity_tests": [
+        "format_convenience_test.iyi"
+      ],
+      "porting_notes": "doc/VALIDATION.md"
     },
     {
       "path": "grant/validators/numericality.cr",
@@ -1365,7 +1381,23 @@
     {
       "path": "grant/validators.cr",
       "sha256": "02812f78974af3222f127806a6d07b5e384b58b3a29869556889d453191e160c",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_modules": [
+        "grant/validators.iyi",
+        "grant/comparison_validation.iyi",
+        "grant/model.iyi",
+        "grant/record_repository.iyi"
+      ],
+      "native_parity_tests": [
+        "format_convenience_test.iyi",
+        "comparison_validation_test.iyi",
+        "condition_arrays_test.iyi",
+        "format_model_test.iyi",
+        "comparison_model_test.iyi",
+        "validation_context_test.iyi",
+        "standalone_validation_test.iyi"
+      ],
+      "porting_notes": "doc/VALIDATION.md"
     },
     {
       "path": "grant/value_objects.cr",

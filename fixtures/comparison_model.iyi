@@ -1,0 +1,35 @@
+module fixtures/comparison_model
+
+import grant/model::*
+
+pub class Interval
+  table "intervals"
+  col :id, :primary
+  col :age, :integer, comparison: {greater_than_or_equal_to: 18}, default: 21
+  col :started_at, :integer
+  col :ended_at, :integer, comparison: {greater_than: :started_at, less_than: 100}, allow_nil: true
+  col :status, :string, comparison: {other_than: "archived"}, allow_nil: true
+  derive model
+end
+
+pub class ExactInterval
+  table "exact_intervals"
+  col :id, :primary
+  col :lower, :decimal
+  col :upper, :decimal, comparison: {greater_than: :lower}, allow_nil: true
+  col :start_date, :date
+  col :end_date, :date, comparison: {greater_than_or_equal_to: :start_date}, allow_nil: true
+  col :published_at, :datetime
+  col :revised_at, :datetime, comparison: {greater_than: :published_at}, allow_nil: true
+  derive model
+end
+
+pub class RuleOptions
+  table "rule_options"
+  col :id, :primary
+  col :value, :integer, comparison: {greater_than: 0, less_than: 10, on: :create, message: "outside range"}, allow_nil: true
+  col :nil_bound, :string, comparison: {equal_to: nil}, allow_nil: true
+  col :mixed, :string, comparison: {greater_than: 1}, allow_nil: true
+  col :disabled, :integer, comparison: false
+  derive model
+end

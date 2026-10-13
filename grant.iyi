@@ -11,6 +11,7 @@ pub import grant/transaction
 pub import grant/validation
 pub import grant/validators
 pub import grant/dynamic_validation
+pub import grant/comparison_validation
 pub import grant/database_validation
 pub import grant/normalization
 pub import grant/dirty
