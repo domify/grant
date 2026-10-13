@@ -1,0 +1,82 @@
+module grant/query/aggregations
+
+import grant/adapter/sqlite_connection::{Value}
+import grant/errors::{DatabaseError}
+
+# Structural SQLite slice of the upstream Builder reopening. Database values
+# stay integers for integer SUMs; AVG is returned by SQLite as Float64.
+pub trait Aggregations(Model)
+  def sum(column : Symbol | String)
+    rows = aggregate_rows("SUM", column.to_s)!
+    if group_fields.empty?
+      value = rows.first[1]
+      value.nil? ? 0_i64 : value
+    else
+      grouped_values(rows, Value) { |value| value.nil? ? 0_i64 : value }
+    end
+  end
+
+  def avg(column : Symbol | String)
+    rows = aggregate_rows("AVG", column.to_s)!
+    if group_fields.empty?
+      rows.first[1]
+    else
+      grouped_values(rows, Value) { |value| value }
+    end
+  end
+
+  def average(column : Symbol | String)
+    avg(column)
+  end
+
+  def min(column : Symbol | String)
+    extremum("MIN", column.to_s)
+  end
+
+  def minimum(column : Symbol | String)
+    min(column)
+  end
+
+  def max(column : Symbol | String)
+    extremum("MAX", column.to_s)
+  end
+
+  def maximum(column : Symbol | String)
+    max(column)
+  end
+
+  private def extremum(function : String, column : String)
+    rows = aggregate_rows(function, column)!
+    if group_fields.empty?
+      rows.first[1]
+    else
+      grouped_values(rows, Value) { |value| value }
+    end
+  end
+
+  protected def aggregate_rows(function : String, column : String) : Array(Tuple(Array(Value), Value)) | DatabaseError
+    fields = [] of String
+    group_fields.each_with_index do |field, index|
+      fields << "#{field[:field]} AS \"grant_group_#{index}\""
+    end
+    fields << "#{function}(#{column}) AS \"grant_aggregate\""
+    rows = Model.adapter.query(projection_sql(fields.join(", ")), batch_values)!
+    rows.map do |row|
+      key = [] of Value
+      group_fields.each_with_index { |field, index| key << row["grant_group_#{index}"] }
+      {key, row["grant_aggregate"]}
+    end
+  end
+
+  private def grouped_values(rows : Array(Tuple(Array(Value), Value)), type : V.class, &block : Value -> V) forall V
+    if group_fields.size == 1
+      result = {} of Value => V
+      rows.each { |row| result[row[0].first] = yield row[1] }
+      result
+    else
+      result = {} of Array(Value) => V
+      rows.each { |row| result[row[0]] = yield row[1] }
+      result
+    end
+  end
+end

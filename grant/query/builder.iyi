@@ -4,12 +4,15 @@ import grant/adapter/sqlite_connection::{Value}
 import grant/errors::{DatabaseError}
 import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
+import grant/query/aggregations::{Aggregations}
+import grant/query/grouping::{Grouping}
 
 # Structural slice of Grant::Query::Builder(Model): lazy clauses and terminal
 # reads. The model remains responsible for its connection and row hydration.
 pub class Builder(Model)
   @where_fields = [] of String
   @where_values = [] of Value
+  getter group_fields = [] of NamedTuple(field: String)
 
   def initialize
   end
@@ -17,7 +20,22 @@ pub class Builder(Model)
   def chain_copy : self
     copied = Builder(Model).new
     copied.copy_conditions(@where_fields, @where_values)
+    copied.copy_groups(@group_fields)
     copied
+  end
+
+  protected def copy_groups(fields : Array(NamedTuple(field: String))) : Nil
+    @group_fields = fields.dup
+    nil
+  end
+
+  def group_by_in_place(field : Symbol | String) : self
+    @group_fields << {field: field.to_s}
+    self
+  end
+
+  def group_by(field : Symbol | String) : self
+    chain_copy.group_by_in_place(field)
   end
 
   protected def copy_conditions(fields : Array(String), values : Array(Value)) : Nil
@@ -67,6 +85,7 @@ pub class Builder(Model)
   private def projection_sql(fields : String) : String
     sql = "SELECT #{fields} FROM \"#{Model.table_name}\""
     sql += where_sql
+    sql += " GROUP BY #{@group_fields.map { |field| field[:field] }.join(", ")}" unless @group_fields.empty?
     sql
   end
 
@@ -92,8 +111,9 @@ pub class Builder(Model)
     @where_values
   end
 
-  def count : Int64 | DatabaseError
-    count_single
+  def count : Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64) | DatabaseError
+    return count_single if @group_fields.empty?
+    grouped_values(aggregate_rows("COUNT", "*")!, Int64) { |value| value.as(Int64) }
   end
 
   protected def count_single : Int64 | DatabaseError
@@ -169,4 +189,10 @@ impl Batches(Model) for Builder(Model) forall Model
 end
 
 impl QueryExtensions(Model) for Builder(Model) forall Model
+end
+
+impl Aggregations(Model) for Builder(Model) forall Model
+end
+
+impl Grouping(Model) for Builder(Model) forall Model
 end

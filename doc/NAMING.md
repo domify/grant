@@ -6,7 +6,7 @@ SPEC.md III.1.7 prohibits trailing `!` in declaration names. Raising variants (`
 
 In-place relation mutators (`where!`, `order!`, `joins!`, `or!`, etc.) become `<name>_in_place`.
 
-Crystal names that are iyi keywords receive documented aliases: `import` becomes `import_records`. Add further keyword aliases here as encountered.
+Crystal names that are iyi keywords receive documented aliases: `import` becomes `import_records`; query `group` becomes `group_records` because iyi reserves `group` for task groups (the existing `group_by` API is also retained). Add further keyword aliases here as encountered.
 
 `raise` becomes a returned error union member; `rescue` becomes a union check. Transactions roll back if the block returns an error. Crystal `Grant::Transaction::Rollback` is currently exported as `Rollback` from `grant/errors`.
 
