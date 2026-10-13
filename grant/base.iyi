@@ -254,6 +254,10 @@ pub abstract class Base
       ::Grant::Base::Base.in_explicit_transaction?
     end
 
+    def self.after_all_transactions_commit(&block : -> Nil) : Nil
+      ::Grant::Transaction.after_all_transactions_commit(&block)
+    end
+
     def self.current_transaction : ::Grant::Transaction::Handle
       ::Grant::Transaction.current_transaction(transaction_adapter)
     end

@@ -54,7 +54,19 @@ pub class TransactionState
   def handle : Handle
     @handle ||= Handle.new(self)
   end
-  @@stack = [] of TransactionState
+  getter after_all_commit_callbacks = [] of Proc(Nil)
+  # Native iyi schedules fibers on one thread; each runtime fiber owns its stack.
+  @@transaction_stacks = {} of UInt64 => Array(TransactionState)
+
+  def self.fiber_stack : Array(TransactionState)
+    key = IyiScheduler.current.object_id
+    stack = @@transaction_stacks[key]?
+    if stack.nil?
+      stack = [] of TransactionState
+      @@transaction_stacks[key] = stack
+    end
+    stack
+  end
   @@statement_observer : Proc(String, Nil)? = nil
 
   def initialize(@adapter : Connection, @connection : Connection, @options : Options, @enclosing : TransactionState? = nil)
@@ -81,18 +93,20 @@ pub class TransactionState
   end
 
   def self.push(state : TransactionState) : Nil
-    @@stack << state
+    fiber_stack << state
   end
 
   def self.pop : Nil
-    @@stack.pop
+    stack = fiber_stack
+    stack.pop
+    @@transaction_stacks.delete(IyiScheduler.current.object_id) if stack.empty?
     nil
   end
 
   def self.current_state_for?(adapter : Connection) : TransactionState?
-    index = @@stack.size - 1
+    index = fiber_stack.size - 1
     while index >= 0
-      state = @@stack[index]
+      state = fiber_stack[index]
       return state if state.adapter.object_id == adapter.object_id
       index -= 1
     end
@@ -100,13 +114,13 @@ pub class TransactionState
   end
 
   def self.current_state? : TransactionState?
-    @@stack.last?
+    fiber_stack.last?
   end
 
   def self.current_state_for_connection?(connection : Connection) : TransactionState?
-    index = @@stack.size - 1
+    index = fiber_stack.size - 1
     while index >= 0
-      state = @@stack[index]
+      state = fiber_stack[index]
       return state if state.connection.object_id == connection.object_id
       index -= 1
     end
@@ -114,15 +128,15 @@ pub class TransactionState
   end
 
   def self.in_explicit_transaction? : Bool
-    !@@stack.empty?
+    !fiber_stack.empty?
   end
 end
 
 pub struct SavepointMarker
   getter name : String
-  getter marks : NamedTuple(callbacks: Int32, records: Int32)
+  getter marks : NamedTuple(callbacks: Int32, records: Int32, after_all: Int32)
 
-  def initialize(@name : String, @marks : NamedTuple(callbacks: Int32, records: Int32))
+  def initialize(@name : String, @marks : NamedTuple(callbacks: Int32, records: Int32, after_all: Int32))
   end
 end
 
@@ -260,9 +274,13 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
       enclosing.list_of_record_rollback_actions << action
     end
     state.pending_callbacks.each { |callback| enclosing.pending_callbacks << callback }
+    state.after_all_commit_callbacks.each { |callback| enclosing.after_all_commit_callbacks << callback }
   end
   connection.close! if options.independent
-  state.pending_callbacks.each { |callback| callback[:on_commit].call } if outer
+  if outer
+    state.pending_callbacks.each { |callback| callback[:on_commit].call }
+    finalize_after_all_commit(state)
+  end
   result
 end
 
@@ -327,7 +345,7 @@ pub def begin_manual(adapter : Connection, options : Options) : Handle | Databas
   unless state.nil?
     return TransactionIsolationError.new if options.isolation
     name = state.next_savepoint_name
-    marks = {callbacks: state.pending_callbacks.size, records: state.list_of_record_rollback_actions.size}
+    marks = {callbacks: state.pending_callbacks.size, records: state.list_of_record_rollback_actions.size, after_all: state.after_all_commit_callbacks.size}
     execute_control(state.connection, "SAVEPOINT #{name}")!
     handle = Handle.new(state, SavepointMarker.new(name, marks))
     state.manual_savepoints << handle
@@ -361,6 +379,7 @@ pub def commit_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
   state.open = false
   release_manual(state)
   state.pending_callbacks.each { |callback| callback[:on_commit].call }
+  finalize_after_all_commit(state)
   nil
 end
 
@@ -384,6 +403,9 @@ pub def rollback_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
     end
     handle.settle
     state.manual_savepoints.delete(handle)
+    while state.after_all_commit_callbacks.size > marker.marks[:after_all]
+      state.after_all_commit_callbacks.pop
+    end
     callbacks.each { |callback| callback[:on_rollback].call }
     return nil
   end
@@ -431,4 +453,25 @@ pub def innermost_manual_handle(adapter : Connection) : Handle | NotOpenError
   return nested unless nested.nil?
   return NotOpenError.new("The open transaction was not started with begin_transaction") unless state.manual
   state.handle
+end
+
+
+pub def after_all_transactions_commit(&block : -> Nil) : Nil
+  state = TransactionState.current_state?
+  if state.nil?
+    block.call
+  else
+    state.after_all_commit_callbacks << block
+  end
+  nil
+end
+
+private def finalize_after_all_commit(state : TransactionState) : Nil
+  parent = TransactionState.current_state?
+  if parent.nil?
+    state.after_all_commit_callbacks.each { |callback| callback.call }
+  else
+    state.after_all_commit_callbacks.each { |callback| parent.after_all_commit_callbacks << callback }
+  end
+  nil
 end

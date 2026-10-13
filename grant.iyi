@@ -23,3 +23,8 @@ end
 pub def transaction(name : String, isolation : ::Grant::Transaction::IsolationLevel? = nil, readonly : Bool = false, requires_new : Bool = false, joinable : Bool = true, independent : Bool = false, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
   run(connection(name), Options.new(isolation: isolation, readonly: readonly, requires_new: requires_new, joinable: joinable, independent: independent)) { yield }
 end
+
+
+pub def after_all_transactions_commit(&block : -> Nil) : Nil
+  ::Grant::Transaction.after_all_transactions_commit(&block)
+end

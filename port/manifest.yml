@@ -170,7 +170,7 @@
   target: grant_transaction_after_all_commit_test.iyi
   area: transactions
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/cross_database_nesting_spec.cr
   target: grant_transaction_cross_database_nesting_test.iyi
   area: transactions
