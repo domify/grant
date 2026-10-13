@@ -1268,7 +1268,7 @@
   target: grant_transaction_joinable_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/types/pg_array_spec.cr
   target: grant_types_pg_array_test.iyi
   area: query
