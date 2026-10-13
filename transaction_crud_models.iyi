@@ -55,3 +55,11 @@ pub class Comment < Base
   column commentbody : String?
   column articleid : Int64?
 end
+
+
+pub class Teacher < Base
+  connection sqlite
+  table teachers
+  column id : Int64, primary: true
+  column name : String?
+end

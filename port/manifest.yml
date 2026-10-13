@@ -272,7 +272,7 @@
   target: grant_transactions_update_test.iyi
   area: transactions
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/integration/mixed_adapter_spec.cr
   target: integration_mixed_adapter_test.iyi
   area: transactions

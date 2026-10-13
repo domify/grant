@@ -399,6 +399,16 @@ pub abstract class Base
       save
     end
 
+    def update(attributes : T, *, skip_timestamps : Bool = false) : Bool forall T
+      assign_attributes(attributes)
+      save(skip_timestamps: skip_timestamps)
+    end
+
+    def update_strict(attributes : T, *, skip_timestamps : Bool = false) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
+      assign_attributes(attributes)
+      save_strict(skip_timestamps: skip_timestamps)
+    end
+
     def update_strict(**args) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase
       assign_attributes(args)
       save_strict
@@ -785,6 +795,14 @@ pub abstract class Base
       \{% end %}
     end
 
+    def __changed_column_names : Array(String)
+      names = [] of String
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && !v.annotation(::Grant::Base::Column)[:primary] } %}
+        names << \{{ v.name.stringify }} if @\{{ v.name }} != @__persisted_\{{ v.name }}
+      \{% end %}
+      names
+    end
+
     def __column_values : Array(::Grant::Adapter::Sqlite::Value)
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
@@ -943,6 +961,7 @@ pub abstract class Base
   abstract def __primary_auto? : Bool
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
+  abstract def __changed_column_names : Array(String)
   abstract def __column_values : Array(Value)
   abstract def __run_commit_callbacks(operation : Symbol) : Nil | ::Grant::Error::ErrorBase
   abstract def __run_rollback_callbacks(operation : Symbol) : Nil
@@ -980,6 +999,10 @@ pub abstract class Base
   def __mark_persisted : Nil
     @new_record = false
     @destroyed = false
+  end
+
+  def new_record=(value : Bool) : Bool
+    @new_record = value
   end
 
   def new_record? : Bool
@@ -1059,10 +1082,17 @@ pub abstract class Base
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
       __set_primary_value(result.last_insert_id) if __primary_auto? && __primary_value.nil?
     else
-      assignments = names.map { |name| "#{::Grant::Base.quote_identifier(name)} = ?" }.join(", ")
-      values << __primary_value
-      result = __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", values)
-      return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
+      changed = __changed_column_names
+      changed_values = [] of Value
+      names.each_with_index do |name, index|
+        changed_values << values[index] if changed.includes?(name)
+      end
+      unless changed.empty?
+        assignments = changed.map { |name| "#{::Grant::Base.quote_identifier(name)} = ?" }.join(", ")
+        changed_values << __primary_value
+        result = __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", changed_values)
+        return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
+      end
     end
     __mark_persisted
     if operation == :create
