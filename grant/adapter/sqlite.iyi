@@ -58,6 +58,23 @@ pub class Connection
     @last_statement = nil
   end
 
+  # Native alias for the upstream SQLite bulk insert API.
+  def import_records(table_name : String, primary_name : String, fields : Array(String), rows : Array(Array(Value)), update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | DatabaseError
+    return nil if rows.empty?
+    quoted_fields = fields.map { |field| "\"#{field}\"" }.join(", ")
+    placeholders = "(" + fields.map { "?" }.join(",") + ")"
+    statement = "INSERT #{ignore_on_duplicate && !update_on_duplicate ? "OR IGNORE " : ""}INTO \"#{table_name}\" (#{quoted_fields}) VALUES "
+    statement += rows.map { placeholders }.join(",")
+    params = [] of Value
+    rows.each { |row| row.each { |value| params << value } }
+    if update_on_duplicate && !columns.empty?
+      statement += " ON CONFLICT (\"#{primary_name}\") DO UPDATE SET "
+      statement += columns.map { |key| "\"#{key}\" = excluded.\"#{key}\"" }.join(", ")
+    end
+    execute(statement, params)!
+    nil
+  end
+
   def self.open(path : String, busy_timeout_ms : Int32 = 5000) : Connection | DatabaseError
     return DatabaseError.new(21, "open", "NUL byte in database path") if path.includes?("\0")
     handle = Pointer(Void).new(0_u64)

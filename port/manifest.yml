@@ -235,7 +235,7 @@
   target: grant_transactions_import_test.iyi
   area: transactions
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transactions/save_natural_key_spec.cr
   target: grant_transactions_save_natural_key_test.iyi
   area: transactions

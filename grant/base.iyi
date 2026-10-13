@@ -1,5 +1,7 @@
 module grant/base
 import std/named_tuple
+pub import std/time
+pub import grant/transactions
 
 pub import grant/adapter/sqlite
 import grant/adapter/sqlite::{Connection, Value, Row}
@@ -83,6 +85,50 @@ pub abstract class Base
     end
   end
 
+  macro before_save(method = nil, &block)
+    def __callback_before_save_{{ method ? method.id : "block".id }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro before_create(method = nil, &block)
+    def __callback_before_create_{{ method ? method.id : "block".id }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_create(method = nil, &block)
+    def __callback_after_create_{{ method ? method.id : "block".id }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_save(method = nil, &block)
+    def __callback_after_save_{{ method ? method.id : "block".id }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
   macro __process_columns
 
 
@@ -159,6 +205,10 @@ pub abstract class Base
           record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw : nil
         \{% elsif type.includes?("Bool") %}
           record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw != 0 : nil
+        \{% elsif type.includes?("Float32") %}
+          record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw.to_f32 : nil
+        \{% elsif type.includes?("Time") %}
+          record.\{{ v.name }} = %raw.is_a?(String) ? ::Std::Time::Time.parse_rfc3339(%raw) : nil
         \{% elsif type.includes?("Float") %}
           record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw : nil
         \{% else %}
@@ -267,6 +317,15 @@ pub abstract class Base
       adapter.query("SELECT * FROM #{table_name}")!.map { |row| from_row(row) }
     end
 
+    def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError forall V
+      params = values.map { |value| ::Grant::Base.sqlite_value(value) }
+      adapter.query("SELECT * FROM #{table_name} #{clause}", params)!.map { |row| from_row(row) }
+    end
+
+    def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError
+      ::Grant::Transactions.import_records(adapter, table_name, primary_name, model_array, batch_size, update_on_duplicate, columns, ignore_on_duplicate)
+    end
+
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
       rows = adapter.query("SELECT * FROM #{table_name} ORDER BY #{primary_name} ASC LIMIT 1")!
       row = rows.empty? ? nil : rows[0]
@@ -328,7 +387,7 @@ pub abstract class Base
       \{% for v in columns %}
         \{% unless v == primary %}
           %value = self.\{{ v.name }}
-          values << (%value.is_a?(Int32) ? %value.to_i64 : %value)
+          values << ::Grant::Base.sqlite_value(%value)
         \{% end %}
       \{% end %}
       values
@@ -343,6 +402,34 @@ pub abstract class Base
         \{{ m.name }}
       \{% end %}
       \{% end %}
+    end
+
+    def before_save : Nil
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_save_") } %}
+        \{{ m.name }}
+      \{% end %}
+      nil
+    end
+
+    def before_create : Nil
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_create_") } %}
+        \{{ m.name }}
+      \{% end %}
+      nil
+    end
+
+    def after_create : Nil
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_create_") } %}
+        \{{ m.name }}
+      \{% end %}
+      nil
+    end
+
+    def after_save : Nil
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_save_") } %}
+        \{{ m.name }}
+      \{% end %}
+      nil
     end
 
     def __adapter : ::Grant::Adapter::Sqlite::Connection
@@ -472,4 +559,20 @@ pub abstract class Base
     __run_after_destroy
     true
   end
+end
+
+pub def sqlite_value(value : Value) : Value
+  value
+end
+
+pub def sqlite_value(value : Int32) : Value
+  value.to_i64
+end
+
+pub def sqlite_value(value : Float32) : Value
+  value.to_f64
+end
+
+pub def sqlite_value(value : ::Std::Time::Time) : Value
+  value.to_rfc3339(9)
 end
