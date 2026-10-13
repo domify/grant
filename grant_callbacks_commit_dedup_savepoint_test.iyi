@@ -1,0 +1,123 @@
+import grant/base::{Base}
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+import grant/errors::{Rollback}
+
+class CommitDedupSavepointModel < Base
+  connection sqlite
+  table commit_dedup_savepoint_models
+
+  column id : Int64, primary: true
+  column name : String?
+
+  @@event_log = [] of String
+  def self.event_log : Array(String)
+    @@event_log
+  end
+  def self.event_log=(value : Array(String)) : Array(String)
+    @@event_log = value
+  end
+
+  after_create_commit { CommitDedupSavepointModel.event_log << "create_commit" }
+  after_update_commit { CommitDedupSavepointModel.event_log << "update_commit" }
+  after_commit(on: :update) { CommitDedupSavepointModel.event_log << "commit_on_update" }
+  after_commit { CommitDedupSavepointModel.event_log << "commit" }
+  after_rollback(on: :destroy) { CommitDedupSavepointModel.event_log << "rollback_on_destroy" }
+  after_rollback { CommitDedupSavepointModel.event_log << "rollback" }
+end
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+CommitDedupSavepointModel.migrator.drop_and_create.or_panic
+
+# it: does not fire commit callbacks for an update undone by a rolled back savepoint
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record = CommitDedupSavepointModel.create(name: "a")
+  CommitDedupSavepointModel.transaction(requires_new: true) do
+    record.name = "b"
+    record.save
+    Rollback.new
+  end
+end.or_panic
+
+assert !CommitDedupSavepointModel.event_log.includes?("update_commit")
+assert !CommitDedupSavepointModel.event_log.includes?("commit_on_update")
+assert CommitDedupSavepointModel.event_log.count { |event| event == "create_commit" } == 1
+assert CommitDedupSavepointModel.event_log.count { |event| event == "commit" } == 1
+
+# it: runs after_rollback for the savepoint work and commit callbacks for the rest
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record = CommitDedupSavepointModel.create(name: "a")
+  CommitDedupSavepointModel.transaction(requires_new: true) do
+    record.name = "b"
+    record.save
+    Rollback.new
+  end
+  assert CommitDedupSavepointModel.event_log == ["rollback"]
+end.or_panic
+
+assert CommitDedupSavepointModel.event_log == ["rollback", "create_commit", "commit"]
+
+# it: runs after_rollback once per record when the whole transaction rolls back
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record = CommitDedupSavepointModel.create(name: "a")
+  record.name = "b"
+  record.save
+  Rollback.new
+end.or_panic
+
+assert CommitDedupSavepointModel.event_log == ["rollback"]
+
+# it: filters after_rollback on: :destroy for a rolled back destroy
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+record = CommitDedupSavepointModel.create(name: "a")
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record.destroy
+  Rollback.new
+end.or_panic
+
+assert CommitDedupSavepointModel.event_log == ["rollback_on_destroy", "rollback"]
+
+# it: resolves a record created then destroyed in one transaction to a destroy
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record = CommitDedupSavepointModel.create(name: "a")
+  record.destroy
+end.or_panic
+
+assert CommitDedupSavepointModel.event_log == ["commit"]
+
+# it: resolves a record updated then destroyed in one transaction to a destroy
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+record = CommitDedupSavepointModel.create(name: "a")
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record.name = "b"
+  record.save
+  record.destroy
+end.or_panic
+
+assert CommitDedupSavepointModel.event_log == ["commit"]
+
+# it: resolves a rolled back update then destroy to a destroy for after_rollback on:
+CommitDedupSavepointModel.clear.or_panic
+CommitDedupSavepointModel.event_log.clear
+record = CommitDedupSavepointModel.create(name: "a")
+CommitDedupSavepointModel.event_log.clear
+CommitDedupSavepointModel.transaction do
+  record.name = "b"
+  record.save
+  record.destroy
+  Rollback.new
+end.or_panic
+
+assert CommitDedupSavepointModel.event_log == ["rollback_on_destroy", "rollback"]
+CommitDedupSavepointModel.adapter.close.or_panic
