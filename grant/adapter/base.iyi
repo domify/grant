@@ -109,8 +109,30 @@ pub abstract class Base
   end
 
   @in_use : Int32 = 0
+  # Fiber-owned pins, as in upstream grant_pinned_connections. Keeping the
+  # map on the adapter avoids adding fields to the native scheduler's fibers.
+  @pinned_connections = {} of UInt64 => Connection
+
+  def pinned_connection? : Connection?
+    @pinned_connections[IyiScheduler.current.object_id]?
+  end
+
+  def with_connection(&block : Connection -> T) : T | ErrorBase | Cancelled forall T
+    owned = pinned_connection?
+    return yield owned unless owned.nil?
+    open do |connection|
+      fiber_id = IyiScheduler.current.object_id
+      @pinned_connections[fiber_id] = connection
+      result = yield connection
+      # Native errors are values: clean up before returning either outcome.
+      @pinned_connections.delete(fiber_id)
+      result
+    end
+  end
 
   def checkout : Connection | ErrorBase | Cancelled
+    pinned = pinned_connection?
+    return pinned unless pinned.nil?
     checkout_connection
   end
 
@@ -152,9 +174,9 @@ pub abstract class Base
     lost_retries = idempotent_read?(sql) && @retry_attempts > 0 ? 1 : 0
     attempt = 0
     loop do
-      connection = checkout_connection!
+      connection = checkout!
       # The upstream transaction route never enters its replaying pool route.
-      lost_retries = 0 if connection.in_transaction?
+      lost_retries = 0 if connection.in_transaction? || !pinned_connection?.nil?
       @in_use += 1
       result = yield connection
       @in_use -= 1

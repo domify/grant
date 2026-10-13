@@ -99,6 +99,10 @@
     - T-a0e8d2b4e7
     - T-f11f6a384a
     - T-2faf23781a
+  - target: grant_connection_w6_statement_invalid_sql_pinned_test.iyi
+    status: done
+    examples:
+    - T-2bcf50dd79
   - target: grant_connection_w6_statement_invalid_sql_test.iyi
     status: todo
     examples:
@@ -110,7 +114,6 @@
     - T-ba25071876
     - T-b950043276
     - T-b4a5f54bf9
-    - T-2bcf50dd79
     - T-d6ecc30ae7
     - T-8483c7800e
     - T-3b61e8fdc7
