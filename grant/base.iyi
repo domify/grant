@@ -72,9 +72,14 @@ pub abstract class Base
   macro column(decl, **options)
     @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }})]
     @{{decl.var}} : {{decl.type}} | Nil = nil
+    @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
     def {{decl.var}} : {{decl.type}} | Nil
       @{{decl.var}}
+    end
+
+    def {{decl.var}}_changed? : Bool
+      @{{decl.var}} != @__persisted_{{decl.var}}
     end
 
     def {{decl.var}}=(value : {{decl.type}} | Nil) : Nil
@@ -321,6 +326,39 @@ pub abstract class Base
   end
 
   macro __process_columns
+    def __mark_persisted : Nil
+      super
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        @__persisted_\{{ v.name }} = @\{{ v.name }}
+      \{% end %}
+      nil
+    end
+
+    def __remember_transaction_state : Nil
+      return unless __adapter.in_transaction?
+      __remember_record_flags
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        snapshot_\{{ v.name }} = new_record? ? @\{{ v.name }} : @__persisted_\{{ v.name }}
+      \{% end %}
+      ::Grant::Transaction.enlist_record_rollback_action(__adapter) do
+        \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+          @\{{ v.name }} = snapshot_\{{ v.name }}
+          @__persisted_\{{ v.name }} = snapshot_\{{ v.name }}
+        \{% end %}
+        nil
+      end
+    end
+
+    def update(**args) : Bool
+      assign_attributes(args)
+      save
+    end
+
+    def update_strict(**args) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
+      assign_attributes(args)
+      save_strict
+    end
+
     def __run_commit_callbacks(operation : Symbol) : Nil
       \{% begin %}
       \{% for priority in [true, false] %}
@@ -822,7 +860,7 @@ pub abstract class Base
     Base.run_transaction(__transaction_adapter, options) { yield }
   end
 
-  def __remember_transaction_state : Nil
+  def __remember_record_flags : Nil
     return unless __adapter.in_transaction?
     state = TransactionState.new(@new_record, @destroyed)
     ::Grant::Transaction.enlist_record_rollback_action(__adapter) { __restore_transaction_state(state) }
@@ -911,13 +949,13 @@ pub abstract class Base
       result = __adapter.execute("INSERT INTO #{__table_name} (#{names.join(", ")}) VALUES (#{placeholders})", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
       __set_primary_value(result.last_insert_id) if __primary_auto? && __primary_value.nil?
-      @new_record = false
     else
       assignments = names.map { |name| "#{name} = ?" }.join(", ")
       values << __primary_value
       result = __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
     end
+    __mark_persisted
     if operation == :create
       self.after_create!
     else
