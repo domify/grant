@@ -7,3 +7,5 @@ Start with transactions. Stage A owns shared base, columns, SQLite adapter, quer
 Use `ruby port/manifest.rb generate` to refresh generated metadata while retaining progress. Use `ruby port/manifest.rb stats` for totals. Do not modify generated source/area/example counts or exclusions.
 
 Use `bin/port-check --integrate` for Stage B merges and the Stage A stop condition. It runs the full regression checks while allowing todo entries; its OK means no regression. Only full `bin/port-check` establishes completion and lets the loop exit 0.
+
+An unfinished port of the transactions create spec (grant_transactions_create_test.iyi, transaction_crud_*.iyi, base/errors edits) was interrupted by a Codex usage limit and saved with `git stash` (message "core worker WIP ..."). Run `git stash pop` first and finish it.
