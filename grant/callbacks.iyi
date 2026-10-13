@@ -1,0 +1,31 @@
+module grant/callbacks
+
+pub annotation Callback
+end
+
+# One record's resolved operation at a transaction boundary. Savepoints keep
+# their own entry until release, so a rollback cannot overwrite the outer work.
+pub class CommitCallback
+  getter operation : Symbol
+  property active : Bool = true
+  getter on_commit : Proc(Symbol, Nil)
+  getter on_rollback : Proc(Symbol, Nil)
+
+  def initialize(@operation : Symbol, @on_commit : Proc(Symbol, Nil), @on_rollback : Proc(Symbol, Nil))
+  end
+
+  def merge(operation : Symbol) : Nil
+    @operation = operation if operation == :destroy || @operation != :create
+    nil
+  end
+
+  def commit : Nil
+    @on_commit.call(@operation) if @active
+    nil
+  end
+
+  def rollback : Nil
+    @on_rollback.call(@operation) if @active
+    nil
+  end
+end

@@ -3,6 +3,8 @@ module grant/transaction
 import std/indexable
 import std/text
 import std/enumerable
+pub import grant/callbacks
+import grant/callbacks::{CommitCallback}
 
 import grant/adapter/sqlite::{Connection, Mutation}
 import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError, NotOpenError, InvalidSavepointNameError}
@@ -46,6 +48,7 @@ pub class TransactionState
   getter savepoint_counter : Int32 = 0
   getter enclosing : TransactionState?
   getter pending_callbacks = [] of NamedTuple(on_commit: Proc(Nil), on_rollback: Proc(Nil))
+  getter record_callbacks = {} of UInt64 => CommitCallback
   property open : Bool = true
   property manual : Bool = false
   getter manual_savepoints = [] of Handle
@@ -225,6 +228,23 @@ pub def enlist_record_rollback_action(connection : Connection, &block : -> Nil) 
   state.list_of_record_rollback_actions << block unless state.nil?
 end
 
+pub def queue_record_callbacks(connection : Connection, record_id : UInt64, operation : Symbol, on_commit : Proc(Symbol, Nil), on_rollback : Proc(Symbol, Nil)) : Nil
+  state = TransactionState.current_state_for_connection?(connection)
+  if state.nil?
+    on_commit.call(operation)
+    return nil
+  end
+  existing = state.record_callbacks[record_id]?
+  unless existing.nil?
+    existing.merge(operation)
+    return nil
+  end
+  callback = CommitCallback.new(operation, on_commit, on_rollback)
+  state.record_callbacks[record_id] = callback
+  state.pending_callbacks << {on_commit: -> { callback.commit }, on_rollback: -> { callback.rollback }}
+  nil
+end
+
 pub def run(adapter : Connection, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
   enclosing = TransactionState.current_state_for?(adapter)
   return TransactionIsolationError.new if enclosing && options.isolation && !options.independent
@@ -270,6 +290,15 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
     return committed
   end
   unless outer || enclosing.nil?
+    state.record_callbacks.each do |record_id, callback|
+      existing = enclosing.record_callbacks[record_id]?
+      if existing.nil?
+        enclosing.record_callbacks[record_id] = callback
+      else
+        existing.merge(callback.operation)
+        callback.active = false
+      end
+    end
     state.list_of_record_rollback_actions.each do |action|
       enclosing.list_of_record_rollback_actions << action
     end

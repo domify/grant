@@ -19,7 +19,7 @@
   target: grant_callbacks_after_save_commit_test.iyi
   area: transactions
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/commit_dedup_savepoint_spec.cr
   target: grant_callbacks_commit_dedup_savepoint_test.iyi
   area: transactions

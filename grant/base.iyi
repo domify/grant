@@ -2,6 +2,7 @@ module grant/base
 import std/named_tuple
 pub import std/time
 pub import grant/timestamps
+pub import grant/callbacks
 pub import grant/transactions
 
 pub import grant/adapter/sqlite
@@ -90,6 +91,78 @@ pub abstract class Base
     {% end %}
   end
 
+  macro after_commit(method = nil, on = nil, &block)
+    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    def __callback_commit_{{ @type.methods.size }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_rollback(method = nil, on = nil, &block)
+    @[::Grant::Callbacks::Callback(event: :rollback, on: {{ on }})]
+    def __callback_rollback_{{ @type.methods.size }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_create_commit(method = nil, on = :create, &block)
+    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    def __callback_commit_{{ @type.methods.size }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_update_commit(method = nil, on = :update, &block)
+    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    def __callback_commit_{{ @type.methods.size }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_destroy_commit(method = nil, on = :destroy, &block)
+    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    def __callback_commit_{{ @type.methods.size }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_save_commit(method = nil, on = [:create, :update], &block)
+    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    def __callback_commit_{{ @type.methods.size }} : Nil
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}
+      {% end %}
+      nil
+    end
+  end
+
   macro after_destroy(name)
     def __callback_after_destroy_{{ name.id }} : Nil
       {{ name.id }}
@@ -141,6 +214,39 @@ pub abstract class Base
   end
 
   macro __process_columns
+    def __run_commit_callbacks(operation : Symbol) : Nil
+      \{% begin %}
+      \{% for m in @type.methods.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:event] == :commit } %}
+        \{% on = m.annotation(::Grant::Callbacks::Callback)[:on] %}
+        \{% if on == nil %}
+          \{{ m.name }}
+        \{% elsif on.is_a?(ArrayLiteral) %}
+          \{{ m.name }} if \{{ on }}.includes?(operation)
+        \{% else %}
+          \{{ m.name }} if operation == \{{ on }}
+        \{% end %}
+      \{% end %}
+      nil
+      \{% end %}
+    end
+
+    def __run_rollback_callbacks(operation : Symbol) : Nil
+      \{% begin %}
+      \{% for m in @type.methods.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:event] == :rollback } %}
+        \{% on = m.annotation(::Grant::Callbacks::Callback)[:on] %}
+        \{% if on == nil %}
+          \{{ m.name }}
+        \{% elsif on.is_a?(ArrayLiteral) %}
+          \{{ m.name }} if \{{ on }}.includes?(operation)
+        \{% else %}
+          \{{ m.name }} if operation == \{{ on }}
+        \{% end %}
+      \{% end %}
+      nil
+      \{% end %}
+    end
+
+
 
 
     def self.timestamp_precision : Int32?
@@ -527,6 +633,8 @@ pub abstract class Base
   abstract def __column_names : Array(String)
   abstract def __column_values : Array(Value)
   abstract def __run_after_destroy : Nil
+  abstract def __run_commit_callbacks(operation : Symbol) : Nil
+  abstract def __run_rollback_callbacks(operation : Symbol) : Nil
   abstract def __adapter : Connection
   abstract def __table_name : String
 
@@ -587,6 +695,7 @@ pub abstract class Base
       return RecordNotSaved.new(__table_name)
     end
     __remember_transaction_state
+    operation = @new_record ? :create : :update
     set_timestamps(mode: @new_record ? :create : :update) unless skip_timestamps
     names = __column_names
     values = __column_values
@@ -607,7 +716,12 @@ pub abstract class Base
       result = __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
     end
+    queue_commit_callbacks(operation)
     true
+  end
+
+  def queue_commit_callbacks(operation : Symbol) : Nil
+    ::Grant::Transaction.queue_record_callbacks(__adapter, object_id, operation, ->(op : Symbol) { __run_commit_callbacks(op) }, ->(op : Symbol) { __run_rollback_callbacks(op) })
   end
 
   # Deletes the row without callbacks.
@@ -623,6 +737,7 @@ pub abstract class Base
   def destroy : Bool
     delete
     __run_after_destroy
+    queue_commit_callbacks(:destroy)
     true
   end
 end
