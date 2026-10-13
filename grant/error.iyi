@@ -21,6 +21,10 @@ pub class Error
 
   def initialize(@field : String | Symbol, @message : String = "", @type : Symbol? = nil)
   end
+
+  def to_s : String
+    @message
+  end
 end
 
 

@@ -9,7 +9,7 @@
   target: grant_callbacks_abort_test.iyi
   area: transactions
   examples: 15
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/after_commit_timing_spec.cr
   target: grant_callbacks_after_commit_timing_test.iyi
   area: transactions

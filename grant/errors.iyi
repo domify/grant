@@ -98,6 +98,10 @@ pub class Errors
     self
   end
 
+  def map(&block : ::Grant::Error::Error -> T) : Array(T) forall T
+    @errors.map { |error| yield error }
+  end
+
   def first : ::Grant::Error::Error
     @errors.first
   end
