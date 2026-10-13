@@ -36,8 +36,8 @@ pub class Migrator
   end
 
   def drop_and_create : Nil | DatabaseError
-    @connection.execute("DROP TABLE IF EXISTS #{@table}")!
-    @connection.execute("CREATE TABLE #{@table} (#{@columns.join(", ")})")!
+    @connection.execute("DROP TABLE IF EXISTS #{::Grant::Base.quote_identifier(@table)}")!
+    @connection.execute("CREATE TABLE #{::Grant::Base.quote_identifier(@table)} (#{@columns.join(", ")})")!
     nil
   end
 end
@@ -62,7 +62,7 @@ pub abstract class Base
   end
 
   macro table(name)
-    @@table_name = {{ name.id.stringify }}
+    @@table_name = {{ name.is_a?(StringLiteral) ? name : name.id.stringify }}
   end
 
   macro connection(name)
@@ -237,6 +237,18 @@ pub abstract class Base
     end
   end
 
+  macro validate(field, message, &block)
+    def __validate_{{ @type.methods.size }} : Nil
+      {{ block.args[0] }} = self
+      unless begin
+        {{ block.body }}
+      end
+        errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
+      end
+      nil
+    end
+  end
+
   macro around_save(method = nil, &block)
     def __callback_around_save_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
       {% if block %}
@@ -391,6 +403,13 @@ pub abstract class Base
       save_strict
     end
 
+    def __run_validations : Nil
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__validate_") } %}
+        \{{ m.name }}
+      \{% end %}
+      nil
+    end
+
     def __run_around_save(&action : -> T) : T | ::Grant::Errors::RecordNotSaved forall T
       result = ::Grant::Errors::RecordNotSaved.new(__table_name).as(T | ::Grant::Errors::RecordNotSaved)
       continuation = -> { result = action.call; nil }
@@ -491,9 +510,9 @@ pub abstract class Base
         end
       end
       return ::Grant::Error::ErrorBase.new("No timestamp columns are available to touch") if touch_fields.empty?
-      assignments = touch_fields.map { |field| "#{field} = ?" }.join(", ")
+      assignments = touch_fields.map { |field| "#{::Grant::Base.quote_identifier(field)} = ?" }.join(", ")
       touch_values << __primary_value
-      __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", touch_values)!
+      __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", touch_values)!
       self.after_touch!
       true
       \{% end %}
@@ -540,9 +559,9 @@ pub abstract class Base
           \{% type = v.annotation(::Grant::Base::Column)[:type] %}
           \{% sql = type.includes?("Int") ? "INTEGER" : (type.includes?("Bool") ? "BOOLEAN" : (type.includes?("Float") ? "REAL" : "TEXT")) %}
           \{% if v == primary %}
-            "\{{ v.name }} \{{ sql.id }} PRIMARY KEY\{{ v.annotation(::Grant::Base::Column)[:auto] ? "".id : " NOT NULL".id }}",
+            "#{::Grant::Base.quote_identifier(\{{ v.name.stringify }})} \{{ sql.id }} PRIMARY KEY\{{ v.annotation(::Grant::Base::Column)[:auto] ? "".id : " NOT NULL".id }}",
           \{% else %}
-            "\{{ v.name }} \{{ sql.id }}\{{ type.includes?("?") || type.includes?("Nil") ? "".id : " NOT NULL".id }}",
+            "#{::Grant::Base.quote_identifier(\{{ v.name.stringify }})} \{{ sql.id }}\{{ type.includes?("?") || type.includes?("Nil") ? "".id : " NOT NULL".id }}",
           \{% end %}
         \{% end %}
       ] of String)
@@ -553,7 +572,7 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      adapter.execute("DELETE FROM #{table_name}")!
+      adapter.execute("DELETE FROM #{::Grant::Base.quote_identifier(table_name)}")!
       nil
       \{% end %}
     end
@@ -619,12 +638,26 @@ pub abstract class Base
       \{% end %}
     end
 
+    def self.create(attributes : T, *, skip_timestamps : Bool = false) : {{ @type }} forall T
+      record = new
+      record.assign_attributes(attributes)
+      record.save(skip_timestamps: skip_timestamps)
+      record
+    end
+
+    def self.create_strict(attributes : T, *, skip_timestamps : Bool = false) : {{ @type }} | ::Grant::Errors::RecordNotSaved | ::Grant::Error::ErrorBase forall T
+      record = new
+      record.assign_attributes(attributes)
+      record.save_strict(skip_timestamps: skip_timestamps)!
+      record
+    end
+
     def self.find(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | Nil
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       return nil if id.nil?
-      rows = adapter.query("SELECT * FROM #{table_name} WHERE \{{ primary.name }} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
+      rows = adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)} WHERE #{::Grant::Base.quote_identifier(\{{ primary.name.stringify }})} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
       return nil if rows.is_a?(::Grant::Errors::DatabaseError) || rows.empty?
       from_row(rows[0])
       \{% end %}
@@ -651,7 +684,7 @@ pub abstract class Base
         clauses << "#{key} = ?"
         values << value
       end
-      sql = "SELECT * FROM #{table_name}"
+      sql = "SELECT * FROM #{::Grant::Base.quote_identifier(table_name)}"
       sql += " WHERE #{clauses.join(" AND ")}" unless clauses.empty?
       adapter.query(sql, values)!.map { |row| from_row(row) }
       \{% end %}
@@ -682,12 +715,12 @@ pub abstract class Base
     end
 
     def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError
-      adapter.query("SELECT * FROM #{table_name}")!.map { |row| from_row(row) }
+      adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)}")!.map { |row| from_row(row) }
     end
 
     def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError forall V
       params = values.map { |value| ::Grant::Base.sqlite_value(value) }
-      adapter.query("SELECT * FROM #{table_name} #{clause}", params)!.map { |row| from_row(row) }
+      adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)} #{clause}", params)!.map { |row| from_row(row) }
     end
 
     def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError
@@ -695,7 +728,7 @@ pub abstract class Base
     end
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
-      rows = adapter.query("SELECT * FROM #{table_name} ORDER BY #{primary_name} ASC LIMIT 1")!
+      rows = adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
       row = rows.empty? ? nil : rows[0]
       row.nil? ? nil : from_row(row)
     end
@@ -707,7 +740,7 @@ pub abstract class Base
     end
 
     def self.count : Int64 | ::Grant::Errors::DatabaseError
-      adapter.query("SELECT COUNT(*) AS count FROM #{table_name}")![0]["count"].as(Int64)
+      adapter.query("SELECT COUNT(*) AS count FROM #{::Grant::Base.quote_identifier(table_name)}")![0]["count"].as(Int64)
     end
 
     def __primary_name : String
@@ -959,9 +992,11 @@ pub abstract class Base
   end
 
   def valid? : Bool | ::Grant::Callbacks::Abort
+    errors.clear
     self.before_validation!
+    __run_validations
     self.after_validation!
-    true
+    errors.empty?
   end
 
   def abort_strict(message : String = "Aborted") : ::Grant::Callbacks::Abort
@@ -977,7 +1012,7 @@ pub abstract class Base
     end
     __remember_transaction_state
     operation = @new_record ? :create : :update
-    valid?!
+    return ::Grant::Errors::RecordInvalid.new(self) unless valid?!
     self.before_save!
     if @new_record
       self.before_create!
@@ -994,13 +1029,13 @@ pub abstract class Base
         values << primary_value
       end
       placeholders = names.map { "?" }.join(", ")
-      result = __adapter.execute("INSERT INTO #{__table_name} (#{names.join(", ")}) VALUES (#{placeholders})", values)
+      result = __adapter.execute("INSERT INTO #{::Grant::Base.quote_identifier(__table_name)} (#{names.map { |name| ::Grant::Base.quote_identifier(name) }.join(", ")}) VALUES (#{placeholders})", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
       __set_primary_value(result.last_insert_id) if __primary_auto? && __primary_value.nil?
     else
-      assignments = names.map { |name| "#{name} = ?" }.join(", ")
+      assignments = names.map { |name| "#{::Grant::Base.quote_identifier(name)} = ?" }.join(", ")
       values << __primary_value
-      result = __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", values)
+      result = __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
     end
     __mark_persisted
@@ -1022,7 +1057,7 @@ pub abstract class Base
   def delete : self
     __remember_transaction_state
     if id = __primary_value
-      __adapter.execute("DELETE FROM #{__table_name} WHERE #{__primary_name} = ?", [id] of Value)
+      __adapter.execute("DELETE FROM #{::Grant::Base.quote_identifier(__table_name)} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", [id] of Value)
     end
     @destroyed = true
     self
@@ -1051,4 +1086,19 @@ end
 
 pub def sqlite_value(value : ::Std::Time::Time) : Value
   value.to_rfc3339(9)
+end
+
+# SQLite's identifier quoting applies to table and column names alike.
+pub def quote_identifier(name : String) : String
+  "\"#{name.gsub("\"", "\"\"")}\""
+end
+
+impl ::Grant::Errors::ValidationRecord for Base
+  def errors : ::Grant::Errors::Errors
+    @errors
+  end
+
+  def __table_name : String
+    self.__table_name
+  end
 end

@@ -106,8 +106,43 @@ pub class Errors
     @errors.first?
   end
 
+  def empty? : Bool
+    @errors.empty?
+  end
+
+  def size : Int32
+    @errors.size
+  end
+
+  def full_messages : Array(String)
+    @errors.map { |error| error.message }
+  end
+
   def clear : Nil
     @errors.clear
     nil
+  end
+end
+
+# Shared record interface avoids an errors -> Base -> adapter import cycle.
+pub trait ValidationRecord
+  abstract def errors : Errors
+  abstract def __table_name : String
+end
+
+# Validation-specific persistence failure retains the rejected model.
+pub class RecordInvalid < RecordNotSaved
+  getter record : ValidationRecord
+
+  def initialize(@record : ValidationRecord)
+    super(@record.__table_name)
+    messages = @record.errors.full_messages
+    @message = messages.empty? ? "Validation failed" : "Validation failed: #{messages.join(", ")}"
+  end
+end
+
+impl ::Error for RecordInvalid
+  def message : String
+    @message
   end
 end

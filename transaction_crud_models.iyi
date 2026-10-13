@@ -1,0 +1,29 @@
+module transaction_crud_models
+pub import grant/base
+import grant/base::{Base}
+
+pub class Parent < Base
+  connection sqlite
+  table parents
+  column id : Int64, primary: true
+  column name : String?
+  timestamps
+
+  validate :name, "Name cannot be blank" do |parent|
+    !parent.name.to_s.strip.empty?
+  end
+end
+
+pub class School < Base
+  connection sqlite
+  table schools
+  column custom_id : Int64, primary: true
+  column name : String?
+end
+
+pub class ReservedWord < Base
+  connection sqlite
+  table "select"
+  column id : Int64, primary: true
+  column all : String?
+end

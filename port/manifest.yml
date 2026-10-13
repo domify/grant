@@ -237,7 +237,7 @@
   target: grant_transactions_create_test.iyi
   area: transactions
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transactions/destroy_spec.cr
   target: grant_transactions_destroy_test.iyi
   area: transactions
