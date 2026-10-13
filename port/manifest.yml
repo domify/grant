@@ -210,7 +210,7 @@
   target: grant_transaction_savepoint_failure_test.iyi
   area: transactions
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction_atomicity_spec.cr
   target: grant_transaction_atomicity_test.iyi
   area: transactions

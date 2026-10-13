@@ -42,6 +42,10 @@ pub abstract class Base
   @new_record : Bool = true
   @destroyed : Bool = false
 
+  def initialize(**args)
+    assign_attributes(args)
+  end
+
   macro inherited
     @@table_name : String = {{ @type.name.split("::").last.underscore.stringify }} + "s"
     @@connection_name : String = "sqlite"
@@ -244,6 +248,10 @@ pub abstract class Base
 
     def self.transaction_open? : Bool
       ::Grant::Base::Base.in_explicit_transaction?
+    end
+
+    def self.current_transaction : ::Grant::Transaction::Handle
+      ::Grant::Transaction.current_transaction(transaction_adapter)
     end
 
     def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError
