@@ -175,7 +175,7 @@
   target: grant_transaction_cross_database_nesting_test.iyi
   area: transactions
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/error_translation_spec.cr
   target: grant_transaction_error_translation_test.iyi
   area: transactions

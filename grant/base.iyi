@@ -361,7 +361,7 @@ pub abstract class Base
   def __remember_transaction_state : Nil
     return unless __adapter.in_transaction?
     state = TransactionState.new(@new_record, @destroyed)
-    ::Grant::Transaction.enlist_record_rollback_action { __restore_transaction_state(state) }
+    ::Grant::Transaction.enlist_record_rollback_action(__adapter) { __restore_transaction_state(state) }
   end
 
   def __restore_transaction_state(state : TransactionState) : Nil

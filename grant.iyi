@@ -14,3 +14,7 @@ end
 pub def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
   run(connection, options) { yield }
 end
+
+pub def transaction(name : String, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
+  run(connection(name), options) { yield }
+end
