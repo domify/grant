@@ -1,5 +1,7 @@
 module grant/record_repository
 
+import grant/collection_source::{CollectionSource}
+import grant/model_context::{ModelContext}
 import grant/value::{Value, Row, Attributes}
 import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
 import grant/database::{Database}
@@ -17,6 +19,10 @@ pub trait Mapping(T)
   abstract def attributes(record : T) : Attributes
   abstract def from_row(row : Row) : T | DatabaseError
   abstract def validate(record : T) : Nil | ValidationError | DatabaseError
+
+  def bind_context(record : T, context : ModelContext) : T
+    record
+  end
 
   def readonly_attributes : Array(String)
     [] of String
@@ -59,9 +65,26 @@ pub class Repository(T)
   @mapping : Mapping(T)
   @events : Pipeline(T)?
   @unit : UnitOfWork
+  @model_context : ModelContext
 
-  def initialize(@database : Database, @mapping : Mapping(T), @events : Pipeline(T)? = nil, unit : UnitOfWork? = nil)
+  def initialize(@database : Database, @mapping : Mapping(T), @events : Pipeline(T)? = nil, unit : UnitOfWork? = nil, context : ModelContext? = nil)
     @unit = unit || UnitOfWork.new(@database)
+    @model_context = context || ModelContext.new(@database.identity)
+    @model_context.register_source(@mapping.table.name, self) if @model_context.database_identity == @database.identity
+  end
+
+  def model_context : ModelContext
+    @model_context
+  end
+
+  private def contextual(record : T) : T
+    @mapping.bind_context(record, @model_context)
+  end
+
+  private def hydrate(row : Row) : T | DatabaseError
+    return DatabaseError.new(21, "association", "model context belongs to another database") unless @model_context.database_identity == @database.identity
+    current = @mapping.from_row(row)!
+    contextual(current)
   end
 
   def query : Query
@@ -77,7 +100,8 @@ pub class Repository(T)
   end
 
   def with_attributes(record : T, attributes : Attributes) : T | DatabaseError
-    @mapping.with_attributes(record, attributes)
+    rebuilt = @mapping.with_attributes(record, attributes)!
+    contextual(rebuilt)
   end
 
   def all(scope : Query) : Array(T) | DatabaseError
@@ -85,18 +109,24 @@ pub class Repository(T)
     rows = scope.all!
     records = [] of T
     rows.each do |row|
-      records << @mapping.from_row(row)!
+      records << hydrate(row)!
     end
     records
+  end
+
+  def count(scope : Query) : Int64 | DatabaseError
+    valid_scope(scope)!
+    scope.count
   end
 
   def first(scope : Query) : T | Nil | DatabaseError
     valid_scope(scope)!
     row = scope.first!
-    row ? @mapping.from_row(row) : nil
+    row ? hydrate(row) : nil
   end
 
   private def valid_scope(scope : Query) : Nil | DatabaseError
+    return DatabaseError.new(21, "association", "model context belongs to another database") unless @model_context.database_identity == @database.identity
     table = @mapping.table
     return DatabaseError.new(21, "scope", "scope belongs to another table") unless scope.table.name == table.name && scope.table.primary_key == table.primary_key
     return DatabaseError.new(21, "scope", "scope belongs to another database") unless scope.database_identity == @database.identity
@@ -104,11 +134,13 @@ pub class Repository(T)
   end
 
   def find(id : Int64) : T | Nil | DatabaseError
+    valid_scope(query)!
     row = query.where(@mapping.table.primary_key, id).first!
-    row ? @mapping.from_row(row) : nil
+    row ? hydrate(row) : nil
   end
 
   def insert(record : T) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+    return DatabaseError.new(21, "association", "model context belongs to another database") unless @model_context.database_identity == @database.identity
     return DatabaseError.new(21, "insert", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
     @unit.run(requires_new: true) { insert_record(record) }
   end
@@ -170,7 +202,7 @@ pub class Repository(T)
     selected = scope.where_stored(key, id)
     row = selected.first!
     return nil unless row
-    current = @mapping.from_row(row)!
+    current = hydrate(row)!
     declared = @mapping.attributes(current)
     attributes.each do |name, value|
       return DatabaseError.new(20, "touch", "mapping does not expose column: #{name}") unless declared.has_key?(name)
@@ -179,15 +211,15 @@ pub class Repository(T)
     return nil if changed.changes == 0
     row = query.where_stored(key, id).first!
     return DatabaseError.new(20, "touch", "updated row could not be hydrated") unless row
-    current = @mapping.from_row(row)!
+    current = hydrate(row)!
     observe(current, row[key])!
     callback(Event::AfterTouch, current)
   end
 
   private def validated(record : T, context : Context, write_context : WriteContext = WriteContext.new) : T | AroundError
-    normalized = @mapping.normalize(record, context)
+    normalized = @mapping.normalize(contextual(record), context)
     return normalized if normalized.is_a?(DatabaseError)
-    around_required(Event::AroundValidation, normalized) { |current| validate_prepared(current, context, write_context) }
+    around_required(Event::AroundValidation, contextual(normalized)) { |current| validate_prepared(current, context, write_context) }
   end
 
   private def validate_prepared(record : T, context : Context, write_context : WriteContext) : T | DatabaseError | ValidationError | CallbackAbort
@@ -222,7 +254,7 @@ pub class Repository(T)
     return prepared if prepared.is_a?(Error)
     current = prepared
     row = query.insert(write_attributes(current))!
-    current = @mapping.from_row(row)!
+    current = hydrate(row)!
     observed = observe(current, row[@mapping.table.primary_key])
     return observed if observed.is_a?(DatabaseError)
     prepared = callback(Event::AfterCreate, current)
@@ -255,7 +287,7 @@ pub class Repository(T)
     if values.empty?
       row = selected.first!
       return nil unless row
-      current = @mapping.from_row(row)!
+      current = hydrate(row)!
       observe(current, row[@mapping.table.primary_key])!
       return callback(Event::AfterUpdate, current, context)
     end
@@ -265,7 +297,7 @@ pub class Repository(T)
     # may no longer match it; hydrate the row actually updated by its fixed key.
     row = query.where(@mapping.table.primary_key, id).first!
     return nil unless row
-    current = @mapping.from_row(row)!
+    current = hydrate(row)!
     observed = observe(current, row[@mapping.table.primary_key])
     return observed if observed.is_a?(DatabaseError)
     prepared = callback(Event::AfterUpdate, current, context)
@@ -277,7 +309,7 @@ pub class Repository(T)
     selected = scope.where(@mapping.table.primary_key, id)
     row = selected.first!
     return nil unless row
-    current = @mapping.from_row(row)!
+    current = hydrate(row)!
     around(Event::AroundDestroy, current) { |destroying| destroy_prepared(selected, row[@mapping.table.primary_key], destroying) }
   end
 
@@ -294,11 +326,13 @@ pub class Repository(T)
   end
 
   private def around(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
-    if events = @events
-      events.wrap(event, record, &operation)
-    else
-      operation.call(record)
-    end
+    result = if events = @events
+               events.wrap(event, contextual(record), &operation)
+             else
+               operation.call(contextual(record))
+             end
+    return result if result.is_a?(Error) || result.nil?
+    contextual(result)
   end
 
   private def around_required(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | AroundError
@@ -308,9 +342,11 @@ pub class Repository(T)
 
   private def callback(event : Event, record : T, context : WriteContext = WriteContext.new) : T | DatabaseError | ValidationError | CallbackAbort
     if events = @events
-      events.run(event, record, context)
+      current = events.run(event, contextual(record), context)
+      return current if current.is_a?(Error)
+      contextual(current)
     else
-      record
+      contextual(record)
     end
   end
 
@@ -362,5 +398,23 @@ impl Observer for RecordObserver(T) forall T
     result = @events.run(Event::AfterRollback, @record)
     return result if result.is_a?(Error)
     nil
+  end
+end
+
+impl CollectionSource(T) for Repository(T) forall T
+  def read_query : Query
+    self.query
+  end
+
+  def read_all(scope : Query) : Array(T) | DatabaseError
+    self.all(scope)
+  end
+
+  def read_count(scope : Query) : Int64 | DatabaseError
+    self.count(scope)
+  end
+
+  def read_attributes(record : T) : Attributes | DatabaseError
+    self.attributes(record)
   end
 end

@@ -116,6 +116,7 @@ iyi run sqlite_test.iyi
 iyi run query_test.iyi
 iyi run model_test.iyi
 iyi run model_api_test.iyi
+iyi run has_many_model_test.iyi
 iyi run transaction_test.iyi
 iyi run nested_transaction_test.iyi
 iyi run lifecycle_test.iyi
@@ -282,3 +283,15 @@ Reference columns can use `col :account_id, belongs_to: :account`, which declare
 a schema foreign key to accounts.id and an index. Use to: :org for an explicit model name,
 to_table: "old_orgs" for a custom table, or index: false to omit the index. This does not load an association or apply
 a migration. See [the DSL guide](doc/RAILS-DSL.md#reference-columns).
+
+Model declarations support `has_many :banks` with direct `account.banks`
+access and `account.banks.each do |bank| ... end!`. Related repositories share
+a caller-owned ModelContext configured once in the Store; loaded/saved records
+carry it automatically. Owners explicitly import target types. Lazy reads cache
+on the owner and support reset/reload. See [associations](doc/ASSOCIATIONS.md).
+
+Context-bound collections retain Crystal Grant read names (`all`, `to_a`, `each`,
+`count`, `size`, `length`, `any?`, `none?`, `reset`, `reload`). `count` reads current
+storage; `size` uses loaded records when present. Typed CollectionSource adapters
+allow strict application readers and STI/domain types on the same table without
+changing association call sites. See `doc/ASSOCIATIONS.md` for supported behavior.

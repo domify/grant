@@ -8,6 +8,12 @@ under `crystal-upstream/`; read its `CLAUDE.md`, relevant source, and focused
 specs as reference. Do not hand-edit the imported tree. Use the explicit-source
 `scripts/update-crystal-upstream.sh` to import updates; port behavior separately.
 
+Keep public model/association API names and supported behavior close to Crystal
+Grant wherever native iyi permits it, reducing changes for Rails and Amber v2
+ports. Add convenience aliases rather than replacing compatible APIs. Document
+necessary differences such as explicit imports, caller-owned context and error
+unions; unsupported source behavior must fail explicitly.
+
 Native library code must compile without `--crystal` or a Crystal ORM bridge.
 Use explicit imports, fully typed public APIs, sealed record types, and local
 trait implementations. Preserve behavior with meaningful parity cases; adapt

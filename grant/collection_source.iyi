@@ -1,0 +1,18 @@
+module grant/collection_source
+
+import grant/query::{Query}
+import grant/value::{Attributes}
+import grant/errors::{DatabaseError}
+
+# Typed read source shared by domain repositories and strict storage readers.
+pub trait CollectionSource(T)
+  abstract def read_query : Query
+  abstract def read_all(scope : Query) : Array(T) | DatabaseError
+
+  # The fallback preserves custom read-source policies; repositories optimize SQL.
+  def read_count(scope : Query) : Int64 | DatabaseError
+    read_all(scope)!.size.to_i64
+  end
+
+  abstract def read_attributes(record : T) : Attributes | DatabaseError
+end

@@ -1,0 +1,85 @@
+module has_many_model_demo
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import examples/has_many_owner::{Owner, CustomOwner}
+import examples/has_many_entry::{Entry}
+
+# Ordinary failures propagate to the entry point as error values.
+def demonstrate(connection : Connection) : Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+  Owner.schema.create(connection)!
+  Entry.schema.create(connection)!
+  context = ModelContext.new(connection.identity)
+  owners = Repository(Owner).new(connection, Owner.mapping, context: context)
+  entries = Repository(Entry).new(connection, Entry.mapping, context: context)
+  first = owners.insert(Owner.new(name: "First"))!
+  second = owners.insert(Owner.new(name: "Second"))!
+  entries.insert(Entry.new(owner_id: first.id, name: "Visible"))!
+  entries.insert(Entry.new(owner_id: first.id, name: "Hidden", visible: false))!
+  entries.insert(Entry.new(owner_id: second.id, name: "Other"))!
+  puts "First owner collection count: #{first.entries.count!}"
+  puts "Collection size/length: #{first.entries.size!}/#{first.entries.length!}"
+  puts "Collection all/any/none: #{first.entries.all!.size}/#{first.entries.any?!}/#{first.entries.none?!}"
+  puts "Second owner collection count: #{second.entries.count!}"
+  puts "Scoped collection count: #{first.visible_entries(entries, entries.query.where("visible", true)).count!}"
+  puts "Unsaved owner empty: #{Owner.new.entries.empty?!}"
+  puts "Missing owner empty: #{Owner.new(id: 999_i64).entries(entries).to_a!.empty?}"
+  titles = [] of String
+  first.entries.each do |entry|
+    titles << (entry.name || "")
+    nil
+  end!
+  puts "Direct each titles: #{titles.join(", ")}"
+  puts "Wrong repository rejected: #{first.entries(owners).to_a.is_a?(DatabaseError)}"
+  puts "Wrong scope rejected: #{first.entries(entries, owners.query).to_a.is_a?(DatabaseError)}"
+  groups = Owner.preload_entries(entries, [first.id || 0_i64, second.id || 0_i64, 999_i64])!
+  puts "Preload counts: #{groups[first.id || 0_i64].size}, #{groups[second.id || 0_i64].size}, #{groups[999_i64].size}"
+  puts "Custom key collection count: #{CustomOwner.new(key: first.id).entries(entries).count!}"
+  other = Connection.open(":memory:")!
+  other_entries = Repository(Entry).new(other, Entry.mapping)
+  foreign_scope = Query.new(other, Entry.mapping.table)
+  puts "Foreign database scope rejected: #{first.entries(entries, foreign_scope).to_a.is_a?(DatabaseError)}"
+  wrong_context_owners = Repository(Owner).new(connection, Owner.mapping, context: ModelContext.new(other.identity))
+  puts "Foreign model context rejected: #{wrong_context_owners.find(first.id || 0_i64).is_a?(DatabaseError)}"
+  context.register_source("entries", other_entries)
+  second.entries.reset
+  puts "Foreign target context rejected: #{second.entries.to_a.is_a?(DatabaseError)}"
+  context.register_source("entries", entries)
+  puts "Failed reads are not cached: #{second.entries.count! == 1}"
+  other.close!
+  changing = owners.find(first.id || 0_i64)!
+  if changing
+    changing.entries.to_a!
+    changing.id = second.id
+    puts "Owner key change selects new association: #{changing.entries.count! == 1}"
+  end
+  cached = first.entries
+  cached.to_a!
+  puts "Owner returns same cached collection: #{first.entries.object_id == cached.object_id}"
+  puts "Cached collection loaded: #{cached.loaded?}"
+  puts "ORM state excluded from attributes: #{first.to_attributes.size == 2}"
+  puts "ORM state excluded from schema: #{Owner.schema.fields.size == 2}"
+  puts "Detached saved owner rejected: #{Owner.new(id: first.id).entries.to_a.is_a?(DatabaseError)}"
+  connection.execute("DROP TABLE entries")!
+  puts "Cached reads survive table drop: #{cached.size! == 2}"
+  puts "Count uses current SQL and propagates failure: #{cached.count.is_a?(DatabaseError)}"
+  puts "Reload propagates SQL failure: #{cached.reload.is_a?(DatabaseError)}"
+  puts "SQL failure propagated: #{first.entries(entries).to_a.is_a?(DatabaseError)}"
+  puts "Unsaved owner still avoids SQL: #{Owner.new.entries(entries).to_a!.empty?}"
+  nil
+end
+
+connection = Connection.open(":memory:")
+if connection.is_a?(DatabaseError)
+  STDERR.puts connection.message
+  exit 1
+end
+result = demonstrate(connection)
+closed = connection.close
+if result.is_a?(Error)
+  STDERR.puts result.message
+  exit 1
+end
+if closed.is_a?(DatabaseError)
+  STDERR.puts closed.message
+  exit 1
+end

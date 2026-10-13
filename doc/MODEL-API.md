@@ -96,3 +96,15 @@ without creating import cycles. `model_api_test.iyi` imports a class and mapping
 from `fixtures/model_api.iyi`. The source-free gate carries that producer as
 `.iyimod` and compiles the consumer without producer source, verifying the
 producer's expanded derive and generic trait implementation.
+
+A model can declare `has_many :banks`. Its generated no-argument accessor returns a lazy, cached collection, using the
+context attached by Repository hydration. Import the target type explicitly and
+configure a shared ModelContext once in the Store. Internal ORM state is omitted
+from constructors, attributes and schema. Class preload_banks batches reads. See
+[associations](ASSOCIATIONS.md#model-has_many-declarations) for options and limits.
+
+CollectionSource(T) is the typed read interface for repositories and custom readers.
+Shared ModelContext registrations distinguish target type as well as table, so
+STI subclasses and storage/domain mappings can coexist. Collection all/to_a, each,
+count, size, length, any?, none?, reset and reload follow Crystal Grant naming;
+count reads fresh storage while size reuses a loaded cache.

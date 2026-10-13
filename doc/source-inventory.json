@@ -197,7 +197,20 @@
     {
       "path": "grant/associations.cr",
       "sha256": "4274931cbccab6dbb46907457e5930f55cde9b7582e904beaea47b26f4b024d9",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_modules": [
+        "grant/associations.iyi",
+        "grant/model.iyi",
+        "grant/model_collections.iyi",
+        "grant/model_context.iyi",
+        "grant/collection_source.iyi"
+      ],
+      "native_examples": [
+        "has_many_model_demo.iyi",
+        "examples/has_many_owner.iyi",
+        "examples/has_many_entry.iyi"
+      ],
+      "porting_notes": " Direct model has_many reads/preloading use caller-owned Repository(T) with explicit target imports; see doc/ASSOCIATIONS.md. Through/dependent/write options remain explicit or unsupported by the new DSL. No-argument typed has_many access binds caller-owned ModelContext on hydration; direct each and per-owner caches/reset/reload are supported. CollectionSource retains custom read policies and typed table registrations; all/size/length/any?/none? mirror Crystal naming, with fresh count semantics."
     },
     {
       "path": "grant/async/coordinator.cr",
@@ -1424,7 +1437,10 @@
     "grant/validation.iyi",
     "grant/validators.iyi",
     "grant/value.iyi",
-    "model.iyi"
+    "model.iyi",
+    "grant/model_collections.iyi",
+    "grant/model_context.iyi",
+    "grant/collection_source.iyi"
   ],
   "note": "Native functionality is tracked in PORTING.md; reference_only means this original file has not been fully converted."
 }

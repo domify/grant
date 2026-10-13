@@ -1,0 +1,83 @@
+module has_many_model_test
+
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import examples/has_many_owner::{Owner, CustomOwner}
+import examples/has_many_entry::{Entry}
+
+def verify(connection : Connection) : Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
+  Owner.schema.create(connection)!
+  Entry.schema.create(connection)!
+  context = ModelContext.new(connection.identity)
+  owners = Repository(Owner).new(connection, Owner.mapping, context: context)
+  entries = Repository(Entry).new(connection, Entry.mapping, context: context)
+  first = owners.insert(Owner.new(name: "First"))!
+  second = owners.insert(Owner.new(name: "Second"))!
+  entries.insert(Entry.new(owner_id: first.id, name: "First entry"))!
+  entries.insert(Entry.new(owner_id: second.id, name: "Other owner"))!
+  collection = first.entries
+  assert !collection.loaded?
+  assert collection.count! == 1_i64
+  assert !collection.loaded?
+  assert collection.all!.size == 1
+  assert collection.loaded?
+  entries.insert(Entry.new(owner_id: first.id, name: "Second entry"))!
+  assert collection.count! == 2_i64
+  assert collection.size! == 1_i64
+  assert collection.length! == 1
+  assert collection.any?!
+  assert !collection.none?!
+  collection.reload!
+  assert collection.size! == 2_i64
+  assert first.entries.object_id == collection.object_id
+  names = [] of String
+  first.entries.each do |entry|
+    names << (entry.name || "")
+    nil
+  end!
+  assert names == ["First entry", "Second entry"]
+  assert Owner.new.entries.empty?!
+  assert Owner.new.entries.count! == 0_i64
+  assert Owner.new(id: first.id).entries.to_a.is_a?(DatabaseError)
+  assert first.entries(owners).to_a.is_a?(DatabaseError)
+  assert first.entries(entries, owners.query).to_a.is_a?(DatabaseError)
+  assert CustomOwner.new(key: first.id).entries(entries).count! == 2_i64
+  assert Owner.schema.fields.size == 2
+  assert first.to_attributes.size == 2
+  groups = Owner.preload_entries(entries, [first.id || 0_i64, second.id || 0_i64, 999_i64])!
+  assert groups[first.id || 0_i64].size == 2
+  assert groups[second.id || 0_i64].size == 1
+  assert groups[999_i64].empty?
+  first.id = second.id
+  assert first.entries.count! == 1_i64
+  assert first.entries.object_id != collection.object_id
+  other = Connection.open(":memory:")!
+  context.register_source("entries", Repository(Entry).new(other, Entry.mapping))
+  assert second.entries.to_a.is_a?(DatabaseError)
+  assert !second.entries.loaded?
+  context.register_source("entries", entries)
+  assert second.entries.to_a!.size == 1
+  other.close!
+  connection.execute("DROP TABLE entries")!
+  assert collection.size! == 2_i64
+  assert collection.count.is_a?(DatabaseError)
+  assert collection.reload.is_a?(DatabaseError)
+  assert !collection.loaded?
+  nil
+end
+
+connection = Connection.open(":memory:")
+if connection.is_a?(DatabaseError)
+  STDERR.puts connection.message
+  exit 1
+end
+result = verify(connection)
+closed = connection.close
+if result.is_a?(Error)
+  STDERR.puts result.message
+  exit 1
+end
+if closed.is_a?(DatabaseError)
+  STDERR.puts closed.message
+  exit 1
+end

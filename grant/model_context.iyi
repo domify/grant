@@ -1,0 +1,63 @@
+module grant/model_context
+
+import grant/collection_source::{CollectionSource}
+import grant/errors::{DatabaseError}
+
+# A caller-owned typed registry, scoped to one database/request. It knows no
+# model or Repository type, keeping dependency direction acyclic.
+pub trait Entry
+end
+
+pub class TypedEntry(T)
+  property value : T
+
+  def initialize(@value : T)
+  end
+end
+
+impl Entry for TypedEntry(T) forall T
+end
+
+pub class ModelContext
+  getter database_identity : UInt64
+  @entries : Hash(String, Array(Entry))
+
+  def initialize(@database_identity : UInt64)
+    @entries = {} of String => Array(Entry)
+  end
+
+  def register(name : String, value : T) : Nil forall T
+    entries = @entries[name]? || [] of Entry
+    entries.each do |entry|
+      if entry.is_a?(TypedEntry(T))
+        entry.value = value
+        return nil
+      end
+    end
+    entries << TypedEntry(T).new(value)
+    @entries[name] = entries
+    nil
+  end
+
+  def register_source(name : String, source : CollectionSource(T)) : Nil forall T
+    entries = @entries[name]? || [] of Entry
+    entries.each do |entry|
+      if entry.is_a?(TypedEntry(CollectionSource(T)))
+        entry.value = source
+        return nil
+      end
+    end
+    entries << TypedEntry(CollectionSource(T)).new(source)
+    @entries[name] = entries
+    nil
+  end
+
+  def lookup(name : String, type : T.class) : T | DatabaseError forall T
+    if entries = @entries[name]?
+      entries.each do |entry|
+        return entry.value if entry.is_a?(TypedEntry(T))
+      end
+    end
+    DatabaseError.new(21, "association", "no compatible repository registered for #{name}")
+  end
+end

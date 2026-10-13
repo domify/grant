@@ -1,0 +1,19 @@
+module examples/has_many_owner
+import grant/model::*
+import examples/has_many_entry::{Entry}
+
+pub class Owner
+  col :name, :string
+
+  col :id, :primary
+
+  has_many :entries
+  has_many :visible_entries, class_name: Entry, table: :entries
+  derive model
+end
+
+pub class CustomOwner
+  col :key, :primary
+  has_many :entries, foreign_key: :owner_id, primary_key: :key
+  derive model
+end

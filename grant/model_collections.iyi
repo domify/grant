@@ -1,0 +1,142 @@
+module grant/model_collections
+
+import grant/collection_source::{CollectionSource}
+import grant/model_context::{ModelContext}
+import grant/query::{Query}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+
+# Lazy owner-bound collection, caching successful reads until reset/reload.
+pub class Collection(T)
+  getter owner_id : Int64?
+  @repository : CollectionSource(T)?
+  @context : ModelContext?
+  @loaded : Array(T)? = nil
+
+  def initialize(repository : CollectionSource(T), @table : String,
+                 @foreign_key : String, @owner_id : Int64?, @scope : Query? = nil)
+    @repository = repository
+    @context = nil
+  end
+
+  def initialize(context : ModelContext?, @table : String,
+                 @foreign_key : String, @owner_id : Int64?, @scope : Query? = nil)
+    @repository = nil
+    @context = context
+  end
+
+  def loaded? : Bool
+    !@loaded.nil?
+  end
+
+  def reset : self
+    @loaded = nil
+    self
+  end
+
+  def reload : self | DatabaseError
+    reset
+    to_a!
+    self
+  end
+
+  def to_a : Array(T) | DatabaseError
+    if records = @loaded
+      return records
+    end
+    unless @owner_id
+      @loaded = [] of T
+      return [] of T
+    end
+    repository = resolve_repository!
+    records = repository.read_all((@scope || repository.read_query).where(@foreign_key, @owner_id))!
+    @loaded = records
+    records
+  end
+
+  def all : Array(T) | DatabaseError
+    to_a
+  end
+
+  def each(& : T -> Nil) : Nil | DatabaseError
+    to_a!.each { |record| yield record }
+    nil
+  end
+
+  def first : T | Nil | DatabaseError
+    records = to_a!
+    records.empty? ? nil : records[0]
+  end
+
+  # Like Crystal Grant: count reads current storage; size uses loaded records.
+  def count : Int64 | DatabaseError
+    return 0_i64 unless @owner_id
+    repository = resolve_repository!
+    repository.read_count((@scope || repository.read_query).where(@foreign_key, @owner_id))
+  end
+
+  def size : Int64 | DatabaseError
+    if records = @loaded
+      records.size.to_i64
+    else
+      count
+    end
+  end
+
+  def length : Int32 | DatabaseError
+    to_a!.size
+  end
+
+  def any? : Bool | DatabaseError
+    !empty?!
+  end
+
+  def none? : Bool | DatabaseError
+    empty?
+  end
+
+  def empty? : Bool | DatabaseError
+    to_a!.empty?
+  end
+
+  private def resolve_repository : CollectionSource(T) | DatabaseError
+    repository = @repository
+    unless repository
+      context = @context
+      return DatabaseError.new(21, "association", "record has no model context; load it through a context-bound repository") unless context
+      repository = context.lookup(@table, CollectionSource(T))!
+    end
+    return DatabaseError.new(21, "has_many", "target repository must map table #{@table}") unless repository.read_query.table.name == @table
+    if context = @context
+      return DatabaseError.new(21, "association", "target repository belongs to another database") unless repository.read_query.database_identity == context.database_identity
+    end
+    repository
+  end
+end
+
+pub def preload(source : CollectionSource(T), table : String, foreign_key : String,
+                owner_ids : Array(Int64), scope : Query? = nil) : Hash(Int64, Array(T)) | DatabaseError forall T
+  query = scope || source.read_query
+  return DatabaseError.new(21, "has_many", "target source must map table #{table}") unless query.table.name == table
+  return DatabaseError.new(21, "preload", "collection pagination would apply globally, not per owner") if query.paginated?
+  groups = {} of Int64 => Array(T)
+  keys = [] of Value
+  owner_ids.each do |id|
+    unless groups.has_key?(id)
+      groups[id] = [] of T
+      keys << id
+    end
+  end
+  return groups if keys.empty?
+  records = source.read_all(query.where_in(foreign_key, keys))!
+  records.each do |record|
+    attributes = source.read_attributes(record)
+    return attributes if attributes.is_a?(DatabaseError)
+    key = attributes[foreign_key]?
+    return DatabaseError.new(20, "preload", "mapping must expose an Int64 foreign key: #{foreign_key}") unless key.is_a?(Int64)
+    members = groups[key]?
+    return DatabaseError.new(20, "preload", "mapping foreign key does not match the selected owner") unless members
+    members << record
+  end
+  groups
+end

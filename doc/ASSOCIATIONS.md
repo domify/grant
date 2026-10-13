@@ -1,5 +1,102 @@
 # Explicit associations
 
+## Model has_many declarations
+
+```iyi
+import grant/model::*
+import models/bank::{Bank}
+
+pub class Account
+  col :id, :primary
+  has_many :banks
+  derive model
+end
+```
+
+The owner imports its target type explicitly; `banks` infers the local name Bank.
+Use `class_name: Bank` to name a different imported type or an irregular plural.
+Foreign keys remain scalar declarations, so the child need not import its owner.
+The native import graph must remain acyclic; no implicit autoloading is added.
+
+An application constructs a caller-owned context once, normally in its Store:
+
+```iyi
+context = ModelContext.new(connection.identity)
+accounts = Repository(Account).new(connection, Account.mapping, context: context)
+banks = Repository(Bank).new(connection, Bank.mapping, context: context)
+account = accounts.find(account_id)!
+if account
+  account.banks.each do |bank|
+    puts bank.name
+  end!
+end
+```
+
+Repository registers itself in that context and attaches the context to records
+it hydrates, including saved records and attribute rebuilds. No repo is passed
+at the association call. Target lookup is typed and checks database identity.
+The context is per caller/request, not a process-global registry. By default each
+repository owns its own context; provide a shared one for related repositories.
+Register one read source per target type/table pair in that context. Different
+STI or storage/domain types may share a physical table. Repository implements
+CollectionSource(T); strict application readers can implement the same typed
+read interface, retaining their tenant and subtype policies.
+
+The connection remains owned by the caller. Contexts neither open nor close it;
+records used after closure return database errors on uncached reads. Manually
+constructed saved-key records have no context and return an explicit error when
+loading a relation. New nil-key owners return an empty collection without SQL.
+Custom Mapping implementations default to leaving records unchanged; the `mapped`
+macro binds context automatically for derive model records, or applications can
+implement Mapping.bind_context themselves.
+
+```iyi
+collection = account.banks
+rows = collection.to_a!
+first = collection.first!
+count = collection.count!
+size = collection.size!
+length = collection.length!
+rows = collection.all!
+any = collection.any?!
+none = collection.none?!
+empty = collection.empty?!
+collection.reset
+collection.reload!
+grouped = Account.preload_banks(banks, account_ids)!
+```
+
+The getter and collection construction perform no SQL. `each`, `to_a`, `first`,
+`all`, `length` and `empty?` load on demand and cache successful reads. Repeated access
+returns the same collection on the owner. `reset` forgets the cache; `reload`
+queries again and propagates failures. Failed reads are not cached. As in Crystal Grant, `count` reads current storage, while `size` uses the loaded
+cache when present and `length` loads records. Repositories use SQL COUNT; custom
+read sources default to counting their fresh policy-filtered records.
+Hidden context/cache fields are excluded from constructors, attributes and schema;
+the `__grant_` field prefix is reserved for ORM state.
+
+The table defaults to the association name (`banks`), foreign key to the owner's
+unqualified snake_case name plus `_id` (`account_id`), and owner key to `id`.
+Keys must be Int64/nullable Int64. Options are class_name (imported type), table,
+foreign_key and primary_key (symbol/string literals). An explicit read-source overload
+remains available for scoped reads, tests and compatibility:
+
+```iyi
+has_many :active_banks, class_name: Bank, table: :banks
+rows = account.active_banks(banks, banks.query.where("active", true)).to_a!
+```
+
+Repository validates query table/connection identity. Batch preload returns every
+requested owner key, deduplicates keys and rejects pagination; it does not install
+owner caches automatically. The initial DSL covers direct reads. Through,
+dependent, polymorphic as, inverse_of and callback options fail at macro expansion;
+collection writes/dependency callbacks remain the explicit APIs below.
+`!` propagates ordinary failures; with a block, write it after `end`, not `each!`.
+The application entry point must handle returned errors.
+
+Run `iyi run has_many_model_demo.iyi` for separate owner/target modules, context
+binding, direct each, scopes, custom keys, caching/reload and failure paths.
+
 Association declarations are ordinary typed objects. The application owns its
 record types and `Mapping(T)` implementations; Grant does not reopen models or
 discover foreign keys through a registry. These APIs currently support Int64
@@ -10,14 +107,14 @@ import grant/associations::{HasMany, HasOne, BelongsTo}
 
 # banks is Repository(Bank); accounts is Repository(Account).
 account_banks = HasMany(Bank).new(banks, "account_id", banks.query.order("id"))
-rows = account_banks.load(account_id).or_panic
-grouped = account_banks.preload([account_id, other_account_id]).or_panic
+rows = account_banks.load(account_id)!
+grouped = account_banks.preload([account_id, other_account_id])!
 
 first_bank = HasOne(Bank).new(banks, "account_id", banks.query.order("id"))
-bank = first_bank.load(account_id).or_panic
+bank = first_bank.load(account_id)!
 
 bank_account = BelongsTo(Account).new(accounts)
-account = bank_account.load(bank_record.account_id).or_panic
+account = bank_account.load(bank_record.account_id)!
 ```
 
 `load(nil)` returns an empty collection or nil without querying. Missing saved
@@ -42,6 +139,10 @@ installation or automatic refresh after a write.
 a set containing nil also matches SQL NULL. Chaining preserves all earlier
 predicates and copies the supplied value array.
 
+`!` propagates failures to the caller; an HTTP/RPC entry point handles them
+explicitly. These snippets belong inside methods declaring the corresponding
+error unions, rather than using panics for ordinary failures.
+
 ## Direct collection writes
 
 `grant/association_writes` provides `CollectionWriter(T)`, `Link(T)` and
@@ -62,9 +163,9 @@ impl Link(Bank) for BankLink
 end
 
 writer = CollectionWriter(Bank).new(banks, "account_id", BankLink.new)
-attached = writer.append(account_id, [new_bank, existing_bank]).or_panic
-members = writer.replace_ids(account_id, [first_bank_id, second_bank_id]).or_panic
-removed_count = writer.remove(account_id, [first_bank_id], Removal::Destroy).or_panic
+attached = writer.append(account_id, [new_bank, existing_bank])!
+members = writer.replace_ids(account_id, [first_bank_id, second_bank_id])!
+removed_count = writer.remove(account_id, [first_bank_id], Removal::Destroy)!
 ```
 
 Append saves new records and updates existing ones through the repository, with

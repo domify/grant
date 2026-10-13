@@ -2,6 +2,9 @@ module grant/model
 
 # A curated model facade. Re-export modules for generated qualified references,
 # and explicit type aliases for consumers choosing `import grant/model::*`.
+pub import grant/collection_source
+pub import grant/model_context
+pub import grant/model_collections
 pub import grant/record_repository
 pub import grant/query
 pub import grant/value
@@ -21,6 +24,8 @@ pub import grant/schema
 pub import grant/schema_constraints
 pub import std/json
 
+pub alias CollectionSource = ::Grant::CollectionSource::CollectionSource
+pub alias ModelContext = ::Grant::ModelContext::ModelContext
 pub alias Mapping = ::Grant::RecordRepository::Mapping
 pub alias Repository = ::Grant::RecordRepository::Repository
 pub alias Table = ::Grant::Query::Table
@@ -94,6 +99,10 @@ pub struct ModelMapping(T)
 end
 
 impl Mapping(T) for ModelMapping(T) forall T
+  def bind_context(record : T, context : ModelContext) : T
+    record.__grant_bind_context(context)
+  end
+
   def table : Table
     T.__grant_model_table
   end
@@ -125,16 +134,41 @@ end
 
 # Reads configuration declared on this model, never a global model registry.
 pub macro model(declaration)
+  {% fields = declaration[:fields].reject { |field| field[:name][1..].starts_with?("__grant_") } %}
   {% unless @type.has_constant?("GRANT_MODEL_TABLE_NAME") %}
     GRANT_MODEL_TABLE_NAME = {{@type.name.underscore.stringify.split("::").last + "s"}}
     GRANT_MODEL_PRIMARY_KEY = {{@type.has_constant?("GRANT_MODEL_DECLARED_PRIMARY_KEY") ? @type.constant("GRANT_MODEL_DECLARED_PRIMARY_KEY") : "id"}}
   {% end %}
   {% presence_names = @type.has_constant?("GRANT_MODEL_PRESENCE_FIELDS") ? @type.constant("GRANT_MODEL_PRESENCE_FIELDS") : [] of ASTNode %}
   {% for name in presence_names %}
-    {% unless declaration[:fields].any? { |field| field[:name][1..] == name } %}
+    {% unless fields.any? { |field| field[:name][1..] == name } %}
       {% raise "validates_presence references unknown model field #{name}" %}
     {% end %}
   {% end %}
+
+  {% for constant in @type.constants %}
+    {% if constant.stringify.starts_with?("GRANT_HAS_MANY_") %}
+      {% association = @type.constant(constant) %}
+      {% owner_field = fields.find { |field| field[:name][1..] == association[:primary_key] } %}
+      {% unless owner_field && owner_field[:type].union_types.all? { |member| member == Int64 || member == Nil } %}
+        {% raise "has_many owner key #{association[:primary_key]} must be a declared Int64 or nullable Int64 field" %}
+      {% end %}
+    {% end %}
+  {% end %}
+
+  @__grant_context : ::Grant::ModelContext::ModelContext? = nil
+
+  def __grant_bind_context(context : ::Grant::ModelContext::ModelContext) : self
+    unless @__grant_context == context
+      {% for constant in @type.constants %}
+        {% if constant.stringify.starts_with?("GRANT_HAS_MANY_") %}
+          @__grant_many_{{@type.constant(constant)[:name].id}} = nil
+        {% end %}
+      {% end %}
+    end
+    @__grant_context = context
+    self
+  end
 
   derive field_constructor, mapped_record, declared_schema
 
@@ -152,16 +186,16 @@ pub macro model(declaration)
     {% for name in presence_names %}
       ::Grant::Model::Presence.new({{name.id.stringify}}).validate(values, errors, context)
     {% end %}
-    {% for field in declaration[:fields] %}
+    {% for field in fields %}
       {% validation_key = "GRANT_MODEL_VALIDATION_" + field[:name][1..].upcase %}
       {% if @type.has_constant?(validation_key) %}
         {% config = @type.constant(validation_key) %}
         {% for scoped in config[:scope] %}
-          {% unless declaration[:fields].any? { |other| other[:name][1..] == scoped } %}
+          {% unless fields.any? { |other| other[:name][1..] == scoped } %}
             {% raise "uniq references unknown scope field #{scoped}" %}
           {% end %}
         {% end %}
-        {% if config[:confirmation] && !declaration[:fields].any? { |other| other[:name][1..] == field[:name][1..] + "_confirmation" } %}
+        {% if config[:confirmation] && !fields.any? { |other| other[:name][1..] == field[:name][1..] + "_confirmation" } %}
           {% raise "confirmation requires a declared #{field[:name][1..]}_confirmation field" %}
         {% end %}
         rule_result = __grant_col_validate_{{field[:name][1..].id}}(values, errors, context, database)
@@ -178,6 +212,7 @@ pub macro column(declaration, **options)
   {% unless declaration.is_a?(TypeDeclaration) %}
     {% raise "column requires a typed declaration, for example column name : String = \"\"" %}
   {% end %}
+  {% if declaration.var.stringify.starts_with?("__grant_") %}{% raise "__grant_ names are reserved for ORM state" %}{% end %}
   {% supported = ["primary"] %}
   {% for option in options.keys %}
     {% unless supported.includes?(option.stringify) %}
@@ -207,8 +242,9 @@ end
 
 # Opt-in constructor generation; place after all column declarations.
 pub macro field_constructor(declaration)
+  {% fields = declaration[:fields].reject { |field| field[:name][1..].starts_with?("__grant_") } %}
   def initialize(
-    {% for field in declaration[:fields] %}
+    {% for field in fields %}
       {{field[:name].id}} : {{field[:type]}} = {{declaration[:name].id}}.__grant_column_default_{{field[:name][1..].id}},
     {% end %}
   )
@@ -218,25 +254,26 @@ end
 # Runs in the sealed record's declaring module, using only its declared fields.
 # The application supplies a typed keyword constructor matching those fields.
 pub macro mapped_record(declaration)
-  {% for field in declaration[:fields] %}
+  {% fields = declaration[:fields].reject { |field| field[:name][1..].starts_with?("__grant_") } %}
+  {% for field in fields %}
     {% unless field[:type] && field[:type].union_types.all? { |member| member <= ::Grant::Model::Value || member == ::Std::Json::Any } %}
       {% raise "mapped_record column #{field[:name]} must have a declared Grant Value type; use an explicit mapping for association caches or custom converters" %}
     {% end %}
   {% end %}
   def to_attributes : ::Grant::Model::Attributes
     {
-      {% for field in declaration[:fields] %}
+      {% for field in fields %}
         {{ field[:name][1..] }} => {% if @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) %} ::Grant::ModelSchema.stored_attribute({{ field[:name].id }}, {{@type.constant("GRANT_MODEL_FIELD_" + field[:name][1..].upcase)[:precision]}}) {% else %} {{field[:name].id}} {% end %},
       {% end %}
     } of String => ::Grant::Model::Value
   end
 
   def self.from_attributes(values : ::Grant::Model::Attributes) : self | ::Grant::Model::DatabaseError
-    {% for field in declaration[:fields] %}
+    {% for field in fields %}
       field_{{ field[:name][1..].id }} = ::Grant::Model.record_value(values, {{ field[:name][1..] }}, {{ field[:type] }})!
     {% end %}
     new(
-      {% for field in declaration[:fields] %}
+      {% for field in fields %}
         {{ field[:name][1..].id }}: field_{{ field[:name][1..].id }},
       {% end %}
     )
@@ -249,6 +286,12 @@ pub macro mapped(record_type, table_name, primary_key = "id", rebuild = true)
   def table : ::Grant::Model::Table
     ::Grant::Model::Table.new({{table_name}}, {{primary_key}})
   end
+
+  {% if record_type.resolve.has_method?("__grant_bind_context") %}
+    def bind_context(record : {{record_type}}, context : ::Grant::ModelContext::ModelContext) : {{record_type}}
+      record.__grant_bind_context(context)
+    end
+  {% end %}
 
   def attributes(record : {{record_type}}) : ::Grant::Model::Attributes
     record.to_attributes
@@ -301,6 +344,7 @@ pub macro col(name, kind = nil, **options)
   {% unless name.is_a?(SymbolLiteral) && kind.is_a?(SymbolLiteral) %}
     {% raise "col requires symbol names and types, or col :account_id, belongs_to: :account" %}
   {% end %}
+  {% if name.id.stringify.starts_with?("__grant_") %}{% raise "__grant_ names are reserved for ORM state" %}{% end %}
   {% kind = kind.id.stringify %}
   {% reference_role = kind == "ref" || kind == "reference" %}
   {% kind = "bigint" if reference_role %}
@@ -513,11 +557,12 @@ end
 # Schema generation is opt-in through col; existing fully typed column models
 # continue to generate their mapping without acquiring inferred schema policy.
 pub macro declared_schema(declaration)
-  {% fields = declaration[:fields].select { |field| @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) } %}
-  {% unless fields.empty? %}
+  {% fields = declaration[:fields].reject { |field| field[:name][1..].starts_with?("__grant_") } %}
+  {% schema_fields = fields.select { |field| @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) } %}
+  {% unless schema_fields.empty? %}
     def self.schema : ::Grant::ModelSchema::ModelSchema
       fields = [] of ::Grant::ModelSchema::Field
-      {% for field in declaration[:fields] %}
+      {% for field in fields %}
         {% if @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) %}
           fields << __grant_schema_field_{{field[:name][1..].id}}
         {% else %}
@@ -840,4 +885,54 @@ pub macro col_validations(name, kind, **options)
       nil
     end
   {% end %}
+end
+
+# Direct collection declarations use explicitly imported target types.
+# Context-bound access resolves the caller-owned read source lazily.
+pub macro has_many(name, **options)
+  {% unless name.is_a?(SymbolLiteral) && !name.id.stringify.empty? %}
+    {% raise "has_many requires a nonempty symbol name" %}
+  {% end %}
+  {% for option in options.keys %}
+    {% unless ["class_name", "table", "foreign_key", "primary_key"].includes?(option.id.stringify) %}
+      {% raise "has_many option #{option} is not ported; use explicit collection/dependency APIs for writes and callbacks" %}
+    {% end %}
+    {% unless option.id.stringify == "class_name" || (options[option].is_a?(SymbolLiteral) || options[option].is_a?(StringLiteral)) && !options[option].id.stringify.empty? %}
+      {% raise "has_many #{option} requires a nonempty symbol or literal string" %}
+    {% end %}
+  {% end %}
+  {% singular = name.id.stringify %}
+  {% if singular.ends_with?("ies") %}
+    {% singular = singular[0..-4] + "y" %}
+  {% elsif singular.ends_with?("ses") || singular.ends_with?("xes") || singular.ends_with?("zes") || singular.ends_with?("ches") || singular.ends_with?("shes") %}
+    {% singular = singular[0..-3] %}
+  {% elsif singular.ends_with?("s") && !singular.ends_with?("ss") %}
+    {% singular = singular[0..-2] %}
+  {% end %}
+  {% target = options[:class_name] || singular.camelcase.id %}
+  {% table = options[:table] ? options[:table].id.stringify : name.id.stringify %}
+  {% foreign_key = options[:foreign_key] ? options[:foreign_key].id.stringify : @type.name.underscore.stringify.split("::").last + "_id" %}
+  {% primary_key = options[:primary_key] ? options[:primary_key].id.stringify : "id" %}
+  {% constant = ("GRANT_HAS_MANY_" + name.id.stringify.upcase).id %}
+  {% if @type.has_constant?(constant.stringify) %}{% raise "duplicate has_many declaration #{name}" %}{% end %}
+  {{constant}} = {name: {{name.id.stringify}}, table: {{table}}, foreign_key: {{foreign_key}}, primary_key: {{primary_key}}}
+
+  @__grant_many_{{name.id}} : ::Grant::ModelCollections::Collection({{target}})? = nil
+
+  def {{name.id}} : ::Grant::ModelCollections::Collection({{target}})
+    if collection = @__grant_many_{{name.id}}
+      return collection if collection.owner_id == self.{{primary_key.id}}
+    end
+    collection = ::Grant::ModelCollections::Collection({{target}}).new(@__grant_context, {{table}}, {{foreign_key}}, self.{{primary_key.id}})
+    @__grant_many_{{name.id}} = collection
+    collection
+  end
+
+  def {{name.id}}(repository : ::Grant::CollectionSource::CollectionSource(T), scope : ::Grant::Query::Query? = nil) : ::Grant::ModelCollections::Collection(T) forall T
+    ::Grant::ModelCollections::Collection(T).new(repository, {{table}}, {{foreign_key}}, self.{{primary_key.id}}, scope)
+  end
+
+  def self.preload_{{name.id}}(repository : ::Grant::CollectionSource::CollectionSource(T), owner_ids : Array(Int64), scope : ::Grant::Query::Query? = nil) : Hash(Int64, Array(T)) | ::Grant::Errors::DatabaseError forall T
+    ::Grant::ModelCollections.preload(repository, {{table}}, {{foreign_key}}, owner_ids, scope)
+  end
 end

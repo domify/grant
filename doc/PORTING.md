@@ -373,3 +373,74 @@ Callbacks and clocks remain caller-owned.
   to the same reference role and rejects conflicting positional types/to:.
   Existing :ref/:reference spellings remain compatible; this does not add
   automatic associated-object loading.
+
+## Native model has_many declarations (2026-10-13)
+
+- Reviewed crystal-upstream/src/grant/associations.cr has_many (729 onwards):
+  lazy collection access, owner-derived foreign key, primary-key override and
+  target scoping are ported with explicit typed repository ownership. Native
+  declarations infer the target table rather than importing an inferred class;
+  the caller's Repository(T) supplies T, preserving acyclic model modules.
+- Added owner-bound Collection(T) reads (to_a/first/count/empty?) and generated
+  class preload_<association> batching. table/foreign_key/primary_key options
+  are supported. Mismatched target repositories fail; ordinary repository scope
+  and connection checks remain active. No SQL or record/cache field is generated
+  by declaration/construction. Unsupported association options fail explicitly.
+- Direct Int64 reads are the initial DSL scope. Through/polymorphic/cache/inverse,
+  hidden connection discovery, declarative writes and dependent callbacks are
+  not ported by this macro; existing explicit write/dependency APIs remain.
+- Verified direct/scoped reads, unsaved and missing owners, custom keys,
+  mismatch/SQL failures and batched preload using separate owner/target modules.
+  Unknown owner keys and unsupported through options fail compilation. Existing
+  association/model API consumers type-check; the full Grant module check passes
+  with the local compiler. No test suite was run for this change.
+- The separate owner/target example also builds and runs from source-free .iyimod
+  artifacts with the patched local compiler; ct entry/model checks remain clean.
+
+- Has-many examples use ! propagation instead of or_panic. The executable
+  entry handles returned errors explicitly, closes the connection on completion
+  (including returned errors), writes failures to stderr and exits nonzero.
+
+## Context-bound has_many access (2026-10-13)
+
+- Added caller-owned ModelContext typed registrations and automatic context
+  binding on repository hydration/attribute rebuilds. Existing Mapping APIs
+  retain default identity binding; ModelMapping and compatible mapped macros
+  bind derive model records. Related repositories opt into one shared context.
+- has_many now generates a typed no-argument accessor (default singular inferred
+  target, explicit class_name supported) and a cached owner-bound collection.
+  Target types are explicit imports; scalar belongs_to fields do not import
+  their owner, preserving a one-direction native module graph. There is no
+  process-global connection or class reopening/autoloading.
+- Added direct each, lazy loaded?/reset/reload and successful-read caches. SQL
+  errors propagate, failed reads are not cached, detached saved-key records
+  report missing context, unsaved records do not query. Existing explicit-repo
+  and scoped/preload APIs remain compatible. ORM state is not persisted.
+- Verified direct each, shared context, per-owner caches/reset/reload, mutable
+  owner keys, detached/unsaved records, mismatched contexts/databases and hidden
+  ORM-state exclusion. The complete example also runs from source-free artifacts;
+  ct app/model/storage and existing Grant model/around consumers type-check.
+  No test suite was run for this change.
+
+## Read-source compatibility and collection API (2026-10-13)
+
+- CollectionSource(T) abstracts policy-preserving reads, including fresh counts.
+  Repository implements it; contexts register by table and target type, allowing
+  STI and storage/domain sources to coexist. Custom readers retain tenant filters.
+- Added Crystal Grant all/size/length/any?/none? spellings. count now reads fresh
+  storage (SQL COUNT for repositories); size reuses loaded records and length
+  loads them. Error unions remain the native iyi propagation mechanism.
+- Verified the complete collection example from native source and source-free
+  artifacts, module/type checks, and ct storage-reader tenant/reciprocal ledger
+  examples. Through/polymorphic and automatic dependency writes remain outside
+  the current model DSL; explicit lifecycle/write APIs are documented separately.
+
+- Added has_many_model_test to the native and source-free artifact gates. Its
+  assertions cover direct iteration, fresh counts versus loaded size, custom keys,
+  owner-id changes, invalid contexts/scopes, cache/reload failures and preload.
+
+- Final gate: 37 native tests and 24 source-free artifact consumers passed,
+  including has_many_model_test and the generated-schema consumer. The standalone
+  collection demo passes from source-free artifacts as well. ct storage checks
+  pass 441 assertions, its model API passes 36 assertions, and both in-memory
+  domain/storage association examples pass. Compiler: local iyi native build.

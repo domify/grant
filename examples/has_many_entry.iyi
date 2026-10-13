@@ -1,0 +1,11 @@
+module examples/has_many_entry
+import grant/model::*
+
+pub class Entry
+  table "entries"
+  col :owner_id, belongs_to: :owner
+  col :name, :string
+  col :visible, :boolean, default: true, null: false
+  col :id, :primary
+  derive model
+end
