@@ -690,6 +690,10 @@ pub abstract class Base
       \{% end %}
     end
 
+    def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
+      where(**args)!.first?
+    end
+
     def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
@@ -1064,11 +1068,27 @@ pub abstract class Base
   end
 
   def destroy : Bool
-    self.before_destroy.or_panic
-    delete
-    self.after_destroy.or_panic
-    queue_commit_callbacks(:destroy)
+    result = __destroy_with_callbacks
+    if result.is_a?(::Error)
+      errors << ::Grant::Error::Error.new(:base, result.message)
+      __run_rollback_callbacks(:destroy)
+      return false
+    end
     true
+  end
+
+  def __destroy_with_callbacks : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    self.before_destroy!
+    delete
+    self.after_destroy!
+    queue_commit_callbacks(:destroy)!
+    true
+  end
+
+  # Crystal `destroy!`.
+  def destroy_strict : Bool | ::Grant::Errors::RecordNotDestroyed
+    return true if destroy
+    ::Grant::Errors::RecordNotDestroyed.new(self.class.to_s, self)
   end
 end
 

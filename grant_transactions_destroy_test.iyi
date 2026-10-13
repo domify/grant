@@ -1,0 +1,74 @@
+import transaction_crud_models::{Parent, School, CallbackWithAbort}
+import nation
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+import grant/errors::{RecordNotDestroyed}
+
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+Parent.migrator.drop_and_create.or_panic
+School.migrator.drop_and_create.or_panic
+Nation::County.migrator.drop_and_create.or_panic
+CallbackWithAbort.migrator.drop_and_create.or_panic
+
+# it: destroys an object
+parent = Parent.new
+parent.name = "Test Parent"
+parent.save
+id = parent.id
+parent.destroy
+found = Parent.find(id)
+assert found.nil?
+
+# it: updates states of destroyed and persisted
+parent = Parent.new
+assert !parent.destroyed?
+assert !parent.persisted?
+parent.name = "Test Parent"
+parent.save
+assert !parent.destroyed?
+assert parent.persisted?
+parent.destroy
+assert parent.destroyed?
+assert !parent.persisted?
+
+# it: destroys an object
+school = School.new
+school.name = "Test School"
+school.save
+primary_key = school.custom_id
+school.destroy
+found_school = School.find(primary_key)
+assert found_school.nil?
+
+# it: destroys an object
+county = Nation::County.new
+county.name = "Test County"
+county.save
+primary_key = county.id
+county.destroy
+found_county = Nation::County.find(primary_key)
+assert found_county.nil?
+
+# it: destroys an object
+parent = Parent.new
+parent.name = "Test Parent"
+parent.save_strict.or_panic
+id = parent.id
+parent.destroy
+found = Parent.find(id)
+assert found.nil?
+
+# it: does not destroy but raise an exception
+callback_with_abort = CallbackWithAbort.new
+callback_with_abort.name = "DestroyRaisesException"
+callback_with_abort.abort_at = "temp"
+callback_with_abort.do_abort = false
+callback_with_abort.save_strict.or_panic
+callback_with_abort.abort_at = "before_destroy"
+callback_with_abort.do_abort = true
+error = callback_with_abort.destroy_strict
+assert error.is_a?(RecordNotDestroyed)
+assert error.as(RecordNotDestroyed).message.includes?("CallbackWithAbort")
+assert !CallbackWithAbort.find_by(name: callback_with_abort.name).or_panic.nil?
+
+Parent.adapter.close.or_panic

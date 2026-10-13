@@ -146,3 +146,19 @@ impl ::Error for RecordInvalid
     @message
   end
 end
+
+
+pub class RecordNotDestroyed < ErrorBase
+  getter model : ValidationRecord
+
+  def initialize(class_name : String, @model : ValidationRecord)
+    reason = @model.errors.first?
+    super("Could not destroy #{class_name}: #{reason.nil? ? "the destroy was halted" : reason.message}")
+  end
+end
+
+impl ::Error for RecordNotDestroyed
+  def message : String
+    @message
+  end
+end

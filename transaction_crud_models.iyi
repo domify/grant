@@ -1,6 +1,7 @@
 module transaction_crud_models
 pub import grant/base
 import grant/base::{Base}
+import std/io::{Memory}
 
 pub class Parent < Base
   connection sqlite
@@ -26,4 +27,22 @@ pub class ReservedWord < Base
   table "select"
   column id : Int64, primary: true
   column all : String?
+end
+
+
+pub class CallbackWithAbort < Base
+  connection sqlite
+  table callbacks_with_abort
+  column abort_at : String, primary: true, auto: false
+  column do_abort : Bool?
+  column name : String?
+
+  property history : Memory = Memory.new
+
+  {% for name in ["after_initialize", "after_find", "before_validation", "after_validation", "before_save", "after_save", "before_create", "after_create", "before_update", "after_update", "before_destroy", "after_destroy", "after_touch", "after_commit", "after_rollback", "after_create_commit", "after_update_commit", "after_destroy_commit", "after_save_commit"] %}
+    {{ name.id }} do
+      return abort_strict if do_abort && abort_at == {{ name }}
+      history << {{ name }} + "\n"
+    end
+  {% end %}
 end
