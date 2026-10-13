@@ -1,16 +1,9 @@
-/lib/
-/.shards/
-/.deps/
-/.crystal/
-/.crystal-cache/
-/doc/
+/.iyi-cache/
+/build/
+/tmp/
 *.db
-*.db-wal
-*.db-shm
-
-/.deps.lock
-
-# Ignore bin because they will be build with shards install
-bin
-.env
-.luna/
+*.db-*
+*.sqlite3
+/port/codex*.log
+/port/last*.txt
+/port/worktrees/
