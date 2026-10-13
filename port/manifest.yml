@@ -29,7 +29,7 @@
   target: grant_callbacks_commit_on_option_test.iyi
   area: transactions
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/lifecycle_callbacks_spec.cr
   target: grant_callbacks_lifecycle_callbacks_test.iyi
   area: transactions
