@@ -1,0 +1,14 @@
+module grant/error
+
+pub class ErrorBase
+  getter message : String
+
+  def initialize(@message : String)
+  end
+end
+
+impl ::Error for ErrorBase
+  def message : String
+    @message
+  end
+end

@@ -407,7 +407,7 @@ pub abstract class Base
   end
 
   def save : Bool
-    !save_strict.is_a?(Error)
+    !save_strict.is_a?(::Error)
   end
 
   # Crystal `save!`.

@@ -1,0 +1,29 @@
+module grant/error_taxonomy
+
+import grant/error::{ErrorBase}
+
+pub class StatementInvalid < ErrorBase
+  getter code : Int32
+  getter operation : String
+  getter detail : String
+  getter sql : String?
+
+  def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil)
+    super("#{operation}: #{detail} (#{code})")
+  end
+end
+
+impl ::Error for StatementInvalid
+  def message : String
+    @message
+  end
+end
+
+pub class InvalidForeignKey < StatementInvalid
+end
+
+impl ::Error for InvalidForeignKey
+  def message : String
+    @message
+  end
+end

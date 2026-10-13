@@ -180,7 +180,7 @@
   target: grant_transaction_error_translation_test.iyi
   area: transactions
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/handle_spec.cr
   target: grant_transaction_handle_test.iyi
   area: transactions

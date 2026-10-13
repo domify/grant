@@ -2,21 +2,13 @@ module grant/errors
 
 # Crystal Grant raises these; native iyi returns them as union members.
 
-pub struct DatabaseError
-  getter code : Int32
-  getter operation : String
-  getter detail : String
-  getter sql : String?
+pub import grant/error
+pub alias ErrorBase = ::Grant::Error::ErrorBase
+pub import grant/error_taxonomy
+import grant/error_taxonomy::{StatementInvalid}
 
-  def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil)
-  end
-end
-
-impl Error for DatabaseError
-  def message : String
-    "#{operation}: #{detail} (#{code})"
-  end
-end
+# Compatibility name used by the initial SQLite binding.
+pub alias DatabaseError = StatementInvalid
 
 pub struct RecordNotFound
   getter model : String
@@ -26,7 +18,7 @@ pub struct RecordNotFound
   end
 end
 
-impl Error for RecordNotFound
+impl ::Error for RecordNotFound
   def message : String
     "Couldn't find #{@model} with id=#{@id}"
   end
@@ -39,7 +31,7 @@ pub struct RecordNotSaved
   end
 end
 
-impl Error for RecordNotSaved
+impl ::Error for RecordNotSaved
   def message : String
     "#{@model} was not saved"
   end
@@ -51,23 +43,9 @@ pub struct Rollback
   end
 end
 
-impl Error for Rollback
+impl ::Error for Rollback
   def message : String
     "rollback"
-  end
-end
-
-# Structural native counterpart of Grant::ErrorBase, also used for raised strings.
-pub class ErrorBase
-  getter message : String
-
-  def initialize(@message : String)
-  end
-end
-
-impl Error for ErrorBase
-  def message : String
-    @message
   end
 end
 
@@ -77,7 +55,7 @@ pub class TransactionIsolationError < ErrorBase
   end
 end
 
-impl Error for TransactionIsolationError
+impl ::Error for TransactionIsolationError
   def message : String
     @message
   end
@@ -90,7 +68,7 @@ pub class NotOpenError < ErrorBase
   end
 end
 
-impl Error for NotOpenError
+impl ::Error for NotOpenError
   def message : String
     @message
   end
@@ -99,7 +77,7 @@ end
 pub class InvalidSavepointNameError < ErrorBase
 end
 
-impl Error for InvalidSavepointNameError
+impl ::Error for InvalidSavepointNameError
   def message : String
     @message
   end

@@ -2,6 +2,7 @@ module grant/adapter/sqlite
 
 import grant/cstring::{cstring}
 import grant/errors::{DatabaseError}
+import grant/error_taxonomy::{InvalidForeignKey}
 
 pub alias Value = Nil | Bool | Int64 | Float64 | String
 pub alias Row = Hash(String, Value)
@@ -18,6 +19,7 @@ end
 lib SQLite
   fun open = sqlite3_open_v2(filename : UInt8*, database : Void**, flags : Int32, vfs : UInt8*) : Int32
   fun close = sqlite3_close(database : Void*) : Int32
+  fun extended_errcode = sqlite3_extended_errcode(database : Void*) : Int32
   fun errmsg = sqlite3_errmsg(database : Void*) : UInt8*
   fun prepare = sqlite3_prepare_v2(database : Void*, sql : UInt8*, size : Int32, statement : Void**, tail : UInt8**) : Int32
   fun finalize = sqlite3_finalize(statement : Void*) : Int32
@@ -86,6 +88,9 @@ pub class Connection
 
   def failure(code : Int32, operation : String, sql : String? = nil) : DatabaseError
     detail = @closed ? "connection is closed" : cstring(SQLite.errmsg(@handle))
+    if !@closed && SQLite.extended_errcode(@handle) == 787
+      return InvalidForeignKey.new(code, operation, detail, sql)
+    end
     DatabaseError.new(code, operation, detail, sql)
   end
 

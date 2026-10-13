@@ -250,7 +250,7 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
   result = yield
   TransactionState.pop
   state.open = false
-  if result.is_a?(Error)
+  if result.is_a?(::Error)
     execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
     execute_control(connection, "RELEASE SAVEPOINT #{savepoint}")! unless outer
     restore_records(state)
