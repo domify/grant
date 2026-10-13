@@ -7,3 +7,5 @@
 /port/codex*.log
 /port/last*.txt
 /port/worktrees/
+/lib/
+/.crystal-cache/
