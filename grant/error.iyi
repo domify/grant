@@ -12,3 +12,13 @@ impl ::Error for ErrorBase
     @message
   end
 end
+
+# A model validation failure, distinct from returned runtime errors.
+pub class Error
+  getter field : String | Symbol
+  getter message : String
+  property type : Symbol?
+
+  def initialize(@field : String | Symbol, @message : String = "", @type : Symbol? = nil)
+  end
+end

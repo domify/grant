@@ -240,7 +240,7 @@
   target: grant_transactions_save_natural_key_test.iyi
   area: transactions
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transactions/save_spec.cr
   target: grant_transactions_save_test.iyi
   area: transactions

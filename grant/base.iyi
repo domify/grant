@@ -41,6 +41,7 @@ end
 pub abstract class Base
   @new_record : Bool = true
   @destroyed : Bool = false
+  getter errors = ::Grant::Errors::Errors.new
 
   def initialize(**args)
     assign_attributes(args)
@@ -64,7 +65,7 @@ pub abstract class Base
   end
 
   macro column(decl, **options)
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }})]
     @{{decl.var}} : {{decl.type}} | Nil = nil
 
     def {{decl.var}} : {{decl.type}} | Nil
@@ -126,7 +127,7 @@ pub abstract class Base
           \{% type = v.annotation(::Grant::Base::Column)[:type] %}
           \{% sql = type.includes?("Int") ? "INTEGER" : (type.includes?("Bool") ? "BOOLEAN" : (type.includes?("Float") ? "REAL" : "TEXT")) %}
           \{% if v == primary %}
-            "\{{ v.name }} INTEGER PRIMARY KEY",
+            "\{{ v.name }} \{{ sql.id }} PRIMARY KEY\{{ v.annotation(::Grant::Base::Column)[:auto] ? "".id : " NOT NULL".id }}",
           \{% else %}
             "\{{ v.name }} \{{ sql.id }}\{{ type.includes?("?") || type.includes?("Nil") ? "".id : " NOT NULL".id }}",
           \{% end %}
@@ -200,7 +201,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.find(id : Int64 | Nil) : {{ @type }} | Nil
+    def self.find(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | Nil
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -212,7 +213,7 @@ pub abstract class Base
     end
 
     # Crystal `find!`.
-    def self.find_strict(id : Int64 | Nil) : {{ @type }} | ::Grant::Errors::RecordNotFound
+    def self.find_strict(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | ::Grant::Errors::RecordNotFound
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -286,11 +287,11 @@ pub abstract class Base
       self.class.primary_name
     end
 
-    def __primary_value : Int64 | Nil
+    def __primary_value : ::Grant::Adapter::Sqlite::Value
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      self.\{{ primary.name }}.as(Int64 | Nil)
+      self.\{{ primary.name }}
       \{% end %}
     end
 
@@ -298,7 +299,16 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
+      \{% if primary.annotation(::Grant::Base::Column)[:auto] %}
       self.\{{ primary.name }} = value
+      \{% end %}
+      \{% end %}
+    end
+
+    def __primary_auto? : Bool
+      \{% begin %}
+      \{% primary = @type.instance_vars.find { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:primary] } %}
+      \{{ primary.annotation(::Grant::Base::Column)[:auto] }}
       \{% end %}
     end
 
@@ -359,7 +369,8 @@ pub abstract class Base
   end
 
   abstract def __primary_name : String
-  abstract def __primary_value : Int64 | Nil
+  abstract def __primary_value : ::Grant::Adapter::Sqlite::Value
+  abstract def __primary_auto? : Bool
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
   abstract def __column_values : Array(Value)
@@ -418,6 +429,11 @@ pub abstract class Base
   # Crystal `save!`.
   def save_strict : Bool | RecordNotSaved | DatabaseError
     return RecordNotSaved.new(__table_name) if @destroyed
+    errors.clear
+    if @new_record && !__primary_auto? && __primary_value.nil?
+      errors << ::Grant::Error::Error.new(__primary_name, "Primary key('#{__primary_name}') cannot be null")
+      return RecordNotSaved.new(__table_name)
+    end
     __remember_transaction_state
     names = __column_names
     values = __column_values
@@ -430,7 +446,7 @@ pub abstract class Base
       placeholders = names.map { "?" }.join(", ")
       result = __adapter.execute("INSERT INTO #{__table_name} (#{names.join(", ")}) VALUES (#{placeholders})", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
-      __set_primary_value(result.last_insert_id) if __primary_value.nil?
+      __set_primary_value(result.last_insert_id) if __primary_auto? && __primary_value.nil?
       @new_record = false
     else
       assignments = names.map { |name| "#{name} = ?" }.join(", ")
@@ -445,7 +461,7 @@ pub abstract class Base
   def delete : self
     __remember_transaction_state
     if id = __primary_value
-      __adapter.execute("DELETE FROM #{__table_name} WHERE id = ?", [id] of Value)
+      __adapter.execute("DELETE FROM #{__table_name} WHERE #{__primary_name} = ?", [id] of Value)
     end
     @destroyed = true
     self

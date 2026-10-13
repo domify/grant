@@ -1,0 +1,54 @@
+import grant/base::{Base}
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+
+class Kvs < Base
+  connection sqlite
+  table kvs
+  column k : String, primary: true, auto: false
+  column v : String?
+end
+
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+Kvs.migrator.drop_and_create.or_panic
+
+# it: fails when a primary key is not set
+kv = Kvs.new
+assert !kv.save
+assert kv.errors.first.message == "Primary key('k') cannot be null"
+
+# it: creates a new object when a primary key is given
+kv = Kvs.new
+kv.k = "foo"
+assert kv.save
+kv = Kvs.find_strict("foo").or_panic
+assert kv.k == "foo"
+
+# it: updates an existing object
+kv = Kvs.new
+kv.k = "foo2"
+kv.v = "1"
+assert kv.save
+kv.v = "2"
+assert kv.save
+assert kv.k == "foo2"
+assert kv.v == "2"
+
+# it: CRUD
+Kvs.clear.or_panic
+port = Kvs.new(k: "mysql_port", v: "3306")
+assert port.new_record?
+assert port.save
+assert port.v == "3306"
+assert Kvs.count.or_panic == 1
+port = Kvs.find_strict("mysql_port").or_panic
+assert port.v == "3306"
+assert !port.new_record?
+port.v = "3307"
+assert !port.new_record?
+assert port.save
+assert port.v == "3307"
+assert Kvs.count.or_panic == 1
+assert port.destroy
+assert Kvs.count.or_panic == 0
+Kvs.adapter.close.or_panic

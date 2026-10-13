@@ -88,3 +88,26 @@ impl ::Error for InvalidSavepointNameError
     @message
   end
 end
+
+# Structural slice of Grant::Errors used by persistence validations.
+pub class Errors
+  @errors = [] of ::Grant::Error::Error
+
+  def <<(error : ::Grant::Error::Error) : self
+    @errors << error
+    self
+  end
+
+  def first : ::Grant::Error::Error
+    @errors.first
+  end
+
+  def first? : ::Grant::Error::Error?
+    @errors.first?
+  end
+
+  def clear : Nil
+    @errors.clear
+    nil
+  end
+end
