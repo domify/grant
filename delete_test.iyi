@@ -1,0 +1,42 @@
+import grant/base::{Base}
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+import grant/errors::{Rollback}
+
+class T6DeleteRecord < Base
+  connection sqlite
+  table t6_delete_records
+  column id : Int64, primary: true
+  column name : String
+  getter has_destroy_callback_run : Bool = false
+  after_destroy :record_destroy_callback
+
+  private def record_destroy_callback
+    @has_destroy_callback_run = true
+  end
+end
+
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+T6DeleteRecord.migrator.drop_and_create.or_panic
+
+# it: deletes without callbacks and marks the instance destroyed
+T6DeleteRecord.clear.or_panic
+record = T6DeleteRecord.create_strict(name: "delete me").or_panic
+assert record.delete.object_id == record.object_id
+assert T6DeleteRecord.find(record.id).nil?
+assert record.destroyed?
+assert !record.persisted?
+assert !record.has_destroy_callback_run
+
+# it: restores the instance state when its delete is rolled back
+T6DeleteRecord.clear.or_panic
+record = T6DeleteRecord.create_strict(name: "restore me").or_panic
+T6DeleteRecord.transaction do
+  record.delete
+  assert record.destroyed?
+  Rollback.new
+end.or_panic
+assert !record.destroyed?
+assert record.persisted?
+assert T6DeleteRecord.find_strict(record.id).or_panic.name == "restore me"
+T6DeleteRecord.adapter.close.or_panic

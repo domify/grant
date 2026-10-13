@@ -1,0 +1,209 @@
+module grant/adapter/sqlite
+
+import grant/cstring::{cstring}
+import grant/errors::{DatabaseError}
+
+pub alias Value = Nil | Bool | Int64 | Float64 | String
+pub alias Row = Hash(String, Value)
+
+pub struct Mutation
+  getter changes : Int64
+  getter last_insert_id : Int64
+
+  def initialize(@changes : Int64, @last_insert_id : Int64)
+  end
+end
+
+@[Link("sqlite3")]
+lib SQLite
+  fun open = sqlite3_open_v2(filename : UInt8*, database : Void**, flags : Int32, vfs : UInt8*) : Int32
+  fun close = sqlite3_close(database : Void*) : Int32
+  fun errmsg = sqlite3_errmsg(database : Void*) : UInt8*
+  fun prepare = sqlite3_prepare_v2(database : Void*, sql : UInt8*, size : Int32, statement : Void**, tail : UInt8**) : Int32
+  fun finalize = sqlite3_finalize(statement : Void*) : Int32
+  fun step = sqlite3_step(statement : Void*) : Int32
+  fun parameter_count = sqlite3_bind_parameter_count(statement : Void*) : Int32
+  fun bind_null = sqlite3_bind_null(statement : Void*, index : Int32) : Int32
+  fun bind_int = sqlite3_bind_int64(statement : Void*, index : Int32, value : Int64) : Int32
+  fun bind_float = sqlite3_bind_double(statement : Void*, index : Int32, value : Float64) : Int32
+  fun bind_text = sqlite3_bind_text(statement : Void*, index : Int32, text : UInt8*, size : Int32, destructor : Void*) : Int32
+  fun bind_blob = sqlite3_bind_blob(statement : Void*, index : Int32, data : UInt8*, size : Int32, destructor : Void*) : Int32
+  fun column_count = sqlite3_column_count(statement : Void*) : Int32
+  fun column_name = sqlite3_column_name(statement : Void*, index : Int32) : UInt8*
+  fun column_type = sqlite3_column_type(statement : Void*, index : Int32) : Int32
+  fun column_int = sqlite3_column_int64(statement : Void*, index : Int32) : Int64
+  fun column_float = sqlite3_column_double(statement : Void*, index : Int32) : Float64
+  fun column_text = sqlite3_column_text(statement : Void*, index : Int32) : UInt8*
+  fun column_blob = sqlite3_column_blob(statement : Void*, index : Int32) : UInt8*
+  fun column_bytes = sqlite3_column_bytes(statement : Void*, index : Int32) : Int32
+  fun changes = sqlite3_changes64(database : Void*) : Int64
+  fun last_id = sqlite3_last_insert_rowid(database : Void*) : Int64
+  fun autocommit = sqlite3_get_autocommit(database : Void*) : Int32
+  fun busy_timeout = sqlite3_busy_timeout(database : Void*, milliseconds : Int32) : Int32
+  fun limit = sqlite3_limit(database : Void*, category : Int32, value : Int32) : Int32
+end
+
+pub class Connection
+  @handle : Void*
+  @closed : Bool
+  @savepoint_sequence : UInt64
+  getter last_statement : String?
+
+  def initialize(@handle : Void*)
+    @closed = false
+    @savepoint_sequence = 0_u64
+    @last_statement = nil
+  end
+
+  def self.open(path : String, busy_timeout_ms : Int32 = 5000) : Connection | DatabaseError
+    return DatabaseError.new(21, "open", "NUL byte in database path") if path.includes?("\0")
+    handle = Pointer(Void).new(0_u64)
+    code = SQLite.open(path, pointerof(handle), 0x10006, Pointer(UInt8).new(0_u64))
+    if code != 0
+      detail = handle.address == 0_u64 ? "cannot open database" : cstring(SQLite.errmsg(handle))
+      SQLite.close(handle) unless handle.address == 0_u64
+      return DatabaseError.new(code, "open", detail)
+    end
+    connection = new(handle)
+    code = SQLite.busy_timeout(handle, busy_timeout_ms)
+    if code != 0
+      failure = connection.failure(code, "busy_timeout")
+      connection.close
+      return failure
+    end
+    result = connection.execute("PRAGMA foreign_keys = ON", [] of Value)
+    if result.is_a?(DatabaseError)
+      connection.close
+      return result
+    end
+    connection
+  end
+
+  def failure(code : Int32, operation : String, sql : String? = nil) : DatabaseError
+    detail = @closed ? "connection is closed" : cstring(SQLite.errmsg(@handle))
+    DatabaseError.new(code, operation, detail, sql)
+  end
+
+  def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    statement = prepare(sql, parameters)!
+    code = SQLite.step(statement)
+    if code != 101
+      error = failure(code, "execute", sql)
+      SQLite.finalize(statement)
+      return error
+    end
+    result = Mutation.new(SQLite.changes(@handle), SQLite.last_id(@handle))
+    code = SQLite.finalize(statement)
+    code == 0 ? result : failure(code, "finalize", sql)
+  end
+
+  def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+    statement = prepare(sql, parameters)!
+    rows = [] of Row
+    code = SQLite.step(statement)
+    while code == 100
+      attributes = Row.new
+      SQLite.column_count(statement).times do |column|
+        name = cstring(SQLite.column_name(statement, column))
+        value = read_value(statement, column)
+        if value.is_a?(DatabaseError)
+          SQLite.finalize(statement)
+          return value
+        end
+        attributes[name] = value
+      end
+      rows << attributes
+      code = SQLite.step(statement)
+    end
+    if code != 101
+      error = failure(code, "query", sql)
+      SQLite.finalize(statement)
+      return error
+    end
+    code = SQLite.finalize(statement)
+    code == 0 ? rows : failure(code, "finalize", sql)
+  end
+
+  def in_transaction? : Bool
+    !@closed && SQLite.autocommit(@handle) == 0
+  end
+
+  def closed? : Bool
+    @closed
+  end
+
+
+  def savepoint_name : String
+    @savepoint_sequence += 1_u64
+    "grant_savepoint_#{@savepoint_sequence}"
+  end
+
+
+
+
+
+  def close : Nil | DatabaseError
+    return nil if @closed
+    code = SQLite.close(@handle)
+    return failure(code, "close") unless code == 0
+    @closed = true
+    nil
+  end
+
+  private def prepare(sql : String, parameters : Array(Value)) : Void* | DatabaseError
+    @last_statement = sql
+    return DatabaseError.new(21, "prepare", "connection is closed", sql) if @closed
+    return DatabaseError.new(21, "prepare", "NUL byte in SQL", sql) if sql.includes?("\0")
+    statement = Pointer(Void).new(0_u64)
+    tail = Pointer(UInt8).new(0_u64)
+    code = SQLite.prepare(@handle, sql, sql.bytesize + 1, pointerof(statement), pointerof(tail))
+    if code != 0
+      error = failure(code, "prepare", sql)
+      SQLite.finalize(statement) unless statement.address == 0_u64
+      return error
+    end
+    return DatabaseError.new(21, "prepare", "empty SQL statement", sql) if statement.address == 0_u64
+    # Never execute only a prefix of a multi-statement request.
+    unless tail.address == 0_u64 || cstring(tail).strip.empty?
+      SQLite.finalize(statement)
+      return DatabaseError.new(21, "prepare", "only one SQL statement is allowed", sql)
+    end
+    unless SQLite.parameter_count(statement) == parameters.size
+      SQLite.finalize(statement)
+      return DatabaseError.new(25, "bind", "parameter count mismatch", sql)
+    end
+    parameters.each_with_index do |value, offset|
+      index = offset + 1
+      code = case value
+             when Nil     then SQLite.bind_null(statement, index)
+             when Bool    then SQLite.bind_int(statement, index, value ? 1_i64 : 0_i64)
+             when Int64   then SQLite.bind_int(statement, index, value)
+             when Float64 then SQLite.bind_float(statement, index, value)
+             when String
+               # SQLITE_TRANSIENT copies the input, keeping its lifetime independent
+               # of iyi's moving/reclaiming runtime.
+               SQLite.bind_text(statement, index, value.to_unsafe, value.bytesize, Pointer(Void).new(0xffffffffffffffff_u64))
+             else
+               20
+             end
+      if code != 0
+        error = failure(code, "bind", sql)
+        SQLite.finalize(statement)
+        return error
+      end
+    end
+    statement
+  end
+
+  private def read_value(statement : Void*, column : Int32) : Value | DatabaseError
+    case SQLite.column_type(statement, column)
+    when 1 then SQLite.column_int(statement, column)
+    when 2 then SQLite.column_float(statement, column)
+    when 3 then cstring(SQLite.column_text(statement, column), SQLite.column_bytes(statement, column))
+    when 4 then cstring(SQLite.column_blob(statement, column), SQLite.column_bytes(statement, column))
+    when 5 then nil
+    else        DatabaseError.new(20, "query", "unknown SQLite storage type")
+    end
+  end
+end
+

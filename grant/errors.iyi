@@ -1,0 +1,58 @@
+module grant/errors
+
+# Crystal Grant raises these; native iyi returns them as union members.
+
+pub struct DatabaseError
+  getter code : Int32
+  getter operation : String
+  getter detail : String
+  getter sql : String?
+
+  def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil)
+  end
+end
+
+impl Error for DatabaseError
+  def message : String
+    "#{operation}: #{detail} (#{code})"
+  end
+end
+
+pub struct RecordNotFound
+  getter model : String
+  getter id : String
+
+  def initialize(@model : String, @id : String)
+  end
+end
+
+impl Error for RecordNotFound
+  def message : String
+    "Couldn't find #{@model} with id=#{@id}"
+  end
+end
+
+pub struct RecordNotSaved
+  getter model : String
+
+  def initialize(@model : String)
+  end
+end
+
+impl Error for RecordNotSaved
+  def message : String
+    "#{@model} was not saved"
+  end
+end
+
+# Grant::Transaction::Rollback: returned from a transaction block to roll back silently.
+pub struct Rollback
+  def initialize
+  end
+end
+
+impl Error for Rollback
+  def message : String
+    "rollback"
+  end
+end

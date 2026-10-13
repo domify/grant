@@ -1,0 +1,29 @@
+import grant/base::{Base}
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+
+class SpikeRecord < Base
+  table spike_records
+  connection sqlite
+  column id : Int64, primary: true
+  column name : String
+  getter callback_ran : Bool = false
+  after_destroy :after_deletion
+  private def after_deletion
+    @callback_ran = true
+  end
+end
+
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+SpikeRecord.migrator.drop_and_create.or_panic
+record = SpikeRecord.create(name: "before")
+assert record.persisted?
+record.name = "after"
+assert record.save
+assert SpikeRecord.find_strict(record.id).or_panic.name == "after"
+assert SpikeRecord.where(name: "after").or_panic.size == 1
+assert record.destroy
+assert record.callback_ran
+assert record.destroyed?
+assert SpikeRecord.find(record.id).nil?
+SpikeRecord.adapter.close.or_panic

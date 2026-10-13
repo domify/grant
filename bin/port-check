@@ -1,0 +1,110 @@
+#!/usr/bin/env ruby
+require "open3"
+require "pathname"
+require_relative "../port/manifest"
+
+Dir.chdir(CoverageGen::ROOT)
+ENV["IYI_CACHE_DIR"] = File.join(Dir.pwd, ".iyi-cache")
+iyi = ENV.fetch("IYI", "/home/priit/contribute/iyi/bin/iyi")
+fast = ARGV.first == "--fast"
+ARGV.shift if fast
+abort "usage: bin/port-check [--fast FILE...]" if (!fast && !ARGV.empty?) || (fast && ARGV.empty?)
+errors = []
+entries = Manifest.load
+expected = Manifest.generated
+by_source = entries.to_h { |e| [e["source"], e] }
+errors << "manifest sources differ from upstream" unless entries.map { |e| e["source"] }.sort == expected.map { |e| e["source"] }.sort
+expected.each do |entry|
+  current = by_source[entry["source"]]
+  next unless current
+  %w[source area examples exclusion_reason].each do |key|
+    errors << "generated #{key} differs: #{entry['source']}" unless current[key] == entry[key]
+  end
+  errors << "invalid status: #{entry['source']}" unless %w[todo done excluded].include?(current["status"])
+  errors << "invalid exclusion: #{entry['source']}" if (current["status"] == "excluded") != (entry["status"] == "excluded")
+end
+
+start = File.read("port/START_COMMIT").strip
+out, status = Open3.capture2e("git", "diff", "--exit-code", start, "--", "crystal-upstream/")
+errors << "crystal-upstream differs from START_COMMIT: #{out.strip}" unless status.success?
+untracked, status = Open3.capture2e("git", "ls-files", "--others", "--", "crystal-upstream/")
+errors << "cannot check upstream untracked files" unless status.success?
+errors << "untracked files in crystal-upstream: #{untracked.strip}" unless untracked.empty?
+
+normalize = ->(path) { Pathname.new(path).cleanpath.to_s.sub(%r{\A\./}, "") }
+selected = fast ? ARGV.map { |path| normalize.call(path) } : nil
+all_tests = Dir.glob("**/*_test.iyi").reject { |f| f.start_with?("port/worktrees/", ".iyi-cache/", "build/", "crystal-upstream/") }.sort
+ported = 0
+done = 0
+active = entries.reject { |e| e["status"] == "excluded" }
+active.each do |entry|
+  scoped = CoverageGen.parse_spec(File.join(Dir.pwd, entry["source"])).reject { |e| e["status"] == "excluded" }
+  children = entry["children"]
+  targets = children ? children.map { |child| child["target"] } : [entry["target"]]
+  unless targets.all? { |t| t.is_a?(String) && t.end_with?("_test.iyi") && !t.start_with?("/") && !t.split("/").include?("..") }
+    errors << "invalid target: #{entry['source']}"
+    next
+  end
+  relevant = !fast || (targets & selected).any?
+  if children
+    ids = children.flat_map { |child| child.fetch("examples", []) }
+    errors << "children must partition original example IDs: #{entry['source']}" unless ids.sort == scoped.map { |e| e["id"] }.sort
+    errors << "done parent has unfinished children: #{entry['source']}" if entry["status"] == "done" && children.any? { |c| c["status"] != "done" }
+  end
+  unless entry["status"] == "done"
+    errors << "unfinished: #{entry['source']}" unless fast
+    next unless fast && relevant
+  end
+  next unless relevant
+  units = children || [{"target" => entry["target"], "examples" => scoped.map { |e| e["id"] }}]
+  valid = true
+  units.each do |unit|
+    target = unit["target"]
+    next if fast && !selected.include?(target)
+    unless File.file?(target)
+      errors << "missing target: #{target}"
+      valid = false
+      next
+    end
+    descriptions = scoped.select { |e| unit["examples"].include?(e["id"]) }.map { |e| e["description"] }
+    markers = File.readlines(target).filter_map { |line| line.chomp[/^[ \t]*# it: (.*)$/, 1] }
+    unless markers.tally == descriptions.tally
+      errors << "original example descriptions do not match: #{target}"
+      valid = false
+    end
+    ported += descriptions.size if markers.tally == descriptions.tally && entry["status"] == "done"
+  end
+  done += 1 if entry["status"] == "done" && valid
+end
+# Fast statistics must retain global completed coverage, including untouched areas.
+if fast
+  done = active.count { |e| e["status"] == "done" }
+  ported = active.select { |e| e["status"] == "done" }.sum { |e| e["examples"] }
+  puts "FAST validation only; full mode is the only completion result"
+end
+
+tests = fast ? selected : all_tests
+errors << "no tests selected" if tests.empty?
+tests.each do |file|
+  unless File.file?(file) && file.end_with?("_test.iyi")
+    errors << "missing or invalid test: #{file}"
+    next
+  end
+  # Example descriptions are provenance; reject disabling markers in all other lines.
+  contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) }.join
+  errors << "skip/pending/TODO marker: #{file}" if contents.match?(/\b(skip|skipped|pending|TODO|FIXME|xit)\b/i)
+  output, status = Open3.capture2e(ENV.to_h, iyi, "test", "--json", file)
+  puts output
+  begin
+    result = JSON.parse(output)
+    passed = status.success? && result["failed"] == 0 && result["skipped"] == 0 && result["passed"].to_i > 0 &&
+      result.fetch("tests").all? { |t| t["status"] == "pass" }
+    errors << "test failed: #{file}" unless passed
+  rescue JSON::ParserError, KeyError
+    errors << "invalid test JSON: #{file}"
+  end
+end
+errors.each { |error| warn error }
+area = active.find { |entry| entry["status"] != "done" }&.fetch("area") || "complete"
+puts "PORT #{done}/#{active.size} EXAMPLES #{ported}/#{active.sum { |e| e['examples'] }} AREA #{area} #{errors.empty? ? 'OK' : 'FAIL'}"
+exit(errors.empty? ? 0 : 1)

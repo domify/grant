@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -uo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+base=native-iyi-fast-port
+export IYI=${IYI:-/home/priit/contribute/iyi/bin/iyi}
+export IYI_CACHE_DIR="$root/.iyi-cache"
+mkdir -p port/worktrees
+round=0
+flat=0
+previous=-1
+
+fail_setup() { printf '%s\n' "$*" >&2; exit 1; }
+[[ $(git branch --show-current) == "$base" ]] || fail_setup "Start port-loop on $base"
+[[ -z $(git status --porcelain) ]] || fail_setup "Commit setup changes before starting port-loop"
+command -v codex >/dev/null || fail_setup "codex is required"
+
+# All completion and integration decisions use the full gate, never --fast.
+gate() {
+  local directory=$1 worker=$2 iteration=$3 report=$4 result line
+  (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" bin/port-check) > "$report" 2>&1
+  result=$?
+  line=$(tail -n 1 "$report")
+  [[ $line =~ ^PORT\ [0-9]+/[0-9]+\ EXAMPLES\ [0-9]+/[0-9]+\ AREA\ [a-z_]+\ (OK|FAIL)$ ]] || line="PORT 0/0 EXAMPLES 0/0 AREA unknown FAIL"
+  printf '%s worker=%s iteration=%s\n' "$line" "$worker" "$iteration" >> "$root/port/status.log"
+  printf '%s\n' "$line"
+  return "$result"
+}
+
+transactions_done() {
+  ruby -r "$root/port/manifest.rb" -e 'exit(Manifest.load.all? { |e| e["area"] != "transactions" || %w[done excluded].include?(e["status"]) } ? 0 : 1)'
+}
+
+worker() {
+  local directory=$1 name=$2 prompt=$3
+  (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" codex exec -p port -C "$directory" \
+    --output-last-message "port/last-$name.txt" "$prompt" < /dev/null > "port/codex-$name.log" 2>&1)
+}
+
+progress() {
+  local count
+  count=$(ruby -r "$root/port/manifest.rb" -e 'puts Manifest.load.select { |e| e["status"] == "done" }.sum { |e| e["examples"] }') || fail_setup "Cannot read manifest progress"
+  if [[ $count -le $previous ]]; then flat=$((flat + 1)); else flat=0; fi
+  previous=$count
+  [[ $flat -lt 3 ]] || exit 2
+  [[ $round -lt 60 ]] || exit 3
+}
+
+common='Read port/HINTS.md first, then AGENTS.md and port/TASK.md. Continue the structural native iyi SQLite port, preserving every original assertion and exact # it: descriptions. Follow doc/NAMING.md. Update manifest status only after tests pass. Split hard specs into child entries if necessary. Commit after each spec file, no attribution trailers. Run bin/port-check --fast on your targets. Only full bin/port-check exit 0 is completion. End with concrete progress and gate evidence, never a list of remaining work. Do not change upstream, exclusions, harness, or loop rules.'
+
+if gate "$root" initial 0 "$root/port/gate-initial.log"; then exit 0; fi
+previous=$(ruby -r "$root/port/manifest.rb" -e 'puts Manifest.load.select { |e| e["status"] == "done" }.sum { |e| e["examples"] }')
+
+# Stage A is serial and may edit every core module imported by the suite.
+while ! transactions_done; do
+  round=$((round + 1))
+  worker "$root" core "$common Stage A: You are the only worker. Own shared base, columns, adapter, query builder, transactions, callbacks and validations. Port transaction-area specs until the transactions area is done. Make useful committed progress in this iteration." || \
+    printf 'Worker core exited unsuccessfully at iteration %s\n' "$round" >> port/status.log
+  if gate "$root" core "$round" "$root/port/gate-core-$round.log"; then exit 0; fi
+  progress
+done
+
+# Stage B: separate branches and worktrees, one owner for each area group.
+# Rejected worktrees/branches are retained for inspection; the next iteration
+# creates a fresh branch from the base, so no unmerged work is silently deleted.
+while :; do
+  round=$((round + 1))
+  names=(query associations state_other)
+  pids=()
+  paths=()
+  branches=()
+  for name in "${names[@]}"; do
+    directory="$root/port/worktrees/$name-$round"
+    branch="port/$name-$round"
+    git worktree add -b "$branch" "$directory" "$base" || fail_setup "Cannot create $name worktree"
+    paths+=("$directory")
+    branches+=("$branch")
+    hint_file="$root/port/hint-$name.txt"
+    hint=""
+    [[ ! -f $hint_file ]] || hint=$(cat "$hint_file")
+    case "$name" in
+      query) ownership='query';;
+      associations) ownership='associations';;
+      state_other) ownership='dirty_state and other';;
+    esac
+    worker "$directory" "$name" "$common Stage B: Own only $ownership specs and their independent modules. Avoid changing shared core modules. Restart hint: $hint" &
+    pids+=("$!")
+  done
+  # Finish all concurrent codex iterations before serial rebases and gates.
+  for index in "${!names[@]}"; do
+    if ! wait "${pids[$index]}"; then
+      printf 'Worker exited unsuccessfully; inspect its retained worktree logs.\n' > "$root/port/hint-${names[$index]}.txt"
+    fi
+  done
+  for index in "${!names[@]}"; do
+    name=${names[$index]}
+    directory=${paths[$index]}
+    branch=${branches[$index]}
+    if [[ -n $(git -C "$directory" status --porcelain) ]]; then
+      printf 'Commit all tracked changes before integration; previous worktree retained at %s.\n' "$directory" > "$root/port/hint-$name.txt"
+      gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" || true
+      continue
+    fi
+    if ! git -C "$directory" rebase "$base" > "$root/port/rebase-$name-$round.log" 2>&1; then
+      git -C "$directory" rebase --abort || true
+      printf 'Rebase conflicted. Restart from current %s; inspect %s/port/rebase-%s-%s.log and retained branch %s.\n' "$base" "$root" "$name" "$round" "$branch" > "$root/port/hint-$name.txt"
+      gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" || true
+      continue
+    fi
+    if gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log"; then
+      git merge --ff-only "$branch" || fail_setup "Fast-forward failed; retained branch $branch"
+      if gate "$root" integrated "$round" "$root/port/gate-integrated-$round.log"; then exit 0; fi
+    else
+      printf 'Full gate failed; restart on fresh %s. Inspect %s/port/gate-%s-%s.log; previous branch %s retained.\n' "$base" "$root" "$name" "$round" "$branch" > "$root/port/hint-$name.txt"
+    fi
+  done
+  progress
+done
