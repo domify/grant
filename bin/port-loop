@@ -15,10 +15,11 @@ fail_setup() { printf '%s\n' "$*" >&2; exit 1; }
 [[ -z $(git status --porcelain) ]] || fail_setup "Commit setup changes before starting port-loop"
 command -v codex >/dev/null || fail_setup "codex is required"
 
-# All completion and integration decisions use the full gate, never --fast.
+# Only the full gate establishes completion; --integrate checks for regressions.
 gate() {
   local directory=$1 worker=$2 iteration=$3 report=$4 result line
-  (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" bin/port-check) > "$report" 2>&1
+  shift 4
+  (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" bin/port-check "$@") > "$report" 2>&1
   result=$?
   line=$(tail -n 1 "$report")
   [[ $line =~ ^PORT\ [0-9]+/[0-9]+\ EXAMPLES\ [0-9]+/[0-9]+\ AREA\ [a-z_]+\ (OK|FAIL)$ ]] || line="PORT 0/0 EXAMPLES 0/0 AREA unknown FAIL"
@@ -52,7 +53,7 @@ if gate "$root" initial 0 "$root/port/gate-initial.log"; then exit 0; fi
 previous=$(ruby -r "$root/port/manifest.rb" -e 'puts Manifest.load.select { |e| e["status"] == "done" }.sum { |e| e["examples"] }')
 
 # Stage A is serial and may edit every core module imported by the suite.
-while ! transactions_done; do
+while ! transactions_done || ! gate "$root" core "$round" "$root/port/gate-core-stop-$round.log" --integrate; do
   round=$((round + 1))
   worker "$root" core "$common Stage A: You are the only worker. Own shared base, columns, adapter, query builder, transactions, callbacks and validations. Port transaction-area specs until the transactions area is done. Make useful committed progress in this iteration." || \
     printf 'Worker core exited unsuccessfully at iteration %s\n' "$round" >> port/status.log
@@ -98,20 +99,20 @@ while :; do
     branch=${branches[$index]}
     if [[ -n $(git -C "$directory" status --porcelain) ]]; then
       printf 'Commit all tracked changes before integration; previous worktree retained at %s.\n' "$directory" > "$root/port/hint-$name.txt"
-      gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" || true
+      gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" --integrate || true
       continue
     fi
     if ! git -C "$directory" rebase "$base" > "$root/port/rebase-$name-$round.log" 2>&1; then
       git -C "$directory" rebase --abort || true
       printf 'Rebase conflicted. Restart from current %s; inspect %s/port/rebase-%s-%s.log and retained branch %s.\n' "$base" "$root" "$name" "$round" "$branch" > "$root/port/hint-$name.txt"
-      gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" || true
+      gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" --integrate || true
       continue
     fi
-    if gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log"; then
+    if gate "$directory" "$name" "$round" "$root/port/gate-$name-$round.log" --integrate; then
       git merge --ff-only "$branch" || fail_setup "Fast-forward failed; retained branch $branch"
       if gate "$root" integrated "$round" "$root/port/gate-integrated-$round.log"; then exit 0; fi
     else
-      printf 'Full gate failed; restart on fresh %s. Inspect %s/port/gate-%s-%s.log; previous branch %s retained.\n' "$base" "$root" "$name" "$round" "$branch" > "$root/port/hint-$name.txt"
+      printf 'Integration gate failed; restart on fresh %s. Inspect %s/port/gate-%s-%s.log; previous branch %s retained.\n' "$base" "$root" "$name" "$round" "$branch" > "$root/port/hint-$name.txt"
     fi
   done
   progress

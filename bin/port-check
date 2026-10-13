@@ -7,8 +7,9 @@ Dir.chdir(CoverageGen::ROOT)
 ENV["IYI_CACHE_DIR"] = File.join(Dir.pwd, ".iyi-cache")
 iyi = ENV.fetch("IYI", "/home/priit/contribute/iyi/bin/iyi")
 fast = ARGV.first == "--fast"
-ARGV.shift if fast
-abort "usage: bin/port-check [--fast FILE...]" if (!fast && !ARGV.empty?) || (fast && ARGV.empty?)
+integrate = ARGV.first == "--integrate"
+ARGV.shift if fast || integrate
+abort "usage: bin/port-check [--fast FILE... | --integrate]" if (!fast && !ARGV.empty?) || (fast && ARGV.empty?)
 errors = []
 entries = Manifest.load
 expected = Manifest.generated
@@ -49,17 +50,19 @@ active.each do |entry|
   if children
     ids = children.flat_map { |child| child.fetch("examples", []) }
     errors << "children must partition original example IDs: #{entry['source']}" unless ids.sort == scoped.map { |e| e["id"] }.sort
+    errors << "invalid child status: #{entry['source']}" unless children.all? { |c| %w[todo done].include?(c["status"]) }
     errors << "done parent has unfinished children: #{entry['source']}" if entry["status"] == "done" && children.any? { |c| c["status"] != "done" }
   end
   unless entry["status"] == "done"
-    errors << "unfinished: #{entry['source']}" unless fast
-    next unless fast && relevant
+    errors << "unfinished: #{entry['source']}" unless fast || integrate
+    next unless (fast && relevant) || (integrate && children)
   end
   next unless relevant
   units = children || [{"target" => entry["target"], "examples" => scoped.map { |e| e["id"] }}]
   valid = true
   units.each do |unit|
     target = unit["target"]
+    next if integrate && entry["status"] != "done" && unit["status"] != "done"
     next if fast && !selected.include?(target)
     unless File.file?(target)
       errors << "missing target: #{target}"
@@ -82,6 +85,7 @@ if fast
   ported = active.select { |e| e["status"] == "done" }.sum { |e| e["examples"] }
   puts "FAST validation only; full mode is the only completion result"
 end
+puts "INTEGRATE validation only; OK means no regression, full mode is the only completion result" if integrate
 
 tests = fast ? selected : all_tests
 errors << "no tests selected" if tests.empty?
