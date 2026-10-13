@@ -2,6 +2,28 @@ module grant/database
 
 import grant/adapter/sqlite_connection::{Connection}
 import grant/errors::{DatabaseError}
+import grant/error::{ErrorBase}
+
+pub class PoolResourceRefused < ErrorBase
+  def initialize
+    super("Connection refused")
+  end
+end
+
+impl ::Error for PoolResourceRefused
+  def message : String
+    @message
+  end
+end
+
+pub class ConnectionRefused < PoolResourceRefused
+end
+
+impl ::Error for ConnectionRefused
+  def message : String
+    @message
+  end
+end
 
 # Native replacement for the crystal-db database owner. The SQLite driver
 # remains separate from Grant's adapter inheritance and owns its C handle.

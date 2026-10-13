@@ -1,9 +1,11 @@
 module grant/adapter/base
 
 import std/time::{Span}
-import grant/database::{Database}
+import grant/database::{Database, PoolResourceRefused, ConnectionRefused}
+import grant/pool_stat::{PoolStat}
+import grant/adapter/pool_support::{backoff}
 import grant/adapter/sqlite_connection::{Connection}
-import grant/errors::{DatabaseError}
+import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError}
 
 pub abstract class Base
@@ -12,11 +14,12 @@ pub abstract class Base
   @_database : Database? = nil
   property retry_attempts : Int32 = 1
   property retry_delay : Span = Span.milliseconds(200_i64)
+  @waiting_checkouts : Int32 = 0
 
   def initialize(@name : String, @url : String)
   end
 
-  def database : Database | DatabaseError
+  def database : Database | DatabaseError | ConnectionRefused
     opened = @_database
     return opened unless opened.nil?
     opened = Database.open(database_path)!
@@ -43,7 +46,7 @@ pub abstract class Base
     verify_strict
   end
 
-  def ping : Nil | DatabaseError
+  def ping : Nil | ErrorBase
     opened = database!
     stats = opened.pool.stats
     return nil if stats.max_connections > 0 && stats.idle_connections == 0 && stats.open_connections >= stats.max_connections
@@ -55,12 +58,16 @@ pub abstract class Base
     error
   end
 
-  def verify_strict : Nil | DatabaseError | ConnectionFailed
+  def verify_strict : Nil | ErrorBase
     result = ping
-    if result.is_a?(DatabaseError)
+    if result.is_a?(ConnectionRefused)
+      ConnectionFailed.new("Could not reach #{name}: #{result.message}", result)
+    elsif result.is_a?(DatabaseError)
       translated = translate_exception(result)
       return translated if translated.is_a?(NoDatabaseError)
       ConnectionFailed.new("Could not reach #{name}: #{result.message}", result)
+    elsif result.is_a?(ErrorBase)
+      result
     else
       nil
     end
@@ -70,8 +77,44 @@ pub abstract class Base
     !verify_strict.is_a?(::Error)
   end
 
-  def open(sql : String? = nil, &block : Connection -> T) : T | DatabaseError forall T
-    opened = database!
-    yield opened.checkout
+  def pool_stat : PoolStat
+    opened = @_database
+    if opened.nil?
+      PoolStat.new(0, 0, 0, 0, @waiting_checkouts, 0)
+    else
+      stats = opened.pool.stats
+      PoolStat.new(stats.max_connections, stats.open_connections, stats.open_connections - stats.idle_connections, stats.idle_connections, @waiting_checkouts, 0)
+    end
+  end
+
+  private def checkout_connection : Connection | ErrorBase | Cancelled
+    attempt = 0
+    @waiting_checkouts += 1
+    loop do
+      opened = database
+      if opened.is_a?(PoolResourceRefused)
+        if attempt >= @retry_attempts
+          @waiting_checkouts -= 1
+          return ConnectionFailed.new("Could not reach #{name}: #{opened.message}", opened)
+        end
+        paused = sleep(backoff(@retry_delay, attempt).total_milliseconds.to_i32)
+        if paused.is_a?(Cancelled)
+          @waiting_checkouts -= 1
+          return paused
+        end
+        attempt += 1
+      elsif opened.is_a?(DatabaseError)
+        @waiting_checkouts -= 1
+        return translate_exception(opened)
+      else
+        @waiting_checkouts -= 1
+        return opened!.checkout
+      end
+    end
+  end
+
+  def open(sql : String? = nil, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
+    connection = checkout_connection!
+    yield connection
   end
 end

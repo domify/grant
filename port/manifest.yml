@@ -54,6 +54,9 @@
     - T-e9958e5374
     - T-78b6c020b5
     - T-2bd551385d
+  - target: grant_connection_reconnect_refusal_test.iyi
+    status: done
+    examples:
     - T-79a42bf983
     - T-de57ec88f2
     - T-5b845afadb

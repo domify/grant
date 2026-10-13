@@ -38,9 +38,9 @@ impl ::Error for ConnectionNotEstablished
 end
 
 pub class ConnectionFailed < ConnectionNotEstablished
-  getter cause : StatementInvalid
+  getter cause : ErrorBase
 
-  def initialize(message : String, @cause : StatementInvalid)
+  def initialize(message : String, @cause : ErrorBase)
     super(message)
   end
 end

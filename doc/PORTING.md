@@ -1,5 +1,7 @@
 # Structural port spike
 
+`grant_connection_reconnect_refusal_test.iyi` preserves the three connection-refusal examples and all seven original assertions from `reconnect_spec.cr`. The manifest partitions its original IDs into a separate passing child. Adapter checkout retries refused connections with the upstream exponential backoff, counts backing-off fibers as waiting, and returns `ConnectionFailed` with the original `ConnectionRefused` cause on exhaustion. Native driver errors implement `Error`; the scheduler's cancellation result also propagates while restoring the waiting count. The refusal, liveness, policy and adapter-helper fast gate passes.
+
 `reconnect_spec.cr` is partitioned into retry-policy and connection-behavior child targets using all thirteen original in-scope CoverageGen example IDs exactly once. The retry-policy child preserves both original examples and every assertion, including all statement classification cases and the exponential backoff cap. `grant/adapter/pool_support.iyi` retains the upstream PoolSupport module and its monotonic tick helper. Native Span multiplication is expressed through normalized addition; the exponent bound and five-second cap are unchanged. The child fast gate passes; its parent stays todo until both children pass.
 
 Compiler: `/home/priit/contribute/iyi/bin/iyi`, native mode (no `--crystal`). Always use `IYI_CACHE_DIR=$PWD/.iyi-cache`.
