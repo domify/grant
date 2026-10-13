@@ -26,3 +26,9 @@ The native fast gate passes both root tests. The full gate runs all source `*_te
 `bin/port-loop` passes Bash syntax checking and was deliberately not started. Its full-gate integration requirement is strict: partial Stage B branches cannot merge until full coverage passes. This follows TASK.md literally; stagnation exits rather than relaxing the gate.
 
 Both requested Git commits were attempted, but this session exposes `.git` read-only. Git fails creating `.git/index.lock`. Setup files are ready in the working tree; the supervisor must commit them from a writable session before starting the loop.
+
+## Transaction port increments
+
+`grant_transaction_atomicity_test.iyi` preserves the six atomicity examples and all assertions. `grant_transaction_return_value_test.iyi` preserves the seven return-value examples, including all four successful result type assertions. Native union type descriptors with identical rendered names do not compare equal directly; these assertions compare their exact rendered type names after `.or_panic` removes returned errors.
+
+`grant/transaction.iyi` now owns adapter-scoped connection state. Base supplies record rollback closures, which savepoints merge into their enclosing transaction on release. Plain nested blocks join; `requires_new` opens a savepoint; independent blocks open a separate SQLite connection. Model, instance, root Grant and connection transaction forms preserve block values and return original block errors. The connection form is implemented by the exported `ConnectionTransactions` trait because native iyi forbids reopening imported classes. This avoids a Base/adapter import cycle while preserving the call syntax.

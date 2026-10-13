@@ -48,8 +48,9 @@ pub class Connection
   @closed : Bool
   @savepoint_sequence : UInt64
   getter last_statement : String?
+  getter path : String
 
-  def initialize(@handle : Void*)
+  def initialize(@handle : Void*, @path : String = ":memory:")
     @closed = false
     @savepoint_sequence = 0_u64
     @last_statement = nil
@@ -64,7 +65,7 @@ pub class Connection
       SQLite.close(handle) unless handle.address == 0_u64
       return DatabaseError.new(code, "open", detail)
     end
-    connection = new(handle)
+    connection = new(handle, path)
     code = SQLite.busy_timeout(handle, busy_timeout_ms)
     if code != 0
       failure = connection.failure(code, "busy_timeout")
@@ -77,6 +78,10 @@ pub class Connection
       return result
     end
     connection
+  end
+
+  def open_independent : Connection | DatabaseError
+    Connection.open(@path)
   end
 
   def failure(code : Int32, operation : String, sql : String? = nil) : DatabaseError

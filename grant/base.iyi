@@ -5,6 +5,8 @@ pub import grant/adapter/sqlite
 import grant/adapter/sqlite::{Connection, Value, Row}
 pub import grant/connections
 import grant/connections::{Connections}
+pub import grant/transaction
+import grant/transaction::{Options}
 pub import grant/errors
 import grant/errors::{DatabaseError, RecordNotFound, RecordNotSaved, Rollback}
 
@@ -38,9 +40,6 @@ end
 pub abstract class Base
   @new_record : Bool = true
   @destroyed : Bool = false
-  @@transaction_records = [] of Base
-  @@transaction_states = [] of TransactionState
-  @@transaction_adapters = [] of Connection
 
   macro inherited
     @@table_name : String = {{ @type.name.split("::").last.underscore.stringify }} + "s"
@@ -89,12 +88,16 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.adapter : ::Grant::Adapter::Sqlite::Connection
+    def self.transaction_adapter : ::Grant::Adapter::Sqlite::Connection
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       ::Grant::Connections::Connections[@@connection_name]
       \{% end %}
+    end
+
+    def self.adapter : ::Grant::Adapter::Sqlite::Connection
+      ::Grant::Base::Base.current_transaction_connection(transaction_adapter) || transaction_adapter
     end
 
     def self.primary_name : String
@@ -226,12 +229,20 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError forall T
+    def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError forall T
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      ::Grant::Base::Base.run_transaction(adapter) { yield }
+      ::Grant::Base::Base.run_transaction(transaction_adapter, options) { yield }
       \{% end %}
+    end
+
+    def self.transaction(requires_new : Bool = false, independent : Bool = false, joinable : Bool = true, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError forall T
+      transaction(::Grant::Transaction::Options.new(requires_new: requires_new, independent: independent, joinable: joinable)) { yield }
+    end
+
+    def self.transaction_open? : Bool
+      ::Grant::Base::Base.in_explicit_transaction?
     end
 
     def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError
@@ -322,52 +333,26 @@ pub abstract class Base
   abstract def __adapter : Connection
   abstract def __table_name : String
 
-  def self.run_transaction(adapter : Connection, &block : -> T) : T | Nil | DatabaseError forall T
-    outer = !adapter.in_transaction?
-    savepoint = adapter.savepoint_name
-    adapter.execute(outer ? "BEGIN" : "SAVEPOINT #{savepoint}")!
-    @@transaction_adapters << adapter
-    mark = @@transaction_records.size
-    result = yield
-    @@transaction_adapters.pop
-    if result.is_a?(Error)
-      adapter.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
-      adapter.execute("RELEASE SAVEPOINT #{savepoint}")! unless outer
-      index = @@transaction_records.size - 1
-      while index >= mark
-        @@transaction_records[index].__restore_transaction_state(@@transaction_states[index])
-        index -= 1
-      end
-      while @@transaction_records.size > mark
-        @@transaction_records.pop
-        @@transaction_states.pop
-      end
-      return nil if result.is_a?(Rollback)
-      return result
-    end
-    adapter.execute(outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}")!
-    if outer
-      @@transaction_records = [] of Base
-      @@transaction_states = [] of TransactionState
-    end
-    result
+  def self.run_transaction(adapter : Connection, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+    ::Grant::Transaction.run(adapter, options) { yield }
   end
 
   def self.current_transaction_connection(adapter : Connection) : Connection?
-    @@transaction_adapters.each do |active|
-      return active if active.object_id == adapter.object_id
-    end
-    nil
+    ::Grant::Transaction.current_connection?(adapter)
+  end
+
+  def self.in_explicit_transaction? : Bool
+    ::Grant::Transaction.in_explicit_transaction?
+  end
+
+  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+    Base.run_transaction(__adapter, options) { yield }
   end
 
   def __remember_transaction_state : Nil
     return unless __adapter.in_transaction?
-    Base.remember_record(self, TransactionState.new(@new_record, @destroyed))
-  end
-
-  def self.remember_record(record : Base, state : TransactionState) : Nil
-    @@transaction_records << record
-    @@transaction_states << state
+    state = TransactionState.new(@new_record, @destroyed)
+    ::Grant::Transaction.enlist_record_rollback_action { __restore_transaction_state(state) }
   end
 
   def __restore_transaction_state(state : TransactionState) : Nil

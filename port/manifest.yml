@@ -205,7 +205,7 @@
   target: grant_transaction_return_value_test.iyi
   area: transactions
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/savepoint_failure_spec.cr
   target: grant_transaction_savepoint_failure_test.iyi
   area: transactions

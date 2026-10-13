@@ -1,0 +1,16 @@
+module grant
+
+pub import grant/base
+pub import grant/transaction
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+import grant/transaction::{Options, run}
+import grant/errors::{DatabaseError}
+
+pub def connection(name : String = "sqlite") : Connection
+  ::Grant::Connections::Connections[name]
+end
+
+pub def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+  run(connection, options) { yield }
+end

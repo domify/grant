@@ -1,10 +1,156 @@
 module grant/transaction
 
-import grant/base::{Base}
 import grant/adapter/sqlite::{Connection}
+import grant/errors::{DatabaseError, Rollback}
 pub import grant/errors
 
-# Model classes share the Base-owned transaction registry.
+pub enum IsolationLevel
+  ReadUncommitted
+  ReadCommitted
+  RepeatableRead
+  Serializable
+
+  def to_sql : String
+    case self
+    when ReadUncommitted then "READ UNCOMMITTED"
+    when ReadCommitted then "READ COMMITTED"
+    when RepeatableRead then "REPEATABLE READ"
+    when Serializable then "SERIALIZABLE"
+    else ""
+    end
+  end
+end
+
+pub struct Options
+  getter isolation : IsolationLevel?
+  getter readonly : Bool
+  getter requires_new : Bool
+  getter joinable : Bool
+  getter independent : Bool
+  getter lazy_begin : Bool
+
+  def initialize(@isolation : IsolationLevel? = nil, @readonly : Bool = false, @requires_new : Bool = false, @joinable : Bool = true, @independent : Bool = false, @lazy_begin : Bool = false)
+  end
+end
+
+# Connection state shared by every model, without an import cycle with Base.
+pub class TransactionState
+  getter adapter : Connection
+  getter connection : Connection
+  getter options : Options
+  getter list_of_record_rollback_actions = [] of Proc(Nil)
+  @@stack = [] of TransactionState
+
+  def initialize(@adapter : Connection, @connection : Connection, @options : Options)
+  end
+
+  def self.push(state : TransactionState) : Nil
+    @@stack << state
+  end
+
+  def self.pop : Nil
+    @@stack.pop
+    nil
+  end
+
+  def self.current_state_for?(adapter : Connection) : TransactionState?
+    index = @@stack.size - 1
+    while index >= 0
+      state = @@stack[index]
+      return state if state.adapter.object_id == adapter.object_id
+      index -= 1
+    end
+    nil
+  end
+
+  def self.current_state? : TransactionState?
+    @@stack.last?
+  end
+
+  def self.in_explicit_transaction? : Bool
+    !@@stack.empty?
+  end
+end
+
+pub def in_explicit_transaction? : Bool
+  TransactionState.in_explicit_transaction?
+end
+
 pub def current_connection?(adapter : Connection) : Connection?
-  Base.current_transaction_connection(adapter)
+  state = TransactionState.current_state_for?(adapter)
+  state.nil? ? nil : state.connection
+end
+
+pub def enlist_record_rollback_action(&block : -> Nil) : Nil
+  state = TransactionState.current_state?
+  state.list_of_record_rollback_actions << block unless state.nil?
+end
+
+pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | DatabaseError forall T
+  enclosing = TransactionState.current_state_for?(adapter)
+  if enclosing && !options.requires_new && !options.independent && enclosing.options.joinable
+    # Joined blocks swallow Rollback without undoing the enclosing writes.
+    TransactionState.push(enclosing)
+    result = yield
+    TransactionState.pop
+    return nil if result.is_a?(Rollback)
+    return result
+  end
+
+  connection = options.independent ? adapter.open_independent! : (enclosing.nil? ? adapter : enclosing.connection)
+  outer = !connection.in_transaction?
+  savepoint = connection.savepoint_name
+  begun = connection.execute(outer ? "BEGIN" : "SAVEPOINT #{savepoint}")
+  if begun.is_a?(DatabaseError)
+    connection.close if options.independent
+    return begun
+  end
+  state = TransactionState.new(adapter, connection, options)
+  TransactionState.push(state)
+  result = yield
+  TransactionState.pop
+  if result.is_a?(Error)
+    connection.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
+    connection.execute("RELEASE SAVEPOINT #{savepoint}")! unless outer
+    restore_records(state)
+    connection.close! if options.independent
+    return nil if result.is_a?(Rollback)
+    return result
+  end
+
+  committed = connection.execute(outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}")
+  if committed.is_a?(DatabaseError)
+    connection.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")
+    connection.execute("RELEASE SAVEPOINT #{savepoint}") unless outer
+    restore_records(state)
+    connection.close if options.independent
+    return committed
+  end
+  unless outer || enclosing.nil?
+    state.list_of_record_rollback_actions.each do |action|
+      enclosing.list_of_record_rollback_actions << action
+    end
+  end
+  connection.close! if options.independent
+  result
+end
+
+private def restore_records(state : TransactionState) : Nil
+  index = state.list_of_record_rollback_actions.size - 1
+  while index >= 0
+    state.list_of_record_rollback_actions[index].call
+    index -= 1
+  end
+end
+
+# Native iyi cannot reopen Connection; a trait defined here preserves
+# the connection-level public transaction API.
+pub trait ConnectionTransactions
+  abstract def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+end
+
+impl ConnectionTransactions for Connection
+  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+    run(self, options) { yield }
+  end
 end
