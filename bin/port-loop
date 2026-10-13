@@ -63,10 +63,11 @@ common='Read port/HINTS.md first, then AGENTS.md and port/TASK.md. Continue the 
 if gate "$root" initial 0 "$root/port/gate-initial.log"; then exit 0; fi
 previous=$(ruby -r "$root/port/manifest.rb" -e 'puts Manifest.load.select { |e| e["status"] == "done" }.sum { |e| e["examples"] }')
 
-# Stage A is serial and may edit every core module imported by the suite.
-while ! transactions_done || ! gate "$root" core "$round" "$root/port/gate-core-stop-$round.log" --integrate; do
+# A single serial worker ports every area in priority order (Codex quota, not
+# worker count, limits throughput). The loop ends through gate/progress exits.
+while :; do
   round=$((round + 1))
-  worker "$root" core "$common Stage A: You are the only worker. Own shared base, columns, adapter, query builder, transactions, callbacks and validations. Port transaction-area specs until the transactions area is done. Make useful committed progress in this iteration." || \
+  worker "$root" core "$common You are the only worker and own every module. Port spec files in manifest priority order: transactions, query, associations, dirty_state, other. Make useful committed progress in this iteration." || \
     printf 'Worker core exited unsuccessfully at iteration %s\n' "$round" >> port/status.log
   if gate "$root" core "$round" "$root/port/gate-core-$round.log"; then exit 0; fi
   progress
