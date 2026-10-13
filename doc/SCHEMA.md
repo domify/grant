@@ -246,3 +246,21 @@ column collation/comment metadata, DDL size/precision options, broader index opt
 a composite-key repository API remain pending. Creating or preserving a composite
 table key is not the same as supporting composite model IDs. PostgreSQL schema development and live
 verification remain deferred.
+
+## Scoped SQLite referential-integrity deferral
+
+`grant/referential_integrity.disable_referential_integrity(database)` joins an
+existing transaction or opens its own, preserving the block's value/error union. SQLite defers foreign keys
+while the block runs so child rows may precede parents. It restores the previous
+deferral setting after success, returned errors and contained panics. A newly
+owned deferral checks for unresolved violations before restoration; an already
+deferred outer transaction retains responsibility for its final integrity.
+Joined transaction errors must be propagated to that transaction's owner.
+
+referential_integrity_test.iyi translates the five upstream deferral scenarios,
+including outer rollback, and checks prior-setting preservation and rejection of
+unresolved orphans. The source-free artifact gate includes the same program.
+
+Connection.disable_referential_integrity is the compatible adapter convenience
+alias. The explicit helper remains available for Database-typed callers. Both
+forms run the same native transaction implementation from source-free artifacts.

@@ -1,0 +1,322 @@
+module transaction_timing_test
+import std/indexable
+import std/file::{File}
+
+import grant/adapters/sqlite::{Connection}
+import grant/database::{Database}
+import grant/model::{Repository, Mapping}
+import grant/query::{Table}
+import grant/value::{Value, Row, Attributes}
+import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
+import grant/lifecycle::{Pipeline, Event, Callback}
+import grant/unit_of_work::{UnitOfWork, Observer}
+
+struct Person
+  getter id : Int64?
+  getter name : String
+
+  def initialize(@name : String, @id : Int64? = nil)
+  end
+end
+
+struct PersonMapping
+end
+
+impl Mapping(Person) for PersonMapping
+  def table : Table
+    Table.new("people")
+  end
+
+  def attributes(record : Person) : Attributes
+    {"id" => record.id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Person | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    if id.is_a?(Int64) && name.is_a?(String)
+      Person.new(name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid person row")
+    end
+  end
+
+  def validate(record : Person) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct NameLabel
+  @log : Array(String)
+  @name : String
+
+  def initialize(@log : Array(String), @name : String)
+  end
+end
+
+impl Callback(Person) for NameLabel
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    @log << "#{@name}:#{record.name}"
+    record
+  end
+end
+
+struct Other
+  getter id : Int64?
+  getter name : String
+
+  def initialize(@name : String, @id : Int64? = nil)
+  end
+end
+
+struct OtherMapping
+end
+
+impl Mapping(Other) for OtherMapping
+  def table : Table
+    Table.new("others")
+  end
+
+  def attributes(record : Other) : Attributes
+    {"id" => record.id, "name" => record.name} of String => Value
+  end
+
+  def from_row(row : Row) : Other | DatabaseError
+    id = row["id"]
+    name = row["name"]
+    if id.is_a?(Int64) && name.is_a?(String)
+      Other.new(name, id)
+    else
+      DatabaseError.new(20, "mapping", "invalid person row")
+    end
+  end
+
+  def validate(record : Other) : Nil | ValidationError
+    record.name.empty? ? ValidationError.new({"name" => ["can't be blank"]}) : nil
+  end
+end
+
+struct OtherLabel
+  @log : Array(String)
+  @name : String
+
+  def initialize(@log : Array(String), @name : String)
+  end
+end
+
+impl Callback(Other) for OtherLabel
+  def call(event : Event, record : Other) : Other | DatabaseError | ValidationError | CallbackAbort
+    @log << "#{@name}:#{record.name}"
+    record
+  end
+end
+
+struct PendingPair
+  getter identity : String
+  @log : Array(String)
+
+  def initialize(@identity : String, @log : Array(String))
+  end
+end
+
+impl Observer for PendingPair
+  def committed : Nil | DatabaseError | ValidationError | CallbackAbort
+    @log << "after_commit:#{identity}"
+    nil
+  end
+
+  def rolled_back : Nil | DatabaseError | ValidationError | CallbackAbort
+    @log << "after_rollback:#{identity}"
+    nil
+  end
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+connection.execute("CREATE TABLE others(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+log = [] of String
+pipeline = Pipeline(Person).new
+pipeline.after_create_commit(NameLabel.new(log, "after_create_commit")).or_panic
+pipeline.after_update_commit(NameLabel.new(log, "after_update_commit")).or_panic
+pipeline.after_destroy_commit(NameLabel.new(log, "after_destroy_commit")).or_panic
+pipeline.after_commit(NameLabel.new(log, "after_commit")).or_panic
+pipeline.after_rollback(NameLabel.new(log, "after_rollback")).or_panic
+unit = UnitOfWork.new(connection)
+repository = Repository(Person).new(connection, PersonMapping.new, pipeline, unit)
+
+# cov: T-c3fa12f287
+fired_inside = false
+unit.run do
+  repository.insert(Person.new("mid-block")).or_panic
+  fired_inside = log.any? { |entry| entry.starts_with?("after_commit") }
+  nil
+end.or_panic
+assert !fired_inside
+log.clear
+# cov: T-3fe968f1fb
+unit.run { repository.insert(Person.new("committed")) }.or_panic
+assert log.select { |entry| entry == "after_commit:committed" }.size == 1
+log.clear
+# cov: T-f48849516b
+sequence = [] of String
+unit.run do
+  repository.insert(Person.new("newrec")).or_panic
+  sequence << "still_in_tx"
+  assert log.empty?
+  nil
+end.or_panic
+sequence << "after_tx"
+assert log.includes?("after_create_commit:newrec")
+assert log.includes?("after_commit:newrec")
+saved = repository.insert(Person.new("orig")).or_panic
+log.clear
+# cov: T-15b0d84db4
+unit.run { repository.update(repository.query, saved.id || 0_i64, Person.new("updated")) }.or_panic
+assert log.includes?("after_update_commit:updated")
+assert log.includes?("after_commit:updated")
+saved = repository.insert(Person.new("to_destroy")).or_panic
+log.clear
+# cov: T-fe93a25a4b
+unit.run { repository.destroy(repository.query, saved.id || 0_i64) }.or_panic
+assert log.includes?("after_destroy_commit:to_destroy")
+assert log.includes?("after_commit:to_destroy")
+log.clear
+# cov: T-c2e3647efe
+outcome = unit.run do
+  repository.insert(Person.new("lost")).or_panic
+  raise "kaboom"
+  nil
+end
+assert outcome.is_a?(Panicked)
+assert log.includes?("after_rollback:lost")
+assert !log.includes?("after_commit:lost")
+assert repository.query.where("name", "lost").count.or_panic == 0_i64
+log.clear
+# cov: T-5e4043bc10
+outcome = unit.run do
+  repository.insert(Person.new("sentinel")).or_panic
+  CallbackAbort.new("rollback sentinel")
+end
+assert outcome.is_a?(CallbackAbort)
+assert log.includes?("after_rollback:sentinel")
+assert !log.includes?("after_commit:sentinel")
+log.clear
+# cov: T-3876cf9234
+repository.insert(Person.new("solo")).or_panic
+assert log.includes?("after_commit:solo")
+log.clear
+# cov: T-104f2d4655
+repository.insert(Person.new("solo-ok")).or_panic
+assert !log.includes?("after_rollback:solo-ok")
+
+other_log = [] of String
+other_pipeline = Pipeline(Other).new
+other_pipeline.after_commit(OtherLabel.new(other_log, "after_commit")).or_panic
+other_pipeline.after_rollback(OtherLabel.new(other_log, "after_rollback")).or_panic
+other_repository = Repository(Other).new(connection, OtherMapping.new, other_pipeline, unit)
+log.clear
+# cov: T-3c4f670f69
+unit.run do
+  repository.insert(Person.new("alpha")).or_panic
+  other_repository.insert(Other.new("beta")).or_panic
+  assert log.empty? && other_log.empty?
+  nil
+end.or_panic
+assert log.includes?("after_commit:alpha")
+assert other_log.includes?("after_commit:beta")
+log.clear
+other_log.clear
+# cov: T-4051da9e2e
+outcome = unit.run do
+  repository.insert(Person.new("alpha-rb")).or_panic
+  other_repository.insert(Other.new("beta-rb")).or_panic
+  raise "tx fail"
+  nil
+end
+assert outcome.is_a?(Panicked)
+assert log.includes?("after_rollback:alpha-rb")
+assert other_log.includes?("after_rollback:beta-rb")
+log.clear
+# cov: T-b74e06180f
+unit.run do
+  unit.run do
+    repository.insert(Person.new("inner")).or_panic
+    assert log.empty?
+    nil
+  end.or_panic
+  assert log.empty?
+  nil
+end.or_panic
+assert log.includes?("after_commit:inner")
+log.clear
+# cov: T-503ddc2aef
+unit.run do
+  repository.insert(Person.new("kept")).or_panic
+  outcome = unit.run(requires_new: true) do
+    repository.insert(Person.new("undone")).or_panic
+    CallbackAbort.new("undo savepoint")
+  end
+  assert outcome.is_a?(CallbackAbort)
+  nil
+end.or_panic
+assert log.includes?("after_rollback:undone")
+assert !log.includes?("after_commit:undone")
+assert log.includes?("after_commit:kept")
+assert !log.includes?("after_rollback:kept")
+log.clear
+# cov: T-bc748005ee
+outcome = unit.run do
+  repository.insert(Person.new("outer-doomed-inner-commit")).or_panic
+  unit.run do
+    unit.observe(PendingPair.new("inner-savepoint", log)).or_panic
+    nil
+  end.or_panic
+  assert !log.includes?("after_commit:inner-savepoint")
+  assert !log.includes?("after_rollback:inner-savepoint")
+  assert !log.includes?("after_commit:outer-doomed-inner-commit")
+  raise "outer dies"
+  nil
+end
+assert outcome.is_a?(Panicked)
+assert log.includes?("after_rollback:inner-savepoint")
+assert log.includes?("after_rollback:outer-doomed-inner-commit")
+assert !log.includes?("after_commit:inner-savepoint")
+assert repository.all(repository.query.where("name", "outer-doomed-inner-commit")).or_panic.empty?
+connection.close.or_panic
+
+# Independent SQLite transactions own another connection to the same database.
+# The inner block is write-free, matching SQLite's upstream timing scenario.
+path = File.tempfile("grant-transaction-timing", ".sqlite3")
+outer_connection = Connection.open(path).or_panic
+inner_connection = Connection.open(path).or_panic
+outer_connection.execute("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+outer_unit = UnitOfWork.new(outer_connection)
+inner_unit = UnitOfWork.new(inner_connection)
+outer_repository = Repository(Person).new(outer_connection, PersonMapping.new, pipeline, outer_unit)
+log.clear
+# cov: T-2851e283c0
+outer_fired_after_inner_commit = false
+outer_unit.run do
+  outer_repository.insert(Person.new("outer-rec")).or_panic
+  inner_unit.run { nil }.or_panic
+  assert !inner_connection.in_transaction?
+  assert outer_connection.in_transaction?
+  outer_fired_after_inner_commit = log.includes?("after_commit:outer-rec")
+  nil
+end.or_panic
+assert !outer_fired_after_inner_commit
+assert log.includes?("after_commit:outer-rec")
+log.clear
+# cov: T-6878a5aa77
+outcome = outer_unit.run do
+  outer_repository.insert(Person.new("outer-doomed")).or_panic
+  inner_unit.run { nil }.or_panic
+  raise "outer dies"
+  nil
+end
+assert outcome.is_a?(Panicked)
+assert log.includes?("after_rollback:outer-doomed")
+assert !log.includes?("after_commit:outer-doomed")
+inner_connection.close.or_panic
+outer_connection.close.or_panic
+File.delete(path)

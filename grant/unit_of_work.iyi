@@ -20,7 +20,7 @@ pub trait Observer
   end
 
   # Existing application observers retain first-registration deduplication.
-  # Model observers merge surviving write metadata while retaining that record.
+  # Model observers merge surviving write metadata and rebuilt record values.
   def merge(other : Observer) : Nil
     nil
   end

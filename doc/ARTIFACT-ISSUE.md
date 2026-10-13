@@ -105,3 +105,14 @@ The native scanner/rebuild code uses explicit local result assignments before
 index writes, conditions and interpolation. Both source and artifact programs
 exercise identical schema data and constraints. No synthetic witness declarations
 or source imports are added to application consumers.
+
+## Generic transaction cleanup dependency
+
+The scoped referential-integrity consumer exposed an artifact containing the
+private non-generic rollback helper's declaration without its machine-code symbol.
+Other callback consumers emitted that helper, which hid the missing dependency.
+The generic transaction body now executes its short rollback/release sequence
+inline so the cleanup travels with every specialization. Error precedence and
+savepoint release behavior are unchanged. The real SQLite deferral consumer
+builds and runs with source artifacts only; no synthetic witnesses or compiler
+changes are used.

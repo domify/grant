@@ -35,8 +35,7 @@ rolled back by SQL and remain the application's responsibility.
 `around_test.iyi` verifies nesting/order, phase selection, prepend, validation
 halt/error behavior, repeated and escaped calls, missing targets, abort after
 SQL, caught nested errors and panic rollback. The same program runs as a
-source-free artifact consumer. Transaction-action `on:` filters, deferred touch and initialization/find
-callbacks remain pending. Validation-context filters are described below.
+source-free artifact consumer. Deferred touch and initialization/find callbacks remain pending. Validation-context filters are described below.
 
 ## Callback conditions
 
@@ -60,8 +59,7 @@ protected columns writable. Existing registrations retain their behavior.
 `src/grant/validation.cr`. It covers ordering, short-circuiting, copied lists,
 record transformation, skipped wrappers, validation failures, conditional aborts,
 transaction timing and panic rollback in SQLite and source-free artifacts.
-This implements `if`/`unless` behavior. Transaction action filters and observer
-action folding remain pending.
+This implements `if`/`unless` behavior. Transaction action filters and observer action folding are described below.
 
 ## Validation context filters
 
@@ -82,7 +80,7 @@ Custom contexts do not change the SQL operation or uniqueness self-exclusion ID.
 Direct Pipeline.run/wrap callers can supply a typed `validation_context: Context`.
 Callbacks continue receiving their current record and WriteContext; application
 policies needing arbitrary context values can own those values explicitly.
-Transaction action filters remain separate pending work.
+Transaction action filters use the separate typed Action policy below.
 
 `validation_context_test.iyi` ports the callback selection cases in upstream
 `spec/grant/validations/contexts_spec.cr`, including copied arrays, skipped
@@ -96,3 +94,40 @@ conditions and continuation rules. A nested unit-of-work savepoint contains SQL
 side effects of callbacks on failure; validating a record does not register that
 record for commit/rollback observers. See VALIDATION.md for the returned record,
 Boolean helpers and explicit repository ownership.
+
+## Transaction action filters and commit hooks
+
+Pipeline.after_commit and after_rollback accept on: Action or Array(Action).
+add_transaction accepts a copied action list and commit/rollback event list;
+other events return DatabaseError without registering anything. Empty action
+lists match no operation. Predicates run when the transaction settles, after
+operation selection. Prepend and typed conditions retain ordinary semantics.
+
+Named after_create_commit, after_update_commit, after_destroy_commit and
+after_save_commit helpers register the corresponding filters; after_save_commit
+matches create/update once and excludes destroy. Registration order is explicit.
+
+Within one UnitOfWork, observers deduplicate by table and stored primary key.
+Destroy wins over create, which wins over update. Successful savepoints merge
+into the parent; rolled-back savepoints notify their own observers and contribute
+nothing to the parent. Sealed record writes retain the latest surviving record
+value for callbacks, while retaining the first registered callback pipeline.
+Applications sharing a logical transaction must share the same UnitOfWork.
+
+transaction_callback_test.iyi translates commit_on_option_spec.cr,
+after_save_commit_spec.cr and commit_dedup_savepoint_spec.cr, with complete
+operation-filter and log assertions. It also checks copied filters, invalid
+registration, callback halts, clean updates and missing writes. The artifact gate
+executes the same test from source-free modules.
+
+transaction_timing_test.iyi translates the complete SQLite timing spec, including
+cross-model sessions and independently owned connections. Typed Observer values
+can register explicit commit/rollback work with UnitOfWork.observe while active.
+Nested successful frames defer that work to the outer boundary; rollback notifies
+only the frame being undone. Returned errors and contained Panicked values replace
+Crystal exception/sentinel unwinding.
+
+BeforeSave CallbackAbort also dispatches AfterRollback for a create/update attempt
+that has not yet written SQL. Normal validation failures still do not register
+record observers. The failed attempt's savepoint prevents its observer from
+merging into an outer successful transaction.

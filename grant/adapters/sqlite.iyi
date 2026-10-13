@@ -5,6 +5,7 @@ import grant/value::{Value, Row, Attributes, Binary}
 import grant/scalars::{Decimal, Date, DateTime}
 import grant/errors::{DatabaseError}
 import grant/database::{Database, Mutation, Dialect}
+import grant/referential_integrity
 
 @[Link("sqlite3")]
 lib SQLite
@@ -115,6 +116,10 @@ pub class Connection
 
   def in_transaction? : Bool
     !@closed && SQLite.autocommit(@handle) == 0
+  end
+
+  def disable_referential_integrity(&block : -> T) : T | DatabaseError | Panicked | Cancelled forall T
+    ::Grant::ReferentialIntegrity.disable_referential_integrity(self) { block.call }
   end
 
   def savepoint_name : String

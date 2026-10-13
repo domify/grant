@@ -287,7 +287,10 @@ pub class Repository(T)
   private def insert_saved(record : T) : T | AroundError
     current = record
     prepared = callback(Event::BeforeSave, current)
-    return prepared if prepared.is_a?(Error)
+    if prepared.is_a?(Error)
+      observe(current, @mapping.attributes(current)[@mapping.table.primary_key]?, Action::Create)! if prepared.is_a?(CallbackAbort)
+      return prepared
+    end
     current = prepared
     current = around_required(Event::AroundCreate, current) { |creating| create_record(creating) }!
     callback(Event::AfterSave, current)
@@ -315,7 +318,10 @@ pub class Repository(T)
   private def update_saved(scope : Query, id : Int64, record : T, context : WriteContext) : T | Nil | AroundError
     current = record
     prepared = callback(Event::BeforeSave, current, context)
-    return prepared if prepared.is_a?(Error)
+    if prepared.is_a?(Error)
+      observe(current, id, Action::Update)! if prepared.is_a?(CallbackAbort)
+      return prepared
+    end
     current = prepared
     current = around(Event::AroundUpdate, current) { |updating| update_prepared(scope, id, updating, context) }!
     return nil unless current
@@ -425,8 +431,8 @@ end
 
 class RecordObserver(T)
   getter identity : String
+  getter record : T
   @events : Pipeline(T)
-  @record : T
   @action : Action
 
   def initialize(@identity : String, @events : Pipeline(T), @record : T, @action : Action)
@@ -439,6 +445,9 @@ impl Observer for RecordObserver(T) forall T
   end
 
   def merge(other : Observer) : Nil
+    # Sealed records are rebuilt on each write. Retain the latest surviving
+    # value, just as the source's mutable record sees its subsequent saves.
+    @record = other.record if other.is_a?(RecordObserver(T))
     if incoming = other.action
       if @action == Action::Destroy || incoming == Action::Destroy
         @action = Action::Destroy

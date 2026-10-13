@@ -63,6 +63,65 @@ end
 struct AbortAfterWrite
 end
 
+struct NameLabel
+  @log : Array(String)
+  @name : String
+
+  def initialize(@log : Array(String), @name : String)
+  end
+end
+
+impl Callback(Person) for NameLabel
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    @log << "#{@name}:#{record.name}"
+    record
+  end
+end
+
+struct AbortLogged
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+struct FailBeforeSave
+  @log : Array(String)
+
+  def initialize(@log : Array(String))
+  end
+end
+
+impl Callback(Person) for FailBeforeSave
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    if event == Event::BeforeSave
+      @log << "before_save"
+      CallbackAbort.new("Force failure")
+    else
+      @log << "after_rollback"
+      record
+    end
+  end
+end
+
+impl Callback(Person) for AbortLogged
+  def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
+    return record unless record.name == "after_save"
+    return CallbackAbort.new("Aborted at after_save.") if event == Event::AfterSave
+    label = case event
+            when Event::BeforeValidation then "before_validation"
+            when Event::AfterValidation  then "after_validation"
+            when Event::BeforeSave       then "before_save"
+            when Event::BeforeCreate     then "before_create"
+            when Event::AfterCreate      then "after_create"
+            when Event::AfterRollback    then "after_rollback"
+            else                              "unexpected"
+            end
+    @log << label
+    record
+  end
+end
+
 impl Callback(Person) for AbortAfterWrite
   def call(event : Event, record : Person) : Person | DatabaseError | ValidationError | CallbackAbort
     record.name == "halt" ? CallbackAbort.new("after write halt") : record
@@ -87,6 +146,7 @@ assert pipeline.add_transaction(Label.new(log, "invalid"), [Event::AfterCommit, 
 pipeline.add(AbortAfterWrite.new, [Event::AfterCreate, Event::AfterUpdate])
 unit = UnitOfWork.new(connection)
 repository = Repository(Person).new(connection, PersonMapping.new, pipeline, unit)
+# cov: T-f2fc1e8327
 record = repository.insert(Person.new("a")).or_panic
 id = record.id || 0_i64
 assert log == ["cu", "any"]
@@ -97,22 +157,27 @@ log.clear
 repository.destroy(repository.query, id).or_panic
 assert log == ["destroy", "any"]
 log.clear
-assert unit.run do
+# cov: T-19827cd111
+outcome = unit.run do
   repository.insert(Person.new("rollback create")).or_panic
   CallbackAbort.new("rollback")
-end.is_a?(CallbackAbort)
+end
+assert outcome.is_a?(CallbackAbort)
 assert log == ["rb_create", "rb_any"]
 log.clear
 record = repository.insert(Person.new("persisted")).or_panic
 id = record.id || 0_i64
 log.clear
-assert unit.run do
+# cov: T-d1805d72ed
+outcome = unit.run do
   repository.update(repository.query, id, Person.new("changed", id)).or_panic
   CallbackAbort.new("rollback")
-end.is_a?(CallbackAbort)
+end
+assert outcome.is_a?(CallbackAbort)
 assert log == ["rb_ud", "rb_any"]
 assert repository.find(id).or_panic.as(Person).name == "persisted"
 log.clear
+# cov: T-79e24e78a5 T-437f1aace9
 unit.run do
   fresh = repository.insert(Person.new("new")).or_panic
   fresh_id = fresh.id || 0_i64
@@ -122,6 +187,7 @@ unit.run do
   nil
 end.or_panic
 assert log == ["cu", "any"]
+assert log.count { |entry| entry == "cu" } == 1
 # Separate explicit operation filters demonstrate create winning over update.
 operations = [] of String
 operation_pipeline = Pipeline(Person).new
@@ -146,21 +212,23 @@ assert operations == ["destroy"]
 operations.clear
 persisted = operation_repository.insert(Person.new("update/destroy")).or_panic
 operations.clear
-assert operation_unit.run do
+outcome = operation_unit.run do
   operation_repository.update(operation_repository.query, persisted.id || 0_i64, Person.new("updated")).or_panic
   operation_repository.destroy(operation_repository.query, persisted.id || 0_i64).or_panic
   CallbackAbort.new("rollback both")
-end.is_a?(CallbackAbort)
+end
+assert outcome.is_a?(CallbackAbort)
 assert operations == ["destroy"]
 assert !operation_repository.find(persisted.id || 0_i64).or_panic.nil?
 operations.clear
 operation_unit.run do
   fresh = operation_repository.insert(Person.new("survives")).or_panic
   fresh_id = fresh.id || 0_i64
-  assert operation_unit.run(requires_new: true) do
+  outcome = operation_unit.run(requires_new: true) do
     operation_repository.destroy(operation_repository.query, fresh_id).or_panic
     CallbackAbort.new("undo destroy")
-  end.is_a?(CallbackAbort)
+  end
+  assert outcome.is_a?(CallbackAbort)
   assert operations == ["destroy"] # The savepoint gets its own rollback action.
   assert !operation_repository.find(fresh_id).or_panic.nil?
   nil
@@ -178,6 +246,7 @@ operation_unit.run do
 end.or_panic
 assert operations == ["destroy"]
 log.clear
+# cov: T-8a7781fff6
 unit.run do
   repository.insert(Person.new("one")).or_panic
   repository.insert(Person.new("two")).or_panic
@@ -185,7 +254,8 @@ unit.run do
 end.or_panic
 assert log == ["cu", "any", "cu", "any"]
 log.clear
-repository.update(repository.query, id, Person.new("later")).or_panic
+# cov: T-c1832e5e12
+unit.run { repository.update(repository.query, id, Person.new("later")) }.or_panic
 assert log == ["cu", "any"]
 log.clear
 assert repository.insert(Person.new("halt")).is_a?(CallbackAbort)
@@ -209,4 +279,172 @@ assert repository.destroy(repository.query, -1_i64).or_panic.nil?
 assert log.empty?
 assert repository.insert(Person.new("")).is_a?(ValidationError)
 assert log.empty?
+
+# Save-commit aliases preserve operation filtering and registration order.
+save_log = [] of String
+save_pipeline = Pipeline(Person).new
+save_pipeline.after_save_commit(NameLabel.new(save_log, "save_commit")).or_panic
+save_pipeline.after_commit(NameLabel.new(save_log, "commit")).or_panic
+save_repository = Repository(Person).new(connection, PersonMapping.new, save_pipeline)
+# cov: T-07c67d1e99
+saved = save_repository.insert(Person.new("a")).or_panic
+assert save_log == ["save_commit:a", "commit:a"]
+save_log.clear
+saved = save_repository.update(save_repository.query, saved.id || 0_i64, Person.new("b")).or_panic.as(Person)
+assert save_log == ["save_commit:b", "commit:b"]
+save_log.clear
+# cov: T-25d38d0102
+save_repository.destroy(save_repository.query, saved.id || 0_i64).or_panic
+assert save_log == ["commit:b"]
+
+both_log = [] of String
+both_pipeline = Pipeline(Person).new
+both_pipeline.after_create_commit(Label.new(both_log, "create_commit")).or_panic
+both_pipeline.after_update_commit(Label.new(both_log, "update_commit")).or_panic
+both_pipeline.after_save_commit(Label.new(both_log, "save_commit")).or_panic
+both_repository = Repository(Person).new(connection, PersonMapping.new, both_pipeline)
+# cov: T-b946042607
+saved = both_repository.insert(Person.new("a")).or_panic
+assert both_log == ["create_commit", "save_commit"]
+both_log.clear
+both_repository.update(both_repository.query, saved.id || 0_i64, Person.new("b")).or_panic
+assert both_log == ["update_commit", "save_commit"]
+both_log.clear
+# cov: T-45dca7fc87
+both_repository.unit_of_work.run do
+  saved = both_repository.insert(Person.new("a")).or_panic
+  both_repository.update(both_repository.query, saved.id || 0_i64, Person.new("b")).or_panic
+  assert both_log.empty?
+  nil
+end.or_panic
+assert both_log == ["create_commit", "save_commit"]
+both_log.clear
+# cov: T-c3bce5d17c
+outcome = both_repository.unit_of_work.run do
+  both_repository.insert(Person.new("a")).or_panic
+  CallbackAbort.new("rollback")
+end
+assert outcome.is_a?(CallbackAbort)
+assert both_log.empty?
+
+# Rebuilding sealed records must expose the latest surviving attributes.
+save_log.clear
+save_repository.unit_of_work.run do
+  saved = save_repository.insert(Person.new("first")).or_panic
+  save_repository.update(save_repository.query, saved.id || 0_i64, Person.new("latest")).or_panic
+  nil
+end.or_panic
+assert save_log == ["save_commit:latest", "commit:latest"]
+
+# Translate the complete savepoint deduplication scenarios with the source's
+# hook set, including its rollback and generic commit assertions.
+dedup_log = [] of String
+dedup_pipeline = Pipeline(Person).new
+dedup_pipeline.after_create_commit(Label.new(dedup_log, "create_commit")).or_panic
+dedup_pipeline.after_update_commit(Label.new(dedup_log, "update_commit")).or_panic
+dedup_pipeline.after_commit(Label.new(dedup_log, "commit_on_update"), Action::Update).or_panic
+dedup_pipeline.after_commit(Label.new(dedup_log, "commit")).or_panic
+dedup_pipeline.after_rollback(Label.new(dedup_log, "rollback_on_destroy"), Action::Destroy).or_panic
+dedup_pipeline.after_rollback(Label.new(dedup_log, "rollback")).or_panic
+dedup_repository = Repository(Person).new(connection, PersonMapping.new, dedup_pipeline)
+dedup_unit = dedup_repository.unit_of_work
+# cov: T-3717dc673e T-4aee3a578d
+dedup_unit.run do
+  saved = dedup_repository.insert(Person.new("a")).or_panic
+  outcome = dedup_unit.run(requires_new: true) do
+    dedup_repository.update(dedup_repository.query, saved.id || 0_i64, Person.new("b")).or_panic
+    CallbackAbort.new("undo update")
+  end
+  assert outcome.is_a?(CallbackAbort)
+  assert dedup_log == ["rollback"]
+  assert dedup_repository.find(saved.id || 0_i64).or_panic.as(Person).name == "a"
+  nil
+end.or_panic
+assert !dedup_log.includes?("update_commit")
+assert !dedup_log.includes?("commit_on_update")
+assert dedup_log.count { |entry| entry == "create_commit" } == 1
+assert dedup_log.count { |entry| entry == "commit" } == 1
+assert dedup_log == ["rollback", "create_commit", "commit"]
+dedup_log.clear
+# cov: T-542cd09630
+outcome = dedup_unit.run do
+  saved = dedup_repository.insert(Person.new("a")).or_panic
+  dedup_repository.update(dedup_repository.query, saved.id || 0_i64, Person.new("b")).or_panic
+  CallbackAbort.new("undo both")
+end
+assert outcome.is_a?(CallbackAbort)
+assert dedup_log == ["rollback"]
+saved = dedup_repository.insert(Person.new("a")).or_panic
+dedup_log.clear
+# cov: T-440a046393
+outcome = dedup_unit.run do
+  dedup_repository.destroy(dedup_repository.query, saved.id || 0_i64).or_panic
+  CallbackAbort.new("undo destroy")
+end
+assert outcome.is_a?(CallbackAbort)
+assert dedup_log == ["rollback_on_destroy", "rollback"]
+dedup_log.clear
+# cov: T-f2900b3e96
+dedup_unit.run do
+  dedup_repository.update(dedup_repository.query, saved.id || 0_i64, Person.new("b")).or_panic
+  dedup_repository.destroy(dedup_repository.query, saved.id || 0_i64).or_panic
+  nil
+end.or_panic
+assert dedup_log == ["commit"]
+saved = dedup_repository.insert(Person.new("a")).or_panic
+dedup_log.clear
+# cov: T-80590ee088
+outcome = dedup_unit.run do
+  dedup_repository.update(dedup_repository.query, saved.id || 0_i64, Person.new("b")).or_panic
+  dedup_repository.destroy(dedup_repository.query, saved.id || 0_i64).or_panic
+  CallbackAbort.new("undo update and destroy")
+end
+assert outcome.is_a?(CallbackAbort)
+assert dedup_log == ["rollback_on_destroy", "rollback"]
+dedup_log.clear
+# cov: T-436ba7f4f9
+dedup_unit.run do
+  saved = dedup_repository.insert(Person.new("a")).or_panic
+  dedup_repository.destroy(dedup_repository.query, saved.id || 0_i64).or_panic
+  nil
+end.or_panic
+assert dedup_log == ["commit"]
+
+# cov: T-3f351cecbf
+abort_log = [] of String
+abort_pipeline = Pipeline(Person).new.add(AbortLogged.new(abort_log), [
+  Event::BeforeValidation, Event::AfterValidation, Event::BeforeSave,
+  Event::BeforeCreate, Event::AfterCreate, Event::AfterSave, Event::AfterRollback,
+])
+abort_repository = Repository(Person).new(connection, PersonMapping.new, abort_pipeline)
+aborted = Person.new("after_save")
+abort_repository.unit_of_work.run do
+  kept = abort_repository.insert(Person.new("kept"))
+  assert kept.is_a?(Person)
+  result = abort_repository.insert(aborted)
+  assert result.is_a?(CallbackAbort)
+  assert abort_log == ["before_validation", "after_validation", "before_save", "before_create", "after_create", "after_rollback"]
+  # Sealed inputs remain new; a failed save returns no persisted record.
+  assert aborted.id.nil?
+  assert abort_repository.all(abort_repository.query.where("name", "kept")).or_panic.size == 1
+  assert abort_repository.all(abort_repository.query.where("name", "after_save")).or_panic.empty?
+  nil
+end.or_panic
+assert abort_repository.all(abort_repository.query.where("name", "kept")).or_panic.size == 1
+assert abort_repository.all(abort_repository.query.where("name", "after_save")).or_panic.empty?
+
+# cov: T-6831117368
+failure_log = [] of String
+failure_pipeline = Pipeline(Person).new.add(FailBeforeSave.new(failure_log), [Event::BeforeSave, Event::AfterRollback])
+failure_repository = Repository(Person).new(connection, PersonMapping.new, failure_pipeline)
+result = failure_repository.insert(Person.new("Test"))
+assert result.is_a?(CallbackAbort)
+assert failure_log.includes?("before_save")
+assert failure_log.includes?("after_rollback")
+assert failure_log == ["before_save", "after_rollback"]
+failure_log.clear
+result = failure_repository.update(failure_repository.query, id, Person.new("update failure"))
+assert result.is_a?(CallbackAbort)
+assert failure_log == ["before_save", "after_rollback"]
+assert repository.find(id).or_panic.as(Person).name == "touched"
 connection.close.or_panic

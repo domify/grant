@@ -54,6 +54,8 @@ The original ORM's full feature set has **not** been ported yet.
   stale-object errors and nested rollback. See `doc/LOCKING.md`.
 - `grant/timestamps.iyi`: explicit create/update stamping with a typed clock,
   UTC date/text storage and precision 0–9. See `doc/TIMESTAMPS.md`.
+- `grant/referential_integrity.iyi`: scoped SQLite foreign-key deferral with
+  restored caller policy and explicit transaction ownership.
 - `grant/transaction.iyi`: joined nested transactions, savepoints, and rollback
   on error values, cancellation, or a contained panic.
 - `grant/unit_of_work.iyi` and `grant/lifecycle.iyi`: explicit shared transaction
@@ -123,6 +125,9 @@ iyi run has_many_model_test.iyi
 iyi run transaction_test.iyi
 iyi run nested_transaction_test.iyi
 iyi run lifecycle_test.iyi
+iyi run transaction_callback_test.iyi
+iyi run transaction_timing_test.iyi
+iyi run referential_integrity_test.iyi
 iyi run validation_context_test.iyi
 iyi run standalone_validation_test.iyi
 iyi run callback_conditions_test.iyi

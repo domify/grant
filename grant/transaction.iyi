@@ -19,7 +19,10 @@ pub def transaction(database : Database, requires_new : Bool = false, &block : -
   database.execute(begin_sql, [] of Value)!
   outcome = group { |tasks| tasks.spawn { block.call }.value }
   if outcome.is_a?(Error)
-    cleanup = rollback(database, rollback_sql, release_sql)
+    cleanup = database.execute(rollback_sql, [] of Value)
+    if !cleanup.is_a?(DatabaseError) && release_sql
+      cleanup = database.execute(release_sql, [] of Value)
+    end
     if cleanup.is_a?(DatabaseError)
       return DatabaseError.new(cleanup.code, "rollback", "#{cleanup.detail}; original error: #{outcome.message}")
     end
@@ -27,7 +30,10 @@ pub def transaction(database : Database, requires_new : Bool = false, &block : -
   else
     committed = database.execute(commit_sql, [] of Value)
     if committed.is_a?(DatabaseError)
-      cleanup = rollback(database, rollback_sql, release_sql)
+      cleanup = database.execute(rollback_sql, [] of Value)
+      if !cleanup.is_a?(DatabaseError) && release_sql
+        cleanup = database.execute(release_sql, [] of Value)
+      end
       if cleanup.is_a?(DatabaseError)
         return DatabaseError.new(cleanup.code, "rollback", "#{cleanup.detail}; commit error: #{committed.detail}")
       end
@@ -36,10 +42,4 @@ pub def transaction(database : Database, requires_new : Bool = false, &block : -
       outcome
     end
   end
-end
-
-def rollback(database : Database, command : String, release : String?) : Nil | DatabaseError
-  database.execute(command, [] of Value)!
-  database.execute(release, [] of Value)! if release
-  nil
 end

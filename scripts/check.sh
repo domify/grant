@@ -21,7 +21,7 @@ done
 
 grant_check_dir=$(mktemp -d /tmp/grant-iyi-check.XXXXXX)
 trap 'rm -rf "$grant_check_dir"' EXIT HUP INT TERM
-for grant_case in has_many_model_test model_api_test model_test lifecycle_test standalone_validation_test validation_context_test callback_conditions_test condition_arrays_test format_convenience_test format_model_test normalization_model_test uniqueness_test dependent_test binary_test locking_test timestamps_test touch_test scalars_test dynamic_validation_test comparison_validation_test comparison_model_test around_test belongs_to_write_test schema_alter_test schema_snapshot_test schema_constraints_test schema_catalog_test schema_constraint_removal_test schema_metadata_test partial_update_test bulk_test decimal_policy_test; do
+for grant_case in has_many_model_test model_api_test model_test lifecycle_test transaction_callback_test transaction_timing_test referential_integrity_test standalone_validation_test validation_context_test callback_conditions_test condition_arrays_test format_convenience_test format_model_test normalization_model_test uniqueness_test dependent_test binary_test locking_test timestamps_test touch_test scalars_test dynamic_validation_test comparison_validation_test comparison_model_test around_test belongs_to_write_test schema_alter_test schema_snapshot_test schema_constraints_test schema_catalog_test schema_constraint_removal_test schema_metadata_test partial_update_test bulk_test decimal_policy_test; do
   grant_case_dir="$grant_check_dir/$grant_case"
   mkdir -p "$grant_case_dir/consumer"
   "$grant_compiler" build "$grant_case.iyi" --emit-iyimod "$grant_case_dir/mods" -o "$grant_case_dir/from-source"

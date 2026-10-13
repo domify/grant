@@ -218,7 +218,7 @@ been translated wholesale to native iyi yet.
    dumping, composite model keys and the remaining migration capabilities;
    add connection pools, prepared-statement caches and nonblocking scheduling.
 3. Complete associated-record/strict/translated validators and remaining model
-   validation declarations, callback transaction-action filters and normalization parity,
+   validation declarations and normalization parity,
    automatic dirty-state checkpoint/rollback integration, no-op optimistic saves,
    remaining timestamp behavior and defaults.
 4. Complete association inverses/caches, through/polymorphic and composite-key loading,
@@ -619,3 +619,29 @@ other entry must be `done`, backed by a passing `*_test.iyi` carrying a
 `bin/port-loop` drives Codex (profile `~/.codex/port.config.toml`) and logs each
 iteration's gate line to `port/status.log`. Coverage-map counts, not the older
 narrative lists above, are the authoritative remaining-work measure.
+
+## Transaction callback parity (2026-10-13)
+
+- Fixed the callback test's block binding, added named create/update/destroy/save
+  commit hooks, and retained the latest surviving sealed-record value when
+  observers merge. BeforeSave aborts now dispatch rollback hooks before SQL.
+- Translated all SQLite commit timing, operation filter, save-commit and savepoint
+  deduplication cases, plus caught after-save abort and early save failure cases.
+  Explicit sessions, table/key identity and typed Observer values replace source
+  global state. See LIFECYCLE.md.
+- Added SQLite scoped foreign-key deferral, both as an explicit Database helper
+  and a compatible Connection alias. Settings survive block errors/panics;
+  unresolved orphans fail explicitly. See SCHEMA.md for joined ownership rules.
+- Kept transaction cleanup inside its generic artifact body after the deferral
+  consumer exposed a missing private helper symbol. The new consumers and the
+  existing read-only association consumer pass from source-free modules.
+- The fast gate passes all 48 native programs and verifies 43 coverage entries;
+  generated fields and all 258 original source hashes are unchanged. Three new
+  artifact consumers join the gate. Full coverage completion is not claimed.
+- Required local commits are blocked: Git cannot create .git/index.lock on the
+  read-only filesystem. Changes remain in the workspace; no commit or push was
+  created.
+- Full verification: bin/port-check ran all 48 native programs, 35 source-free
+  artifact test consumers and the generated schema factory consumer, with module
+  and format checks passing. Its only failure is unfinished coverage:
+  PORT 43/7441 AREA transactions FAIL. This is not a completion result.

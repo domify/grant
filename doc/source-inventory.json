@@ -74,7 +74,12 @@
     {
       "path": "adapter/sqlite_test_helpers.cr",
       "sha256": "5c62932dbc694f296b2277b53c112bc9913b9b318b8ae3910d8289b71f94fbd1",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_module": "grant/referential_integrity.iyi",
+      "native_parity_tests": [
+        "referential_integrity_test.iyi"
+      ],
+      "porting_notes": "doc/SCHEMA.md (SQLite foreign-key deferral only; truncate/sequence helpers remain unported)"
     },
     {
       "path": "grant/adapter/schema.cr",
@@ -335,7 +340,17 @@
     {
       "path": "grant/commit_callbacks.cr",
       "sha256": "e91be1f474ee8654622b0d20f6b55f0beb925868a6c0569da3852d8a39645e49",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_modules": [
+        "grant/lifecycle.iyi",
+        "grant/record_repository.iyi",
+        "grant/unit_of_work.iyi"
+      ],
+      "native_parity_tests": [
+        "transaction_callback_test.iyi",
+        "transaction_timing_test.iyi"
+      ],
+      "porting_notes": "doc/LIFECYCLE.md"
     },
     {
       "path": "grant/composite_primary_key/transactions.cr",
@@ -1280,7 +1295,17 @@
     {
       "path": "grant/transaction.cr",
       "sha256": "1fe5edded44f577ac48cfcb2bdc00b09f0e9addc26d8ce815940626b3a332458",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "partial_native_modules": [
+        "grant/transaction.iyi",
+        "grant/unit_of_work.iyi"
+      ],
+      "native_parity_tests": [
+        "transaction_test.iyi",
+        "nested_transaction_test.iyi",
+        "transaction_timing_test.iyi"
+      ],
+      "porting_notes": "doc/LIFECYCLE.md"
     },
     {
       "path": "grant/transactions.cr",

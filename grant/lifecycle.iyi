@@ -259,6 +259,26 @@ pub class Pipeline(T)
     register_observer(callback, Event::AfterRollback, on, prepend, conditions)
   end
 
+  def after_create_commit(callback : Callback(T), prepend : Bool = false,
+                          conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    after_commit(callback, Action::Create, prepend, conditions)
+  end
+
+  def after_update_commit(callback : Callback(T), prepend : Bool = false,
+                          conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    after_commit(callback, Action::Update, prepend, conditions)
+  end
+
+  def after_destroy_commit(callback : Callback(T), prepend : Bool = false,
+                           conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    after_commit(callback, Action::Destroy, prepend, conditions)
+  end
+
+  def after_save_commit(callback : Callback(T), prepend : Bool = false,
+                        conditions : CallbackConditions(T)? = nil) : Pipeline(T) | DatabaseError
+    after_commit(callback, [Action::Create, Action::Update], prepend, conditions)
+  end
+
   private def register_observer(callback : Callback(T), event : Event, on : Action | Array(Action) | Nil,
                                 prepend : Bool, conditions : CallbackConditions(T)?) : Pipeline(T) | DatabaseError
     if on.nil?

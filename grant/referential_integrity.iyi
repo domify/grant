@@ -1,0 +1,37 @@
+module grant/referential_integrity
+
+import grant/database::{Database, Dialect}
+import grant/value::{Value}
+import grant/errors::{DatabaseError}
+import grant/transaction::{transaction}
+
+# SQLite defers checks rather than disabling foreign_keys in an open
+# transaction. The caller retains ownership of any joined transaction.
+pub def disable_referential_integrity(database : Database, &block : -> T) : T | DatabaseError | Panicked | Cancelled forall T
+  return DatabaseError.new(21, "foreign_keys", "referential-integrity deferral requires SQLite") unless database.dialect == Dialect::SQLite
+  transaction(database) { deferred_integrity(database, block) }
+end
+
+def deferred_integrity(database : Database, block : Proc(T)) : T | DatabaseError | Panicked | Cancelled forall T
+  rows = database.query("PRAGMA defer_foreign_keys", [] of Value)!
+  return DatabaseError.new(20, "foreign_keys", "missing SQLite deferral setting") if rows.empty?
+  previous = rows[0]["defer_foreign_keys"]
+  unless previous.is_a?(Int64)
+    return DatabaseError.new(20, "foreign_keys", "invalid SQLite deferral setting")
+  end
+  database.execute("PRAGMA defer_foreign_keys = ON", [] of Value)!
+  outcome = group { |tasks| tasks.spawn { block.call }.value }
+  if !outcome.is_a?(Error) && previous == 0_i64
+    violations = database.query("PRAGMA foreign_key_check", [] of Value)
+    if violations.is_a?(DatabaseError)
+      outcome = violations
+    elsif !violations.empty?
+      outcome = DatabaseError.new(19, "foreign_keys", "deferred block leaves a foreign-key violation")
+    end
+  end
+  restored = database.execute("PRAGMA defer_foreign_keys = #{previous}", [] of Value)
+  if restored.is_a?(DatabaseError)
+    return DatabaseError.new(restored.code, "foreign_keys", "#{restored.detail}; block outcome: #{outcome}")
+  end
+  outcome
+end

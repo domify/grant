@@ -1,0 +1,66 @@
+module referential_integrity_test
+
+import grant/adapters/sqlite::{Connection}
+import grant/transaction::{transaction}
+import grant/referential_integrity::{disable_referential_integrity}
+import grant/errors::{DatabaseError, CallbackAbort}
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("CREATE TABLE o01_authors(id INTEGER PRIMARY KEY, name TEXT)").or_panic
+connection.execute("CREATE TABLE o01_books(id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT, FOREIGN KEY(author_id) REFERENCES o01_authors(id))").or_panic
+
+# cov: T-1d2e672aa6 A-23e548d567
+disable_referential_integrity(connection) do
+  connection.execute("INSERT INTO o01_books(author_id, title) VALUES(77, 'early')").or_panic
+  connection.execute("INSERT INTO o01_authors(id, name) VALUES(77, 'late')").or_panic
+  nil
+end.or_panic
+assert connection.query("SELECT COUNT(*) AS n FROM o01_books").or_panic[0]["n"] == 1_i64
+assert connection.query("SELECT COUNT(*) AS n FROM o01_authors").or_panic[0]["n"] == 1_i64
+# cov: T-270c000eda
+assert connection.disable_referential_integrity { 42 }.or_panic == 42
+# cov: T-fb912ecd86
+disable_referential_integrity(connection) { nil }.or_panic
+assert connection.execute("INSERT INTO o01_books(author_id, title) VALUES(999, 'orphan')").is_a?(DatabaseError)
+# cov: T-5d4d374b70
+outcome = disable_referential_integrity(connection) do
+  raise "in block"
+  nil
+end
+assert outcome.is_a?(Panicked)
+assert connection.execute("INSERT INTO o01_books(author_id, title) VALUES(999, 'orphan')").is_a?(DatabaseError)
+connection.execute("DELETE FROM o01_books").or_panic
+connection.execute("DELETE FROM o01_authors").or_panic
+# cov: T-de38dbb4b2
+outcome = transaction(connection) do
+  disable_referential_integrity(connection) do
+    assert connection.in_transaction?
+    connection.execute("INSERT INTO o01_books(author_id, title) VALUES(5, 'joined')").or_panic
+    connection.execute("INSERT INTO o01_authors(id, name) VALUES(5, 'joined')").or_panic
+    nil
+  end.or_panic
+  CallbackAbort.new("rollback")
+end
+assert outcome.is_a?(CallbackAbort)
+assert connection.query("SELECT COUNT(*) AS n FROM o01_books").or_panic[0]["n"] == 0_i64
+assert connection.query("SELECT COUNT(*) AS n FROM o01_authors").or_panic[0]["n"] == 0_i64
+assert !connection.in_transaction?
+
+# Restoration does not discard an existing caller-owned deferral policy.
+transaction(connection) do
+  connection.execute("PRAGMA defer_foreign_keys = ON").or_panic
+  disable_referential_integrity(connection) { nil }.or_panic
+  assert connection.query("PRAGMA defer_foreign_keys").or_panic[0]["defer_foreign_keys"] == 1_i64
+  nil
+end.or_panic
+assert connection.query("PRAGMA defer_foreign_keys").or_panic[0]["defer_foreign_keys"] == 0_i64
+
+# Unresolved violations must fail before resetting deferral can hide them.
+outcome = disable_referential_integrity(connection) do
+  connection.execute("INSERT INTO o01_books(author_id, title) VALUES(999, 'invalid')").or_panic
+  nil
+end
+assert outcome.is_a?(DatabaseError)
+assert connection.query("SELECT COUNT(*) AS n FROM o01_books").or_panic[0]["n"] == 0_i64
+assert connection.query("PRAGMA foreign_keys").or_panic[0]["foreign_keys"] == 1_i64
+connection.close.or_panic

@@ -8,6 +8,7 @@ pub import grant/database
 pub import grant/query
 pub import grant/model
 pub import grant/transaction
+pub import grant/referential_integrity
 pub import grant/validation
 pub import grant/validators
 pub import grant/dynamic_validation
