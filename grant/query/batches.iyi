@@ -1,0 +1,34 @@
+module grant/query/batches
+
+import grant/adapter/sqlite_connection::{Value}
+import grant/errors::{DatabaseError, ErrorBase}
+
+# Structural primary-key/default-order slice of Grant::Query::Batches(Model).
+# Pages use the last seen key, so deleting rows in a block cannot skip a page.
+pub trait Batches(Model)
+  DEFAULT_BATCH_SIZE = 1000
+
+  def find_in_batches(batch_size : Int32 = DEFAULT_BATCH_SIZE, &block : Array(Model) -> T) : Nil | T | ErrorBase forall T
+    return ErrorBase.new("batch_size must be positive") if batch_size <= 0
+    last_value : Value = nil
+    loop do
+      rows = next_batch_rows(last_value, batch_size)!
+      break if rows.empty?
+      last_value = rows.last[Model.primary_name]
+      result = yield rows.map { |row| Model.from_row(row) }
+      return result if result.is_a?(::Error)
+      break if rows.size < batch_size
+    end
+    nil
+  end
+
+  def find_each(batch_size : Int32 = DEFAULT_BATCH_SIZE, &block : Model -> T) : Nil | T | ErrorBase forall T
+    find_in_batches(batch_size) do |batch|
+      batch.each do |record|
+        result = yield record
+        return result if result.is_a?(::Error)
+      end
+      nil
+    end
+  end
+end

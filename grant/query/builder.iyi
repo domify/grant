@@ -2,6 +2,8 @@ module grant/query/builder
 
 import grant/adapter/sqlite_connection::{Value}
 import grant/errors::{DatabaseError}
+import grant/query/batches::{Batches}
+import grant/query_extensions::{QueryExtensions}
 
 # Structural slice of Grant::Query::Builder(Model): lazy clauses and terminal
 # reads. The model remains responsible for its connection and row hydration.
@@ -64,8 +66,30 @@ pub class Builder(Model)
 
   private def projection_sql(fields : String) : String
     sql = "SELECT #{fields} FROM \"#{Model.table_name}\""
-    sql += " WHERE #{@where_fields.map { |stmt| "(#{stmt})" }.join(" AND ")}" unless @where_fields.empty?
+    sql += where_sql
     sql
+  end
+
+  private def where_sql : String
+    @where_fields.empty? ? "" : " WHERE #{@where_fields.map { |stmt| "(#{stmt})" }.join(" AND ")}"
+  end
+
+  def delete_all : Int64 | DatabaseError
+    delete_all_single
+  end
+
+  protected def delete_all_single : Int64 | DatabaseError
+    Model.adapter.execute("DELETE FROM \"#{Model.table_name}\"#{where_sql}", @where_values)!.changes
+  end
+
+  protected def next_batch_rows(last_value : Value, batch_size : Int32)
+    relation = chain_copy
+    relation.where_in_place("\"#{Model.primary_name}\" > ?", last_value) unless last_value.nil?
+    Model.adapter.query("#{relation.to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT #{batch_size}", relation.batch_values)
+  end
+
+  protected def batch_values : Array(Value)
+    @where_values
   end
 
   def count : Int64 | DatabaseError
@@ -139,4 +163,10 @@ pub class Builder(Model)
   def find_by(**criteria) : Model | Nil | DatabaseError
     chain_copy.where_in_place(**criteria).first
   end
+end
+
+impl Batches(Model) for Builder(Model) forall Model
+end
+
+impl QueryExtensions(Model) for Builder(Model) forall Model
 end
