@@ -14,7 +14,7 @@
   target: grant_callbacks_after_commit_timing_test.iyi
   area: transactions
   examples: 16
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/after_save_commit_spec.cr
   target: grant_callbacks_after_save_commit_test.iyi
   area: transactions

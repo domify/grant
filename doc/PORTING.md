@@ -49,6 +49,8 @@ Both requested Git commits were attempted, but this session exposes `.git` read-
 
 `grant_callbacks_after_save_commit_test.iyi` preserves all five examples and eight assertions. Annotated callback methods retain the model DSL and registration order. Transaction states deduplicate callbacks by record identity, resolve create then update as create, and retain savepoint-local operations until release or rollback. Explicit native class getters/setters preserve the upstream `class_property event_log` API.
 
-`grant_callbacks_commit_on_option_test.iyi` preserves all seven examples and eleven assertions. Commit/rollback callback annotations retain scalar and array `on:` filters. Operation resolution, per-record deduplication, and callback reuse in later transactions pass without additional shared changes.
+`grant_callbacks_commit_on_option_test.iyi` preserves all seven examples and ten assertions. Commit/rollback callback annotations retain scalar and array `on:` filters. Operation resolution, per-record deduplication, and callback reuse in later transactions pass without additional shared changes.
 
 `grant_callbacks_commit_dedup_savepoint_test.iyi` preserves all seven examples and eleven assertions. Rolled-back savepoint operations trigger rollback callbacks without changing outer commit operations; destroy takes precedence over create/update, including rollback filters. All cases pass with the shared per-state callback queues.
+
+`grant_callbacks_after_commit_timing_test.iyi` preserves all sixteen timing examples, including every original assertion and returned error/message checks. It covers immediate and outer-commit timing, rollback sentinels, cross-model queues, nested savepoints and independent transactions. The structural `enqueue_pending_callback` API feeds the same transaction queue used by handles and model callbacks.
