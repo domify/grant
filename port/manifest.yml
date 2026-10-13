@@ -255,7 +255,7 @@
   target: grant_transactions_touch_test.iyi
   area: transactions
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transactions/update_spec.cr
   target: grant_transactions_update_test.iyi
   area: transactions
