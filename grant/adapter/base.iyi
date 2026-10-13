@@ -166,6 +166,11 @@ pub abstract class Base
         lost_retries -= 1
         sleep(backoff(@retry_delay, attempt).total_milliseconds.to_i32)!
         attempt += 1
+      elsif result.is_a?(DatabaseError)
+        # An explicit caller statement wins over driver-recorded SQL. Helpers
+        # without one retain the last statement executed on this connection.
+        result.sql = sql || result.sql || connection.last_statement
+        return result
       else
         return result
       end

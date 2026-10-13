@@ -6,9 +6,10 @@ pub class StatementInvalid < ErrorBase
   getter code : Int32
   getter operation : String
   getter detail : String
-  getter sql : String?
+  property sql : String?
+  getter cause : ErrorBase?
 
-  def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil)
+  def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil, @cause : ErrorBase? = nil)
     super("#{operation}: #{detail} (#{code})")
   end
 end

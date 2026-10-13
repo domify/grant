@@ -4,6 +4,23 @@ import grant/cstring::{cstring}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
 import grant/error_taxonomy::{InvalidForeignKey}
+import grant/error::{ErrorBase}
+
+# The native SQLite C driver has no exception object; retain its error code
+# and message as a returned driver error under Grant's translated error.
+pub class SQLiteError < ErrorBase
+  getter code : Int32
+
+  def initialize(@code : Int32, detail : String)
+    super(detail)
+  end
+end
+
+impl ::Error for SQLiteError
+  def message : String
+    @message
+  end
+end
 
 pub alias Value = Nil | Bool | Int64 | Float64 | String
 pub alias Row = Hash(String, Value)
@@ -108,16 +125,21 @@ pub class Connection
 
   def failure(code : Int32, operation : String, sql : String? = nil) : DatabaseError
     detail = @closed ? "connection is closed" : cstring(SQLite.errmsg(@handle))
+    cause = SQLiteError.new(code, detail)
     if !@closed && SQLite.extended_errcode(@handle) == 787
-      return InvalidForeignKey.new(code, operation, detail, sql)
+      return InvalidForeignKey.new(code, operation, detail, sql, cause)
     end
-    DatabaseError.new(code, operation, detail, sql)
+    DatabaseError.new(code, operation, detail, sql, cause)
   end
 
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
     result = execute_statement(sql, parameters)
     @grant_last_used_ticks = ticks
     result
+  end
+
+  def exec(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    execute(sql, parameters)
   end
 
   private def execute_statement(sql : String, parameters : Array(Value)) : Mutation | DatabaseError

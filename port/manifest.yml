@@ -92,6 +92,28 @@
   area: transactions
   examples: 15
   status: todo
+  children:
+  - target: grant_connection_w6_statement_invalid_sql_adapter_test.iyi
+    status: done
+    examples:
+    - T-a0e8d2b4e7
+    - T-f11f6a384a
+    - T-2faf23781a
+  - target: grant_connection_w6_statement_invalid_sql_test.iyi
+    status: todo
+    examples:
+    - T-d9b7d8bf7e
+    - T-ff1494e1a0
+    - T-621799ef9d
+    - T-2596e607f4
+    - T-0bcdf249fc
+    - T-ba25071876
+    - T-b950043276
+    - T-b4a5f54bf9
+    - T-2bcf50dd79
+    - T-d6ecc30ae7
+    - T-8483c7800e
+    - T-3b61e8fdc7
 - source: crystal-upstream/spec/grant/connection/with_connection_spec.cr
   target: grant_connection_with_connection_test.iyi
   area: transactions
