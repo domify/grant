@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Drives Codex through the port until bin/port-check passes.
+# Exit 0: port-check passed. 2: STALLED (done-count flat for 3 iterations). 3: max iterations.
+set -uo pipefail
+
+cd "$(dirname "$0")/.."
+MAX=${PORT_LOOP_MAX:-60}
+STALL_LIMIT=3
+export IYI_CACHE_DIR=${IYI_CACHE_DIR:-$PWD/.iyi-cache}
+mkdir -p port "$IYI_CACHE_DIR"
+touch port/status.log
+
+done_of() { grep -o 'PORT [0-9]*' <<<"$1" | tail -n 1 | cut -d' ' -f2; }
+
+best=$(done_of "$(tail -n 1 port/status.log)")
+best=${best:--1}
+flat=0
+for ((i = 1; i <= MAX; i++)); do
+  codex exec -p port --output-last-message port/last.txt \
+    "Read AGENTS.md, port/coverage.yml and port/HINTS.md. Continue the port in priority order until bin/port-check passes." \
+    < /dev/null > port/codex.log 2>&1
+  line=$(bin/port-check 2>&1 | tail -n 1)
+  printf 'iter %d %s %s\n' "$i" "$(date -Iseconds)" "$line" >> port/status.log
+  case "$line" in
+    *" OK") exit 0 ;;
+  esac
+  done_now=$(done_of "$line")
+  done_now=${done_now:-0}
+  if ((done_now > best)); then
+    best=$done_now
+    flat=0
+  else
+    flat=$((flat + 1))
+    if ((flat >= STALL_LIMIT)); then
+      echo "STALLED at iteration $i: $line" >&2
+      exit 2
+    fi
+  fi
+done
+echo "max iterations ($MAX) reached" >&2
+exit 3

@@ -1,0 +1,154 @@
+#!/usr/bin/env ruby
+# Completion gate for the Crystal Grant -> native iyi port (SQLite scope).
+# Exit 0 only when every non-excluded coverage entry is verifiably done.
+#
+#   bin/port-check          full gate (coverage + every *_test.iyi + scripts/check.sh)
+#   bin/port-check --fast   skip scripts/check.sh (fmt + artifact consumers); never final
+#
+# Last line is always: PORT <done>/<total-excluded> AREA <current-area> OK|FAIL
+require "json"
+require "open3"
+require_relative "../port/coverage"
+
+ROOT = CoverageGen::ROOT
+Dir.chdir(ROOT)
+FAST = ARGV.include?("--fast")
+START = File.read("port/START_COMMIT").strip
+ENV["IYI_CACHE_DIR"] ||= File.join(ROOT, ".iyi-cache")
+patched = "/home/priit/contribute/iyi/bin/iyi"
+IYI = ENV["IYI"] || (File.executable?(patched) ? patched : "iyi")
+ENV["IYI"] = IYI
+# Test files that belong to the out-of-scope PostgreSQL adapter.
+EXCLUDED_TESTS = %w[postgresql_test.iyi].freeze
+SKIP_MARK = /#.*\b(TODO|FIXME|XXX|PENDING|SKIP|SKIPPED)\b/
+MARKER = /\bcov:\s*(.*)$/
+ID_RE = /[TA]-[0-9a-f]{10}(?:\.\d+)*/
+
+problems = []
+fail = ->(msg) { problems << msg }
+
+# 1. Original Crystal sources and specs are untouched since the start commit.
+diff, = Open3.capture2("git", "diff", "--name-only", START, "--", "crystal-upstream")
+status, = Open3.capture2("git", "status", "--porcelain", "--", "crystal-upstream")
+changed = (diff.lines + status.lines).map(&:strip).reject(&:empty?).uniq
+fail.("original upstream files changed since #{START[0, 8]}: #{changed.first(5).join(", ")}") unless changed.empty?
+
+# 2. coverage.yml matches the generator; only status/iyi_ref/child entries are editable.
+entries = begin
+  CoverageGen.load_yml
+rescue => e
+  fail.("port/coverage.yml does not parse: #{e.message}")
+  []
+end
+generated = CoverageGen.generate
+by_id = entries.group_by { |e| e["id"].to_s }
+by_id.each { |id, list| fail.("duplicate coverage id #{id}") if list.size > 1 }
+gen_ids = {}
+generated.each do |g|
+  gen_ids[g["id"]] = g
+  e = by_id[g["id"]]&.first
+  next fail.("missing generated entry #{g["id"]} (#{g["source_ref"]}); run ruby port/coverage.rb generate") unless e
+  CoverageGen::GENERATED_KEYS.each do |k|
+    fail.("#{g["id"]}: generated field #{k} was edited") if e[k] != g[k]
+  end
+  if g["status"] == "excluded"
+    fail.("#{g["id"]}: generator-excluded entry must stay excluded") unless e["status"] == "excluded" && e["exclusion_reason"] == CoverageGen::EXCLUDE_REASON
+  end
+end
+entries.each do |e|
+  id = e["id"].to_s
+  if e["status"] == "excluded"
+    g = gen_ids[id]
+    unless g && g["status"] == "excluded"
+      fail.("#{id}: excluded without approval (only adapter-out-of-scope entries chosen by the generator may be excluded)")
+    end
+    fail.("#{id}: exclusion_reason must be #{CoverageGen::EXCLUDE_REASON}") unless e["exclusion_reason"] == CoverageGen::EXCLUDE_REASON
+    next
+  end
+  next if gen_ids.key?(id)
+  parent = CoverageGen.child_of(id)
+  if parent.nil? || !gen_ids.key?(parent)
+    fail.("#{id}: unknown entry (extra entries must be children <parent-id>.<n> of a generated entry)")
+  elsif !CoverageGen::AREAS.include?(e["area"])
+    fail.("#{id}: child entry needs a valid area")
+  end
+  fail.("#{id}: status must be todo, done or excluded") unless %w[todo done].include?(e["status"])
+end
+
+# 3. Run every native iyi test program; anything but a pass is a failure.
+test_files = Dir.glob("**/*_test.iyi").reject { |f| f.start_with?("crystal-upstream/", ".iyi-cache/", "tmp/", "build/", "lib/") }.sort
+test_files -= EXCLUDED_TESTS
+results = {}
+test_files.each do |f|
+  File.foreach(f).with_index(1) do |line, no|
+    fail.("#{f}:#{no}: skip/pending/TODO marker in a test") if line =~ SKIP_MARK
+    fail.("#{f}:#{no}: early exit in a test program") if line =~ /^\s*exit\s*(\(?\s*0\s*\)?)?\s*$/
+  end
+end
+unless test_files.empty?
+  out, err, st = Open3.capture3(IYI, "test", "--json", *test_files)
+  begin
+    report = JSON.parse(out)
+    report["tests"].each { |t| results[t["file"].delete_prefix("./")] = t["status"] }
+    fail.("iyi test reported #{report["skipped"]} skipped tests") if report["skipped"].to_i > 0
+  rescue JSON::ParserError
+    fail.("iyi test produced no JSON report (exit #{st.exitstatus}): #{err.lines.last(3).join.strip}")
+  end
+  results.each { |f, s| fail.("#{f}: #{s}") unless s == "pass" }
+end
+
+# 4. scripts/check.sh: type check, formatting and source-free artifact consumers.
+unless FAST
+  out, st = Open3.capture2e("sh", "scripts/check.sh")
+  fail.("scripts/check.sh failed: #{out.lines.last(4).join.strip}") unless st.success?
+end
+
+# 5. Every done entry maps to an Iyi test that exists, passes and names the entry.
+markers = Hash.new { |h, k| h[k] = [] }
+test_files.each do |f|
+  File.foreach(f) { |line| line.scan(MARKER) { |(ids)| ids.scan(ID_RE) { |id| markers[id] << f } } }
+end
+verified = {}
+children = entries.select { |e| CoverageGen.child_of(e["id"].to_s) }.group_by { |e| CoverageGen.child_of(e["id"]) }
+entries.each do |e|
+  next unless e["status"] == "done"
+  id = e["id"].to_s
+  ref = e["iyi_ref"].to_s
+  ok = true
+  bad = ->(msg) { fail.("#{id}: #{msg}"); ok = false }
+  if ref.empty?
+    bad.("done without iyi_ref")
+  else
+    path, symbol = ref.split("#", 2)
+    if !File.file?(path)
+      bad.("iyi_ref #{path} does not exist")
+    elsif e["kind"] == "api"
+      bad.("api iyi_ref must be <file>.iyi#<symbol>") if symbol.to_s.empty?
+      bad.("symbol #{symbol} not found in #{path}") if symbol && !File.read(path).match?(/\b#{Regexp.escape(symbol)}\b/)
+    end
+  end
+  passing = markers[id].select { |f| results[f] == "pass" }
+  bad.("no passing *_test.iyi carries the marker `# cov: #{id}`") if passing.empty?
+  if e["kind"] == "test" && !ref.empty? && !passing.include?(ref.split("#", 2).first)
+    bad.("iyi_ref #{ref} is not a passing test file that carries its marker")
+  end
+  open_children = (children[id] || []).reject { |c| c["status"] == "done" }
+  bad.("done while #{open_children.size} child entries are not done") unless open_children.empty?
+  verified[id] = true if ok
+end
+
+# 6. Summary.
+scope = entries.reject { |e| e["status"] == "excluded" }
+done = scope.count { |e| verified[e["id"].to_s] }
+remaining = scope.reject { |e| verified[e["id"].to_s] }
+area = CoverageGen::AREAS.find { |a| remaining.any? { |e| e["area"] == a } } || "none"
+fail.("#{remaining.size} entries not done (next: #{remaining.find { |e| e["area"] == area }&.fetch("id")})") unless remaining.empty?
+fail.("coverage map is empty") if entries.empty?
+
+shown = problems.uniq
+puts shown.first(25).map { |p| "  - #{p}" }
+puts "  ... #{shown.size - 25} more problems" if shown.size > 25
+puts "  (fast mode: scripts/check.sh skipped; not a completion result)" if FAST
+ok = problems.empty? && !FAST
+puts "PORT #{done}/#{scope.size} AREA #{area} #{ok ? "OK" : "FAIL"}"
+exit(ok ? 0 : 1)

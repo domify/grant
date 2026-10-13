@@ -22,4 +22,9 @@
 *.db-wal
 *.db-shm
 
-/bin/
+/bin/*
+!/bin/port-check
+!/bin/port-loop
+/.iyi-cache/
+/port/codex.log
+/port/last.txt
