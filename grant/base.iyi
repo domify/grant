@@ -258,6 +258,18 @@ pub abstract class Base
       adapter.query("SELECT * FROM #{table_name}")!.map { |row| from_row(row) }
     end
 
+    def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
+      rows = adapter.query("SELECT * FROM #{table_name} ORDER BY #{primary_name} ASC LIMIT 1")!
+      row = rows.empty? ? nil : rows[0]
+      row.nil? ? nil : from_row(row)
+    end
+
+    def self.first_strict : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError
+      record = first!
+      return ::Grant::Errors::RecordNotFound.new({{ @type.name.stringify }}, "first") if record.nil?
+      record
+    end
+
     def self.count : Int64 | ::Grant::Errors::DatabaseError
       adapter.query("SELECT COUNT(*) AS count FROM #{table_name}")![0]["count"].as(Int64)
     end
