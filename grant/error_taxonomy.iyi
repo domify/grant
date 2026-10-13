@@ -1,8 +1,29 @@
 module grant/error_taxonomy
 
 import grant/error::{ErrorBase}
+import grant/settings::{settings}
 
 pub class StatementInvalid < ErrorBase
+  MAX_BINDS = 20
+  MAX_BIND_LENGTH = 64
+  REDACTED = "[FILTERED]"
+
+  property binds : Array(String) = [] of String
+
+  def self.describe_binds(values : Array(T)) : Array(String) forall T
+    described = [] of String
+    capture = settings.capture_statement_bind_values?
+    values.each do |value|
+      break if described.size >= MAX_BINDS
+      described << (capture ? truncate(value.to_s) : REDACTED)
+    end
+    described
+  end
+
+  private def self.truncate(text : String) : String
+    text.size > MAX_BIND_LENGTH ? "#{text[0, MAX_BIND_LENGTH]}..." : text
+  end
+
   getter code : Int32
   getter operation : String
   getter detail : String

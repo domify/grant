@@ -2,6 +2,7 @@ module grant/base
 import std/named_tuple
 pub import std/time
 pub import grant/timestamps
+pub import grant/query/builder
 pub import grant/callbacks
 pub import grant/transactions
 
@@ -721,6 +722,18 @@ pub abstract class Base
       return ::Grant::Errors::RecordNotFound.new(\{{ @type.name.stringify }}, id.to_s) if found.nil?
       found
       \{% end %}
+    end
+
+    def self.where(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})
+      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt)
+    end
+
+    def self.where(stmt : String, values : Array(V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall V
+      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt, values)
+    end
+
+    def self.where(stmt : String, value : ::Grant::Adapter::Sqlite::Value) : ::Grant::Query::Builder::Builder({{ @type }})
+      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt, value)
     end
 
     def self.where(**args) : Array({{ @type }}) | ::Grant::Errors::DatabaseError

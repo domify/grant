@@ -107,19 +107,22 @@
     status: done
     examples:
     - T-b4a5f54bf9
+  - target: grant_connection_w6_statement_invalid_sql_query_reads_test.iyi
+    status: done
+    examples:
+    - T-d9b7d8bf7e
+    - T-d6ecc30ae7
+    - T-8483c7800e
+    - T-3b61e8fdc7
   - target: grant_connection_w6_statement_invalid_sql_test.iyi
     status: todo
     examples:
-    - T-d9b7d8bf7e
     - T-ff1494e1a0
     - T-621799ef9d
     - T-2596e607f4
     - T-0bcdf249fc
     - T-ba25071876
     - T-b950043276
-    - T-d6ecc30ae7
-    - T-8483c7800e
-    - T-3b61e8fdc7
 - source: crystal-upstream/spec/grant/connection/with_connection_spec.cr
   target: grant_connection_with_connection_test.iyi
   area: transactions

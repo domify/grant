@@ -3,6 +3,12 @@ module grant/settings
 pub class Settings
   getter reading_role : Symbol = :reading
   getter writing_role : Symbol = :writing
+  property capture_statement_bind_values : Bool = false
+
+  def capture_statement_bind_values? : Bool
+    @capture_statement_bind_values
+  end
+
   property default_timezone : String = "UTC"
 end
 

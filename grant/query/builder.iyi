@@ -1,0 +1,86 @@
+module grant/query/builder
+
+import grant/adapter/sqlite_connection::{Value}
+import grant/errors::{DatabaseError}
+
+# Structural slice of Grant::Query::Builder(Model): lazy clauses and terminal
+# reads. The model remains responsible for its connection and row hydration.
+pub class Builder(Model)
+  @where_fields = [] of String
+  @where_values = [] of Value
+
+  def initialize
+  end
+
+  def chain_copy : self
+    copied = Builder(Model).new
+    copied.copy_conditions(@where_fields, @where_values)
+    copied
+  end
+
+  protected def copy_conditions(fields : Array(String), values : Array(Value)) : Nil
+    @where_fields = fields.dup
+    @where_values = values.dup
+    nil
+  end
+
+  def where(stmt : String) : self
+    chain_copy.where_in_place(stmt)
+  end
+
+  def where(stmt : String, values : Array(V)) : self forall V
+    chain_copy.where_in_place(stmt, values)
+  end
+
+  def where(stmt : String, value : Value) : self
+    chain_copy.where_in_place(stmt, value)
+  end
+
+  def where_in_place(stmt : String) : self
+    @where_fields << stmt
+    self
+  end
+
+  def where_in_place(stmt : String, values : Array(V)) : self forall V
+    @where_fields << stmt
+    values.each { |value| @where_values << value }
+    self
+  end
+
+  def where_in_place(stmt : String, value : Value) : self
+    where_in_place(stmt, [value] of Value)
+  end
+
+  def where_in_place(**matches) : self
+    matches.each do |field, value|
+      where_in_place("\"#{field}\" = ?", value)
+    end
+    self
+  end
+
+  def to_sql : String
+    sql = "SELECT #{Model.table_name}.* FROM \"#{Model.table_name}\""
+    sql += " WHERE #{@where_fields.map { |stmt| "(#{stmt})" }.join(" AND ")}" unless @where_fields.empty?
+    sql
+  end
+
+  def select : Array(Model) | DatabaseError
+    Model.adapter.query(to_sql, @where_values)!.map { |row| Model.from_row(row) }
+  end
+
+  def first : Model | Nil | DatabaseError
+    rows = Model.adapter.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT 1", @where_values)!
+    row = rows.first?
+    row.nil? ? nil : Model.from_row(row)
+  end
+
+  def last : Model | Nil | DatabaseError
+    rows = Model.adapter.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" DESC LIMIT 1", @where_values)!
+    row = rows.first?
+    row.nil? ? nil : Model.from_row(row)
+  end
+
+  def find_by(**criteria) : Model | Nil | DatabaseError
+    chain_copy.where_in_place(**criteria).first
+  end
+end

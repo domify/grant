@@ -169,6 +169,7 @@ pub class Connection
 
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
     result = execute_statement(sql, parameters)
+    result.binds = DatabaseError.describe_binds(parameters) if result.is_a?(DatabaseError)
     @grant_last_used_ticks = ticks
     result
   end
@@ -192,6 +193,7 @@ pub class Connection
 
   def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
     result = query_statement(sql, parameters)
+    result.binds = DatabaseError.describe_binds(parameters) if result.is_a?(DatabaseError)
     @grant_last_used_ticks = ticks
     result
   end
