@@ -1,0 +1,44 @@
+module grant/adapter/pool_support
+
+import std/time::{Span, Time}
+import grant/cstring::{cstring}
+
+# Grant::Adapter::PoolSupport: the upstream conservative replay policy.
+pub MAX_BACKOFF = Span.seconds(5_i64)
+START = Time.monotonic
+
+pub def ticks : Int64
+  (Time.monotonic - START).total_milliseconds.to_i64
+end
+
+pub def idempotent_read?(sql : String?) : Bool
+  return false if sql.nil?
+  start = 0
+  while start < sql.bytesize
+    byte = sql.to_unsafe[start]
+    break unless byte == 32 || (byte >= 9 && byte <= 13)
+    start += 1
+  end
+  return false if start >= sql.bytesize
+  size = sql.bytesize - start
+  head = cstring(sql.to_unsafe + start, size < 16 ? size : 16).downcase
+  if head.starts_with?("select") || head.starts_with?("show") || head.starts_with?("values")
+    true
+  elsif head.starts_with?("explain")
+    !cstring(sql.to_unsafe + start, size < 40 ? size : 40).downcase.includes?("analyze")
+  else
+    false
+  end
+end
+
+pub def backoff(base : Span, attempt : Int32) : Span
+  # Native Span has no multiplication operator; double with its exact,
+  # normalized addition operation, retaining the upstream exponent bound.
+  delay = base
+  exponent = 0
+  while exponent < (attempt < 16 ? attempt : 16)
+    delay = delay + delay
+    exponent += 1
+  end
+  delay > MAX_BACKOFF ? MAX_BACKOFF : delay
+end

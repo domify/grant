@@ -40,6 +40,26 @@
   area: transactions
   examples: 13
   status: todo
+  children:
+  - target: grant_connection_reconnect_policy_test.iyi
+    status: done
+    examples:
+    - T-8430d6071f
+    - T-3496ac9d52
+  - target: grant_connection_reconnect_test.iyi
+    status: todo
+    examples:
+    - T-bf73496e5d
+    - T-d193603b41
+    - T-e9958e5374
+    - T-78b6c020b5
+    - T-2bd551385d
+    - T-79a42bf983
+    - T-de57ec88f2
+    - T-5b845afadb
+    - T-e394021106
+    - T-f5457cca4c
+    - T-f67ffead40
 - source: crystal-upstream/spec/grant/connection/w6_reconnect_idle_spec.cr
   target: grant_connection_w6_reconnect_idle_test.iyi
   area: transactions

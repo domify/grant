@@ -1,5 +1,7 @@
 # Structural port spike
 
+`reconnect_spec.cr` is partitioned into retry-policy and connection-behavior child targets using all thirteen original in-scope CoverageGen example IDs exactly once. The retry-policy child preserves both original examples and every assertion, including all statement classification cases and the exponential backoff cap. `grant/adapter/pool_support.iyi` retains the upstream PoolSupport module and its monotonic tick helper. Native Span multiplication is expressed through normalized addition; the exponent bound and five-second cap are unchanged. The child fast gate passes; its parent stays todo until both children pass.
+
 Compiler: `/home/priit/contribute/iyi/bin/iyi`, native mode (no `--crystal`). Always use `IYI_CACHE_DIR=$PWD/.iyi-cache`.
 
 The supervisor draft now compiles into a native program. `delete_test.iyi` translates both examples from `crystal-upstream/spec/grant/persistence/delete_spec.cr`, retaining all nine original assertions and exact descriptions. `T6DeleteRecord` is translated from `persistence_regression_models.cr`; unrelated fixture models are deferred to their specs. SQLite is real and in memory. `spike_crud_test.iyi` additionally exercises create, save/update, find, where, destroy and callbacks.
