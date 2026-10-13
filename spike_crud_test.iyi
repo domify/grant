@@ -21,7 +21,7 @@ assert record.persisted?
 record.name = "after"
 assert record.save
 assert SpikeRecord.find_strict(record.id).or_panic.name == "after"
-assert SpikeRecord.where(name: "after").or_panic.size == 1
+assert SpikeRecord.where(name: "after").select.or_panic.size == 1
 assert record.destroy
 assert record.callback_ran
 assert record.destroyed?

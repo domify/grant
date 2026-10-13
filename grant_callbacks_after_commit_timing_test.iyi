@@ -336,5 +336,5 @@ assert error.as(ErrorBase).message == "outer dies"
 assert CommitTimingModel.event_log.includes?("after_rollback:inner-savepoint")
 assert CommitTimingModel.event_log.includes?("after_rollback:outer-doomed-inner-commit")
 assert !CommitTimingModel.event_log.includes?("after_commit:inner-savepoint")
-assert CommitTimingModel.where(name: "outer-doomed-inner-commit").or_panic.first?.nil?
+assert CommitTimingModel.where(name: "outer-doomed-inner-commit").select.or_panic.first?.nil?
 CommitTimingModel.adapter.close.or_panic

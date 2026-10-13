@@ -53,7 +53,7 @@ W6IdleThing.create_strict(label: "before").or_panic
 sleep(40).or_panic
 w6_kill_idle_connections(adapter)
 assert W6IdleThing.create_strict(label: "after the restart").or_panic.persisted?
-assert W6IdleThing.where(label: "after the restart").or_panic.size == 1
+assert W6IdleThing.where(label: "after the restart").select.or_panic.size == 1
 ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
 
 # it: starts a transaction on a connection that went stale while idle
@@ -62,7 +62,7 @@ W6IdleThing.create_strict(label: "warm").or_panic
 sleep(40).or_panic
 w6_kill_idle_connections(adapter)
 W6IdleThing.transaction { W6IdleThing.create_strict(label: "inside a transaction") }.or_panic
-assert W6IdleThing.where(label: "inside a transaction").or_panic.size == 1
+assert W6IdleThing.where(label: "inside a transaction").select.or_panic.size == 1
 ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
 
 # it: reads through a dead idle connection
@@ -70,7 +70,7 @@ adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
 W6IdleThing.create_strict(label: "readable").or_panic
 sleep(40).or_panic
 w6_kill_idle_connections(adapter)
-assert W6IdleThing.where(label: "readable").or_panic.size == 1
+assert W6IdleThing.where(label: "readable").select.or_panic.size == 1
 ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
 
 # it: keeps the pool within its size when it discards a dead connection
@@ -108,6 +108,6 @@ adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
 W6IdleThing.create_strict(label: "first").or_panic
 adapter.reconnect_strict.or_panic
 assert adapter.connected?
-assert W6IdleThing.where(label: "first").or_panic.size == 1
+assert W6IdleThing.where(label: "first").select.or_panic.size == 1
 ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
 File.delete(path)

@@ -191,6 +191,10 @@ pub class Connection
     code == 0 ? result : failure(code, "finalize", sql)
   end
 
+  def select_all(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+    query(sql, parameters)
+  end
+
   def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
     result = query_statement(sql, parameters)
     result.binds = DatabaseError.describe_binds(parameters) if result.is_a?(DatabaseError)

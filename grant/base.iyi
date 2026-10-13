@@ -592,6 +592,20 @@ pub abstract class Base
       adapter
     end
 
+    def self.fields : Array(String)
+      \{% begin %}
+      [
+        \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+          \{{ column.name.stringify }},
+        \{% end %}
+      ] of String
+      \{% end %}
+    end
+
+    def self.select_fields_sql : String
+      fields.map { |field| "#{::Grant::Base.quote_identifier(table_name)}.#{::Grant::Base.quote_identifier(field)}" }.join(", ")
+    end
+
     def self.primary_name : String
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
@@ -702,23 +716,24 @@ pub abstract class Base
       record
     end
 
-    def self.find(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | Nil
+    def self.find(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       return nil if id.nil?
-      rows = adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)} WHERE #{::Grant::Base.quote_identifier(\{{ primary.name.stringify }})} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
-      return nil if rows.is_a?(::Grant::Errors::DatabaseError) || rows.empty?
+      rows = adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} WHERE #{::Grant::Base.quote_identifier(\{{ primary.name.stringify }})} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
+      return rows if rows.is_a?(::Grant::Errors::DatabaseError)
+      return nil if rows.empty?
       from_row(rows[0])
       \{% end %}
     end
 
     # Crystal `find!`.
-    def self.find_strict(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | ::Grant::Errors::RecordNotFound
+    def self.find_strict(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      found = find(id)
+      found = find(id)!
       return ::Grant::Errors::RecordNotFound.new(\{{ @type.name.stringify }}, id.to_s) if found.nil?
       found
       \{% end %}
@@ -736,24 +751,12 @@ pub abstract class Base
       ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt, value)
     end
 
-    def self.where(**args) : Array({{ @type }}) | ::Grant::Errors::DatabaseError
-      \{% begin %}
-    \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-    \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      clauses = [] of String
-      values = [] of ::Grant::Adapter::Sqlite::Value
-      args.each do |key, value|
-        clauses << "#{key} = ?"
-        values << value
-      end
-      sql = "SELECT * FROM #{::Grant::Base.quote_identifier(table_name)}"
-      sql += " WHERE #{clauses.join(" AND ")}" unless clauses.empty?
-      adapter.query(sql, values)!.map { |row| from_row(row) }
-      \{% end %}
+    def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})
+      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(**args)
     end
 
     def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
-      where(**args)!.first?
+      where(**args).first
     end
 
     def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
@@ -781,12 +784,20 @@ pub abstract class Base
     end
 
     def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError
-      adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)}")!.map { |row| from_row(row) }
+      adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)}")!.map { |row| from_row(row) }
     end
 
     def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError forall V
       params = values.map { |value| ::Grant::Base.sqlite_value(value) }
-      adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)} #{clause}", params)!.map { |row| from_row(row) }
+      adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} #{clause}", params)!.map { |row| from_row(row) }
+    end
+
+    def self.first(clause : String, values : Array(V)) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError forall V
+      all("#{clause} LIMIT 1", values)!.first?
+    end
+
+    def self.find_by_sql(sql : String, binds : Array(::Grant::Adapter::Sqlite::Value) = [] of ::Grant::Adapter::Sqlite::Value) : Array({{ @type }}) | ::Grant::Errors::DatabaseError
+      adapter.query(sql, binds)!.map { |row| from_row(row) }
     end
 
     def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError
@@ -794,7 +805,7 @@ pub abstract class Base
     end
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
-      rows = adapter.query("SELECT * FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
+      rows = adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
       row = rows.empty? ? nil : rows[0]
       row.nil? ? nil : from_row(row)
     end
