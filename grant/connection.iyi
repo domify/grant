@@ -1,0 +1,89 @@
+module grant/connection
+
+import grant/adapter/base::{Base}
+import grant/adapter/sqlite_connection::{Value, Mutation, ResultSet}
+alias RawConnection = ::Grant::Adapter::SqliteConnection::Connection
+
+import grant/result::{Result}
+import grant/settings
+import grant/error::{ErrorBase}
+import grant/transaction::{Options, run}
+
+# Structural Grant::Connection facade. Direct-driver registration remains
+# supported by the spike while named registrations resolve their adapter anew.
+pub class Connection
+  pub alias AdapterResolver = Proc(Symbol, Base)
+  pub alias BeforeWrite = Proc(Nil)
+  @adapter_resolver : AdapterResolver? = nil
+  @raw : RawConnection? = nil
+  @before_write : BeforeWrite
+
+  def initialize(@adapter_resolver : AdapterResolver, @before_write : BeforeWrite = -> { nil })
+  end
+
+  def initialize(@raw : RawConnection)
+    @before_write = -> { nil }
+  end
+
+  def adapter(role : Symbol = ::Grant::Settings.settings.reading_role) : Base
+    @adapter_resolver.as(AdapterResolver).call(role)
+  end
+
+  private def open(sql : String, role : Symbol = ::Grant::Settings.settings.reading_role, &block : RawConnection -> T) : T | ErrorBase | Cancelled forall T
+    raw = @raw
+    return yield raw unless raw.nil?
+    adapter(role).open(sql) { |database| yield database }
+  end
+
+  def execute(sql : String, binds : Array(Value) = [] of Value) : Mutation | ErrorBase | Cancelled
+    @before_write.call
+    open(sql, ::Grant::Settings.settings.writing_role) { |database| database.exec(sql, binds) }
+  end
+
+  def exec_query(sql : String, binds : Array(Value) = [] of Value) : Result | ErrorBase | Cancelled
+    open(sql) { |database| database.query(sql, binds) { |result_set| Result.from(result_set) } }
+  end
+
+  def select_all(sql : String, binds : Array(Value) = [] of Value) : Result | ErrorBase | Cancelled
+    exec_query(sql, binds)
+  end
+
+  def select_one(sql : String, binds : Array(Value) = [] of Value) : Result::HashRow? | ErrorBase | Cancelled
+    exec_query(sql, binds)!.to_a.first?
+  end
+
+  def select_value(sql : String, binds : Array(Value) = [] of Value) : Value | ErrorBase | Cancelled
+    result = exec_query(sql, binds)!
+    result.rows.empty? ? nil : result.rows.first.first?
+  end
+
+  def select_values(sql : String, binds : Array(Value) = [] of Value) : Array(Value) | ErrorBase | Cancelled
+    exec_query(sql, binds)!.rows.map { |row| row.first }
+  end
+
+  def select_rows(sql : String, binds : Array(Value) = [] of Value) : Array(Result::Row) | ErrorBase | Cancelled
+    exec_query(sql, binds)!.rows
+  end
+
+  def with_result_set(sql : String, binds : Array(Value) = [] of Value, &block : ResultSet -> T) : T | ErrorBase | Cancelled forall T
+    open(sql) { |database| database.query(sql, binds) { |result_set| yield result_set } }
+  end
+
+  def with_connection(role : Symbol = ::Grant::Settings.settings.writing_role, &block : RawConnection -> T) : T | ErrorBase | Cancelled forall T
+    raw = @raw
+    return yield raw unless raw.nil?
+    adapter(role).with_connection { |database| yield database }
+  end
+
+  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | ErrorBase forall T
+    raw = @raw
+    return run(raw, options) { yield } unless raw.nil?
+    run(adapter(::Grant::Settings.settings.writing_role), options) { yield }
+  end
+
+  # Compatibility for direct-driver registrations used by earlier port slices.
+  def close : Nil | ErrorBase
+    raw = @raw
+    raw.nil? ? adapter.disconnect_strict : raw.close
+  end
+end

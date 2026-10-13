@@ -37,8 +37,18 @@ pub class ConnectionRegistry
     nil
   end
 
+  def self.get_adapter?(database : String, role : Symbol = :primary) : Base?
+    requested = @@adapters[key_for(database, role)]?
+    return requested unless requested.nil?
+    if role == :reading
+      writer = @@adapters[key_for(database, :writing)]?
+      return writer unless writer.nil?
+    end
+    role == :primary ? nil : @@adapters[key_for(database, :primary)]?
+  end
+
   def self.get_adapter(database : String, role : Symbol = :primary) : Base
-    @@adapters[key_for(database, role)]
+    get_adapter?(database, role).as(Base)
   end
 
   def self.connection_spec(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : ConnectionSpec?

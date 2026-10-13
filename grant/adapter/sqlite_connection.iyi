@@ -63,6 +63,41 @@ lib SQLite
   fun limit = sqlite3_limit(database : Void*, category : Int32, value : Int32) : Int32
 end
 
+# Live native result set: statement ownership stays with Connection#query.
+pub class ResultSet
+  getter column_names : Array(String)
+  @column : Int32 = 0
+
+  def initialize(@connection : Connection, @statement : Void*, @sql : String)
+    @column_names = [] of String
+    SQLite.column_count(@statement).times do |index|
+      @column_names << cstring(SQLite.column_name(@statement, index))
+    end
+  end
+
+  def column_count : Int32
+    @column_names.size
+  end
+
+  def each(&block : -> T) : Nil | T | DatabaseError forall T
+    code = SQLite.step(@statement)
+    while code == 100
+      @column = 0
+      result = yield
+      return result if result.is_a?(::Error)
+      code = SQLite.step(@statement)
+    end
+    return @connection.failure(code, "query", @sql) unless code == 101
+    nil
+  end
+
+  def read : Value | DatabaseError
+    value = @connection.read_value(@statement, @column)
+    @column += 1
+    value
+  end
+end
+
 pub class Connection
   @handle : Void*
   @closed : Bool
@@ -158,6 +193,16 @@ pub class Connection
   def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
     result = query_statement(sql, parameters)
     @grant_last_used_ticks = ticks
+    result
+  end
+
+  def query(sql : String, parameters : Array(Value) = [] of Value, &block : ResultSet -> T) : T | DatabaseError forall T
+    statement = prepare(sql, parameters)!
+    result = yield ResultSet.new(self, statement, sql)
+    code = SQLite.finalize(statement)
+    @grant_last_used_ticks = ticks
+    return result if result.is_a?(::Error)
+    return failure(code, "finalize", sql) unless code == 0
     result
   end
 
@@ -267,7 +312,7 @@ pub class Connection
     statement
   end
 
-  private def read_value(statement : Void*, column : Int32) : Value | DatabaseError
+  def read_value(statement : Void*, column : Int32) : Value | DatabaseError
     case SQLite.column_type(statement, column)
     when 1 then SQLite.column_int(statement, column)
     when 2 then SQLite.column_float(statement, column)
