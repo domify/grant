@@ -1,0 +1,41 @@
+module grant/adapter/base
+
+import grant/adapter/sqlite::{Connection}
+import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
+import grant/transaction::{ConnectionTransactions}
+import grant/errors::{DatabaseError, ErrorBase, TransactionIsolationError}
+
+pub trait AdapterTestHelpers
+  abstract def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
+  abstract def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+  abstract def truncate_tables(*names : String) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+end
+
+impl AdapterTestHelpers for Connection
+  def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
+    transaction do
+      execute("PRAGMA defer_foreign_keys = ON")!
+      value = yield
+      restored = execute("PRAGMA defer_foreign_keys = OFF")
+      # Preserve the block error even if restoring the setting also fails.
+      if value.is_a?(::Error)
+        value
+      else
+        restored!
+        value
+      end
+    end
+  end
+
+  def truncate_tables(*names : String) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+    truncate_tables(names.to_a)
+  end
+
+  def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+    return nil if names.empty?
+    disable_referential_integrity do
+      truncate_statements(names)!.each { |statement| execute(statement)! }
+      nil
+    end
+  end
+end

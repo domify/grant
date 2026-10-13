@@ -4,7 +4,7 @@
   target: adapter_test_helpers_test.iyi
   area: transactions
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/abort_spec.cr
   target: grant_callbacks_abort_test.iyi
   area: transactions

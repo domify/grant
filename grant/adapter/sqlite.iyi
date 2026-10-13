@@ -51,6 +51,7 @@ pub class Connection
   @savepoint_sequence : UInt64
   getter last_statement : String?
   getter path : String
+  property query_observer : Proc(String, Nil)? = nil
 
   def initialize(@handle : Void*, @path : String = ":memory:")
     @closed = false
@@ -179,6 +180,8 @@ pub class Connection
 
   private def prepare(sql : String, parameters : Array(Value)) : Void* | DatabaseError
     @last_statement = sql
+    observer = @query_observer
+    observer.call(sql) unless observer.nil?
     return DatabaseError.new(21, "prepare", "connection is closed", sql) if @closed
     return DatabaseError.new(21, "prepare", "NUL byte in SQL", sql) if sql.includes?("\0")
     statement = Pointer(Void).new(0_u64)

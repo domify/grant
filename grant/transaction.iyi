@@ -348,7 +348,7 @@ impl ConnectionTransactions for Connection
   end
 
   def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
-    run(self, options) { yield }
+    ::Grant::Transaction.run(self, options) { yield }
   end
 end
 
