@@ -114,10 +114,13 @@
     - T-d6ecc30ae7
     - T-8483c7800e
     - T-3b61e8fdc7
+  - target: grant_connection_w6_statement_invalid_sql_query_values_test.iyi
+    status: done
+    examples:
+    - T-ff1494e1a0
   - target: grant_connection_w6_statement_invalid_sql_test.iyi
     status: todo
     examples:
-    - T-ff1494e1a0
     - T-621799ef9d
     - T-2596e607f4
     - T-0bcdf249fc

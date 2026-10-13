@@ -59,9 +59,65 @@ pub class Builder(Model)
   end
 
   def to_sql : String
-    sql = "SELECT #{Model.table_name}.* FROM \"#{Model.table_name}\""
+    projection_sql("#{Model.table_name}.*")
+  end
+
+  private def projection_sql(fields : String) : String
+    sql = "SELECT #{fields} FROM \"#{Model.table_name}\""
     sql += " WHERE #{@where_fields.map { |stmt| "(#{stmt})" }.join(" AND ")}" unless @where_fields.empty?
     sql
+  end
+
+  def count : Int64 | DatabaseError
+    count_single
+  end
+
+  protected def count_single : Int64 | DatabaseError
+    rows = Model.adapter.query(projection_sql("COUNT(*)"), @where_values)!
+    rows.first.values.first.as(Int64)
+  end
+
+  def exists? : Bool | DatabaseError
+    rows = Model.adapter.query("#{projection_sql("1")} LIMIT 1", @where_values)!
+    !rows.empty?
+  end
+
+  # Grant::Query::Builder convenience methods project values without model
+  # hydration. Keep positional results, including nil values and repeated fields.
+  def pluck(*fields : Symbol | String) : Array(Array(Value)) | DatabaseError
+    pluck_single(fields.to_a.map { |field| field.to_s })
+  end
+
+  protected def pluck_single(field_names : Array(String)) : Array(Array(Value)) | DatabaseError
+    projected_values(field_names)
+  end
+
+  private def projected_values(field_names : Array(String), first_only : Bool = false) : Array(Array(Value)) | DatabaseError
+    # Unique aliases retain positional values even when a field is repeated.
+    projections = [] of String
+    field_names.each_with_index do |field, index|
+      projections << "\"#{Model.table_name}\".\"#{field}\" AS \"grant_pluck_#{index}\""
+    end
+    sql = projection_sql(projections.join(", "))
+    sql += " LIMIT 1" if first_only
+    rows = Model.adapter.query(sql, @where_values)!
+    rows.map do |row|
+      values = [] of Value
+      field_names.each_with_index { |field, index| values << row["grant_pluck_#{index}"] }
+      values
+    end
+  end
+
+  def pick(*fields : Symbol | String) : Array(Value) | Nil | DatabaseError
+    projected_values(fields.to_a.map { |field| field.to_s }, true)!.first?
+  end
+
+  def ids : Array(Value) | DatabaseError
+    ids_single
+  end
+
+  protected def ids_single : Array(Value) | DatabaseError
+    pluck_single([Model.primary_name])!.map { |row| row.first }
   end
 
   def select : Array(Model) | DatabaseError
