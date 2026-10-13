@@ -1,11 +1,17 @@
 module grant
 
 pub import grant/base
+pub import grant/settings
+import grant/settings::{Settings}
 pub import grant/transaction
 import grant/connections::{Connections}
 import grant/adapter/sqlite::{Connection}
 import grant/transaction::{Options, run}
 import grant/errors::{DatabaseError, TransactionIsolationError}
+
+pub def settings : ::Grant::Settings::Settings
+  ::Grant::Settings.settings
+end
 
 pub def connection(name : String = "sqlite") : Connection
   ::Grant::Connections::Connections[name]

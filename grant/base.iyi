@@ -1,6 +1,7 @@
 module grant/base
 import std/named_tuple
 pub import std/time
+pub import grant/timestamps
 pub import grant/transactions
 
 pub import grant/adapter/sqlite
@@ -79,6 +80,16 @@ pub abstract class Base
     end
   end
 
+  macro timestamps(precision = nil, null = true)
+    column created_at : ::Std::Time::Time?, precision: {{ precision }}, null: {{ null }}
+    column updated_at : ::Std::Time::Time?, precision: {{ precision }}, null: {{ null }}
+    {% if precision %}
+      def self.timestamp_precision : Int32?
+        {{ precision }}
+      end
+    {% end %}
+  end
+
   macro after_destroy(name)
     def __callback_after_destroy_{{ name.id }} : Nil
       {{ name.id }}
@@ -131,6 +142,60 @@ pub abstract class Base
 
   macro __process_columns
 
+
+    def self.timestamp_precision : Int32?
+      nil
+    end
+
+    def set_timestamps(*, to : ::Std::Time::Time = ::Grant::Timestamps.current_time, mode : Symbol = :create) : Nil
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:type].includes?("Time") } %}
+        \{% if ["created_at", "created_on"].includes?(v.name.stringify) %}
+          self.\{{ v.name }} = ::Grant::Timestamps.stamp(\{{ v.name.stringify }}, to, self.class.timestamp_precision) if mode == :create
+        \{% elsif ["updated_at", "updated_on"].includes?(v.name.stringify) %}
+          self.\{{ v.name }} = ::Grant::Timestamps.stamp(\{{ v.name.stringify }}, to, self.class.timestamp_precision)
+        \{% end %}
+      \{% end %}
+      nil
+    end
+
+    def touch(*fields, time : ::Std::Time::Time = ::Grant::Timestamps.current_time) : Bool | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError
+      \{% begin %}
+      return ::Grant::Error::ErrorBase.new("Cannot touch on a new record object") unless persisted?
+      __remember_transaction_state
+      touch_fields = [] of String
+      touch_values = [] of ::Grant::Adapter::Sqlite::Value
+      \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in columns %}
+        \{% if ["updated_at", "updated_on"].includes?(v.name.stringify) && v.annotation(::Grant::Base::Column)[:type].includes?("Time") %}
+          self.\{{ v.name }} = ::Grant::Timestamps.stamp(\{{ v.name.stringify }}, time, self.class.timestamp_precision)
+          touch_fields << \{{ v.name.stringify }}
+          touch_values << ::Grant::Base.sqlite_value(self.\{{ v.name }})
+        \{% end %}
+      \{% end %}
+      fields.each do |field|
+        case field.to_s
+        \{% for v in columns.select { |v| v.annotation(::Grant::Base::Column)[:type].includes?("Time") } %}
+        when \{{ v.name.stringify }}
+          self.\{{ v.name }} = ::Grant::Timestamps.stamp(\{{ v.name.stringify }}, time, self.class.timestamp_precision)
+          unless touch_fields.includes?(field.to_s)
+            touch_fields << field.to_s
+            touch_values << ::Grant::Base.sqlite_value(self.\{{ v.name }})
+          end
+        \{% end %}
+        else
+          if __column_names.includes?(field.to_s) || __primary_name == field.to_s
+            return ::Grant::Error::ErrorBase.new("\{{ @type.name }}.#{field} cannot be touched.  It is not of type `Time`.")
+          end
+          return ::Grant::Error::ErrorBase.new("Field '#{field}' does not exist on type '\{{ @type.name }}'.")
+        end
+      end
+      return ::Grant::Error::ErrorBase.new("No timestamp columns are available to touch") if touch_fields.empty?
+      assignments = touch_fields.map { |field| "#{field} = ?" }.join(", ")
+      touch_values << __primary_value
+      __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", touch_values)!
+      true
+      \{% end %}
+    end
 
     def self.table_name : String
       \{% begin %}
@@ -509,12 +574,12 @@ pub abstract class Base
     !(@new_record || @destroyed)
   end
 
-  def save : Bool
-    !save_strict.is_a?(::Error)
+  def save(*, skip_timestamps : Bool = false) : Bool
+    !save_strict(skip_timestamps: skip_timestamps).is_a?(::Error)
   end
 
   # Crystal `save!`.
-  def save_strict : Bool | RecordNotSaved | DatabaseError
+  def save_strict(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError
     return RecordNotSaved.new(__table_name) if @destroyed
     errors.clear
     if @new_record && !__primary_auto? && __primary_value.nil?
@@ -522,6 +587,7 @@ pub abstract class Base
       return RecordNotSaved.new(__table_name)
     end
     __remember_transaction_state
+    set_timestamps(mode: @new_record ? :create : :update) unless skip_timestamps
     names = __column_names
     values = __column_values
     if @new_record

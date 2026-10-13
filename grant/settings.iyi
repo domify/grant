@@ -1,0 +1,11 @@
+module grant/settings
+
+pub class Settings
+  property default_timezone : String = "UTC"
+end
+
+SETTINGS = Settings.new
+
+pub def settings : Settings
+  SETTINGS
+end

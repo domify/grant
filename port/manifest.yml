@@ -250,7 +250,7 @@
   target: grant_transactions_timestamp_precision_test.iyi
   area: transactions
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transactions/touch_spec.cr
   target: grant_transactions_touch_test.iyi
   area: transactions

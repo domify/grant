@@ -1,0 +1,31 @@
+module grant/timestamps
+
+pub import std/time
+import std/time::{Time, Span}
+
+pub def current_time : Time
+  to_microseconds(Time.utc)
+end
+
+pub def to_microseconds(time : Time) : Time
+  excess = time.nanosecond % 1_000
+  excess == 0 ? time : time - Span.nanoseconds(excess.to_i64)
+end
+
+pub def truncate(time : Time, precision : Int32) : Time
+  return time if precision >= 9
+  digits = precision < 0 ? 0 : precision
+  unit = 1_i64
+  (9 - digits).times { unit *= 10 }
+  time - Span.nanoseconds(time.nanosecond.to_i64 % unit)
+end
+
+pub def stamp(column_name : String, time : Time, precision : Int32? = nil) : Time
+  if column_name.ends_with?("_on")
+    Time.utc(time.year, time.month, time.day)
+  elsif precision
+    truncate(time, precision)
+  else
+    time
+  end
+end
