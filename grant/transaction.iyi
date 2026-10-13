@@ -7,6 +7,7 @@ pub import grant/callbacks
 import grant/callbacks::{CommitCallback}
 
 import grant/adapter/sqlite::{Connection, Mutation}
+import grant/adapter/base::{Base}
 import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError, NotOpenError, InvalidSavepointNameError}
 pub import grant/errors
 
@@ -242,6 +243,11 @@ pub def queue_record_callbacks(connection : Connection, record_id : UInt64, oper
   state.record_callbacks[record_id] = callback
   state.pending_callbacks << {on_commit: -> { callback.commit }, on_rollback: -> { callback.rollback }}
   nil
+end
+
+pub def run(adapter : Base, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ErrorBase forall T
+  connection = adapter.database!.checkout
+  run(connection, options, savepoint_name) { yield }
 end
 
 pub def run(adapter : Connection, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T

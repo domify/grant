@@ -1,0 +1,92 @@
+import std/file::{File}
+import std/time::{Span}
+import grant/adapter/base::{Base}
+import grant/adapter/sqlite::{Sqlite}
+import grant/database::{ConnectionLost}
+import grant/errors::{ErrorBase}
+import grant/error_taxonomy::{ConnectionFailed}
+import grant/transaction::{run, Options}
+
+private def pooled_adapter(retry_attempts : Int32 = 1) : Base
+  adapter = Sqlite.new("c02_reconnect", "sqlite3:#{File.tempfile("c02_reconnect", ".sqlite3")}")
+  adapter.retry_delay = Span.milliseconds(1_i64)
+  adapter.retry_attempts = retry_attempts
+  adapter
+end
+
+private def drop_connection(adapter : Base) : ConnectionLost | ErrorBase
+  other = adapter.database!.checkout
+  ConnectionLost.new(other)
+end
+
+private def cleanup(adapter : Base)
+  adapter.disconnect_strict.or_panic
+  File.delete(adapter.url[8, adapter.url.bytesize - 8])
+end
+
+# it: retries a plain read once after the connection drops
+adapter = pooled_adapter
+attempts = 0
+value = adapter.open("SELECT 1") do |connection|
+  attempts += 1
+  if attempts == 1
+    drop_connection(adapter)
+  else
+    connection.scalar("SELECT 1")
+  end
+end.or_panic
+assert value == 1
+assert attempts == 2
+cleanup(adapter)
+
+# it: retries a read at most once
+adapter = pooled_adapter(retry_attempts: 5)
+attempts = 0
+error = adapter.open("SELECT 1") do |_|
+  attempts += 1
+  drop_connection(adapter)
+end
+assert error.is_a?(ConnectionFailed)
+assert attempts == 2
+cleanup(adapter)
+
+# it: never retries a write
+adapter = pooled_adapter
+attempts = 0
+error = adapter.open("INSERT INTO nothing VALUES (1)") do |_|
+  attempts += 1
+  drop_connection(adapter)
+end
+assert error.is_a?(ConnectionFailed)
+assert attempts == 1
+assert error.as(ConnectionFailed).cause.is_a?(ConnectionLost)
+cleanup(adapter)
+
+# it: never retries a call that carries no SQL, or a WITH statement that may write
+adapter = pooled_adapter
+attempts = 0
+error = adapter.open do |_|
+  attempts += 1
+  drop_connection(adapter)
+end
+assert error.is_a?(ConnectionFailed)
+error = adapter.open("WITH gone AS (DELETE FROM t RETURNING *) SELECT * FROM gone") do |_|
+  attempts += 1
+  drop_connection(adapter)
+end
+assert error.is_a?(ConnectionFailed)
+assert attempts == 2
+cleanup(adapter)
+
+# it: does not retry a read inside a transaction
+adapter = pooled_adapter
+attempts = 0
+error = run(adapter, Options.new) do
+  adapter.open("SELECT 1") do |_|
+    attempts += 1
+    drop_connection(adapter)
+  end
+end
+assert error.is_a?(ConnectionFailed)
+assert attempts == 1
+cleanup(adapter)

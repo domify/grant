@@ -1,9 +1,9 @@
 module grant/adapter/base
 
 import std/time::{Span}
-import grant/database::{Database, PoolResourceRefused, ConnectionRefused}
+import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost}
 import grant/pool_stat::{PoolStat}
-import grant/adapter/pool_support::{backoff}
+import grant/adapter/pool_support::{backoff, idempotent_read?}
 import grant/adapter/sqlite_connection::{Connection}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError}
@@ -114,7 +114,23 @@ pub abstract class Base
   end
 
   def open(sql : String? = nil, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
-    connection = checkout_connection!
-    yield connection
+    lost_retries = idempotent_read?(sql) && @retry_attempts > 0 ? 1 : 0
+    attempt = 0
+    loop do
+      connection = checkout_connection!
+      # The upstream transaction route never enters its replaying pool route.
+      lost_retries = 0 if connection.in_transaction?
+      result = yield connection
+      if result.is_a?(ConnectionLost)
+        if lost_retries == 0
+          return ConnectionFailed.new("Connection to #{name} was lost: #{result.message}", result)
+        end
+        lost_retries -= 1
+        sleep(backoff(@retry_delay, attempt).total_milliseconds.to_i32)!
+        attempt += 1
+      else
+        return result
+      end
+    end
   end
 end

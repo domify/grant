@@ -25,6 +25,20 @@ impl ::Error for ConnectionRefused
   end
 end
 
+pub class ConnectionLost < ErrorBase
+  getter connection : Connection
+
+  def initialize(@connection : Connection)
+    super("Connection lost")
+  end
+end
+
+impl ::Error for ConnectionLost
+  def message : String
+    @message
+  end
+end
+
 # Native replacement for the crystal-db database owner. The SQLite driver
 # remains separate from Grant's adapter inheritance and owns its C handle.
 pub struct PoolStats

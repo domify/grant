@@ -39,7 +39,7 @@
   target: grant_connection_reconnect_test.iyi
   area: transactions
   examples: 13
-  status: todo
+  status: done
   children:
   - target: grant_connection_reconnect_policy_test.iyi
     status: done
@@ -47,7 +47,7 @@
     - T-8430d6071f
     - T-3496ac9d52
   - target: grant_connection_reconnect_test.iyi
-    status: todo
+    status: done
     examples:
     - T-bf73496e5d
     - T-d193603b41
