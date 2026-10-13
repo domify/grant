@@ -1,0 +1,32 @@
+import std/file::{File}
+import grant/adapter/base::{Base}
+import grant/adapter/sqlite::{Sqlite}
+import grant/error_taxonomy::{NoDatabaseError}
+
+private def pooled_adapter : Base
+  Sqlite.new("c02_reconnect", "sqlite3:#{File.tempfile("c02_reconnect", ".sqlite3")}")
+end
+
+# it: answers active? and verify! for a reachable database
+adapter = pooled_adapter
+assert adapter.active?
+adapter.verify_strict.or_panic
+adapter.disconnect_strict.or_panic
+File.delete(adapter.url[8, adapter.url.bytesize - 8])
+
+# it: raises Grant::ConnectionFailed from verify! and answers false from active? when unreachable
+adapter = Sqlite.new("c02_unreachable", "sqlite3:/c02_no_such_directory/unreachable.sqlite3")
+adapter.retry_attempts = 0
+assert !adapter.active?
+assert adapter.verify_strict.is_a?(NoDatabaseError)
+
+# it: reconnect! replaces the pool and the old one is closed
+adapter = pooled_adapter
+adapter.open { |connection| connection.scalar("SELECT 1") }.or_panic
+old_pool = adapter.database.or_panic
+adapter.reconnect_strict.or_panic
+assert old_pool.pool.stats.open_connections == 0
+assert adapter.database.or_panic.object_id != old_pool.object_id
+assert adapter.open { |connection| connection.scalar("SELECT 1") }.or_panic == 1
+adapter.disconnect_strict.or_panic
+File.delete(adapter.url[8, adapter.url.bytesize - 8])

@@ -1,5 +1,7 @@
 module grant/errors
 
+import std/indexable
+
 # Crystal Grant raises these; native iyi returns them as union members.
 
 pub import grant/error

@@ -57,6 +57,9 @@
     - T-79a42bf983
     - T-de57ec88f2
     - T-5b845afadb
+  - target: grant_connection_reconnect_liveness_test.iyi
+    status: done
+    examples:
     - T-e394021106
     - T-f5457cca4c
     - T-f67ffead40

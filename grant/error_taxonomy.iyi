@@ -27,3 +27,35 @@ impl ::Error for InvalidForeignKey
     @message
   end
 end
+
+pub class ConnectionNotEstablished < ErrorBase
+end
+
+impl ::Error for ConnectionNotEstablished
+  def message : String
+    @message
+  end
+end
+
+pub class ConnectionFailed < ConnectionNotEstablished
+  getter cause : StatementInvalid
+
+  def initialize(message : String, @cause : StatementInvalid)
+    super(message)
+  end
+end
+
+impl ::Error for ConnectionFailed
+  def message : String
+    @message
+  end
+end
+
+pub class NoDatabaseError < StatementInvalid
+end
+
+impl ::Error for NoDatabaseError
+  def message : String
+    @message
+  end
+end

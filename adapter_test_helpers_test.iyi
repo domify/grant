@@ -1,7 +1,7 @@
 import transaction_crud_models::{Parent}
 import grant/connections::{Connections}
 import grant/adapter/sqlite::{Connection}
-import grant/adapter/base::{AdapterTestHelpers}
+import grant/adapter/test_helpers::{AdapterTestHelpers}
 import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
 import grant/errors::{ErrorBase, Rollback}
 import grant/error_taxonomy::{InvalidForeignKey}

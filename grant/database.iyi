@@ -1,0 +1,59 @@
+module grant/database
+
+import grant/adapter/sqlite_connection::{Connection}
+import grant/errors::{DatabaseError}
+
+# Native replacement for the crystal-db database owner. The SQLite driver
+# remains separate from Grant's adapter inheritance and owns its C handle.
+pub struct PoolStats
+  getter max_connections : Int32
+  getter open_connections : Int32
+  getter idle_connections : Int32
+
+  def initialize(@max_connections : Int32, @open_connections : Int32, @idle_connections : Int32)
+  end
+end
+
+pub class Pool
+  @connections = [] of Connection
+
+  def initialize(connection : Connection)
+    @connections << connection
+  end
+
+  def stats : PoolStats
+    count = 0
+    @connections.each { |connection| count += 1 unless connection.closed? }
+    PoolStats.new(1, count, count)
+  end
+
+  def checkout : Connection
+    @connections.first
+  end
+
+  def close : Nil | DatabaseError
+    @connections.each { |connection| connection.close! }
+    nil
+  end
+end
+
+pub class Database
+  getter pool : Pool
+
+  def initialize(connection : Connection)
+    @pool = Pool.new(connection)
+  end
+
+  def self.open(path : String) : Database | DatabaseError
+    connection = Connection.open(path)!
+    new(connection)
+  end
+
+  def checkout : Connection
+    @pool.checkout
+  end
+
+  def close : Nil | DatabaseError
+    @pool.close
+  end
+end

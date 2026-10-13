@@ -1,41 +1,77 @@
 module grant/adapter/base
 
-import grant/adapter/sqlite::{Connection}
-import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
-import grant/transaction::{ConnectionTransactions}
-import grant/errors::{DatabaseError, ErrorBase, TransactionIsolationError}
+import std/time::{Span}
+import grant/database::{Database}
+import grant/adapter/sqlite_connection::{Connection}
+import grant/errors::{DatabaseError}
+import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError}
 
-pub trait AdapterTestHelpers
-  abstract def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
-  abstract def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
-  abstract def truncate_tables(*names : String) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
-end
+pub abstract class Base
+  getter name : String
+  getter url : String
+  @_database : Database? = nil
+  property retry_attempts : Int32 = 1
+  property retry_delay : Span = Span.milliseconds(200_i64)
 
-impl AdapterTestHelpers for Connection
-  def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
-    transaction do
-      execute("PRAGMA defer_foreign_keys = ON")!
-      value = yield
-      restored = execute("PRAGMA defer_foreign_keys = OFF")
-      # Preserve the block error even if restoring the setting also fails.
-      if value.is_a?(::Error)
-        value
-      else
-        restored!
-        value
-      end
-    end
+  def initialize(@name : String, @url : String)
   end
 
-  def truncate_tables(*names : String) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
-    truncate_tables(names.to_a)
+  def database : Database | DatabaseError
+    opened = @_database
+    return opened unless opened.nil?
+    opened = Database.open(database_path)!
+    @_database = opened
+    opened
   end
 
-  def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
-    return nil if names.empty?
-    disable_referential_integrity do
-      truncate_statements(names)!.each { |statement| execute(statement)! }
+  protected def database_path : String
+    @url
+  end
+
+  def connected? : Bool
+    !@_database.nil?
+  end
+
+  def disconnect_strict : Nil | DatabaseError
+    closing = @_database
+    @_database = nil
+    closing.nil? ? nil : closing.close
+  end
+
+  def reconnect_strict : Nil | DatabaseError | ConnectionFailed
+    disconnect_strict!
+    verify_strict
+  end
+
+  def ping : Nil | DatabaseError
+    opened = database!
+    stats = opened.pool.stats
+    return nil if stats.max_connections > 0 && stats.idle_connections == 0 && stats.open_connections >= stats.max_connections
+    opened.checkout.scalar("SELECT 1")!
+    nil
+  end
+
+  protected def translate_exception(error : DatabaseError) : DatabaseError
+    error
+  end
+
+  def verify_strict : Nil | DatabaseError | ConnectionFailed
+    result = ping
+    if result.is_a?(DatabaseError)
+      translated = translate_exception(result)
+      return translated if translated.is_a?(NoDatabaseError)
+      ConnectionFailed.new("Could not reach #{name}: #{result.message}", result)
+    else
       nil
     end
+  end
+
+  def active? : Bool
+    !verify_strict.is_a?(::Error)
+  end
+
+  def open(sql : String? = nil, &block : Connection -> T) : T | DatabaseError forall T
+    opened = database!
+    yield opened.checkout
   end
 end
