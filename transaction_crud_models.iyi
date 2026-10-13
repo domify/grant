@@ -46,3 +46,12 @@ pub class CallbackWithAbort < Base
     end
   {% end %}
 end
+
+
+pub class Comment < Base
+  connection sqlite
+  table comments
+  column id : Int64, primary: true
+  column commentbody : String?
+  column articleid : Int64?
+end

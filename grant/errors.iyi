@@ -118,6 +118,20 @@ pub class Errors
     @errors.map { |error| error.message }
   end
 
+  def conversion_errors? : Bool
+    @errors.any? { |error| error.is_a?(::Grant::Error::ConversionError) }
+  end
+
+  def clear_validations : Nil
+    @errors = @errors.select { |error| error.is_a?(::Grant::Error::ConversionError) }
+    nil
+  end
+
+  def clear_conversion_error(field : String | Symbol) : Nil
+    @errors = @errors.reject { |error| error.is_a?(::Grant::Error::ConversionError) && error.field == field }
+    nil
+  end
+
   def clear : Nil
     @errors.clear
     nil

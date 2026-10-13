@@ -83,6 +83,7 @@ pub abstract class Base
     end
 
     def {{decl.var}}=(value : {{decl.type}} | Nil) : Nil
+      errors.clear_conversion_error({{ decl.var.symbolize }})
       @{{decl.var}} = value
     end
   end
@@ -913,7 +914,27 @@ pub abstract class Base
 
   def assign_attributes(args : T) forall T
     {% for key in T.keys %}
-      self.{{ key.id }} = args[{{ key.symbolize }}]
+      {% column = @type.instance_vars.find { |v| v.name.stringify == key.stringify && v.annotation(::Grant::Base::Column) } %}
+      {% if column && column.annotation(::Grant::Base::Column)[:type].includes?("Int") %}
+        value = args[{{ key.symbolize }}]
+        if value.is_a?(String)
+          converted = value.to_i64?
+          if converted.nil?
+            errors.clear_conversion_error({{ key.symbolize }})
+            errors << ::Grant::Error::ConversionError.new({{ key.symbolize }}, "Expected {{ key.id }} to be {{ column.annotation(::Grant::Base::Column)[:type].id }}")
+          else
+            {% if column.annotation(::Grant::Base::Column)[:type].includes?("Int32") %}
+              self.{{ key.id }} = converted.to_i32
+            {% else %}
+              self.{{ key.id }} = converted
+            {% end %}
+          end
+        else
+          self.{{ key.id }} = value
+        end
+      {% else %}
+        self.{{ key.id }} = args[{{ key.symbolize }}]
+      {% end %}
     {% end %}
   end
 
@@ -973,15 +994,15 @@ pub abstract class Base
     !(@new_record || @destroyed)
   end
 
-  def save(*, skip_timestamps : Bool = false) : Bool
-    !save_strict(skip_timestamps: skip_timestamps).is_a?(::Error)
+  def save(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool
+    !save_strict(validate: validate, skip_timestamps: skip_timestamps).is_a?(::Error)
   end
 
   # Crystal `save!`.
-  def save_strict(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
+  def save_strict(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
     operation = @new_record ? :create : :update
     result = Base.run_transaction(__transaction_adapter, Options.new(requires_new: true)) do
-      saved = __run_around_save { __save(skip_timestamps: skip_timestamps) }
+      saved = __run_around_save { __save(validate: validate, skip_timestamps: skip_timestamps) }
       if saved.is_a?(::Error)
         ::Grant::Transaction.enqueue_pending_callback(-> { nil }, -> { __run_rollback_callbacks(operation) })
       end
@@ -996,7 +1017,7 @@ pub abstract class Base
   end
 
   def valid? : Bool | ::Grant::Callbacks::Abort
-    errors.clear
+    errors.clear_validations
     self.before_validation!
     __run_validations
     self.after_validation!
@@ -1007,16 +1028,17 @@ pub abstract class Base
     ::Grant::Callbacks::Abort.new(message)
   end
 
-  def __save(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | ::Grant::Callbacks::Abort
+  def __save(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | ::Grant::Callbacks::Abort
     return RecordNotSaved.new(__table_name) if @destroyed
+    return RecordNotSaved.new(__table_name) if errors.conversion_errors?
     errors.clear
     if @new_record && !__primary_auto? && __primary_value.nil?
       errors << ::Grant::Error::Error.new(__primary_name, "Primary key('#{__primary_name}') cannot be null")
       return RecordNotSaved.new(__table_name)
     end
+    return ::Grant::Errors::RecordInvalid.new(self) if validate && !valid?!
     __remember_transaction_state
     operation = @new_record ? :create : :update
-    return ::Grant::Errors::RecordInvalid.new(self) unless valid?!
     self.before_save!
     if @new_record
       self.before_create!
