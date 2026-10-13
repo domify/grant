@@ -33,9 +33,20 @@ transactions_done() {
 }
 
 worker() {
-  local directory=$1 name=$2 prompt=$3
-  (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" codex exec -p port -C "$directory" \
-    --output-last-message "port/last-$name.txt" "$prompt" < /dev/null > "port/codex-$name.log" 2>&1)
+  local directory=$1 name=$2 prompt=$3 status waits=0
+  while :; do
+    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" codex exec -p port -C "$directory" \
+      --output-last-message "port/last-$name.txt" "$prompt" < /dev/null > "port/codex-$name.log" 2>&1)
+    status=$?
+    # A Codex usage limit is not a stall: wait for the quota to reset and rerun.
+    if grep -q 'hit your usage limit' "$directory/port/codex-$name.log" && [[ $waits -lt 72 ]]; then
+      waits=$((waits + 1))
+      printf 'Worker %s waiting for Codex usage limit (%s)\n' "$name" "$(date -Iseconds)" >> "$root/port/status.log"
+      sleep 600
+      continue
+    fi
+    return $status
+  done
 }
 
 progress() {
