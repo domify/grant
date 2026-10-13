@@ -1,0 +1,54 @@
+module grant/connection_registry
+
+import std/time::{Span}
+import grant/adapter/base::{Base}
+import grant/errors::{ErrorBase}
+
+# The eager SQLite registration slice of Grant::ConnectionRegistry.
+pub class ConnectionRegistry
+  pub struct ConnectionSpec
+    property database : String
+    property role : Symbol
+    property url : String
+    property verify_idle_after : Span? = Span.seconds(30_i64)
+
+    def initialize(@database : String, @url : String, @role : Symbol, @verify_idle_after : Span? = Span.seconds(30_i64))
+    end
+  end
+
+  @@specifications = {} of String => ConnectionSpec
+  @@adapters = {} of String => Base
+
+  def self.key_for(database : String, role : Symbol, shard : Symbol? = nil, replica_index : Int32 = 0) : String
+    key = replica_index > 0 ? "#{database}:#{role}##{replica_index}" : "#{database}:#{role}"
+    shard.nil? ? key : "#{key}:#{shard}"
+  end
+
+  def self.establish_connection(database : String, adapter : T.class, url : String, role : Symbol = :primary, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, verify_idle_after : Span? = Span.seconds(30_i64)) : Nil | ErrorBase forall T
+    key = key_for(database, role)
+    previous = @@adapters[key]?
+    instance = adapter.new(key, url)
+    instance.verify_idle_after = verify_idle_after
+    @@specifications[key] = ConnectionSpec.new(database, url, role, verify_idle_after)
+    @@adapters[key] = instance
+    previous.disconnect_strict! unless previous.nil?
+    nil
+  end
+
+  def self.get_adapter(database : String, role : Symbol = :primary) : Base
+    @@adapters[key_for(database, role)]
+  end
+
+  def self.connection_spec(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : ConnectionSpec?
+    @@specifications[key_for(database, role, shard, replica_index)]?
+  end
+
+  def self.remove_connection(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : Bool | ErrorBase
+    key = key_for(database, role, shard, replica_index)
+    spec = @@specifications.delete(key)
+    removed = @@adapters.delete(key)
+    return false if spec.nil? && removed.nil?
+    removed.disconnect_strict! unless removed.nil?
+    true
+  end
+end

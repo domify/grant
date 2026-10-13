@@ -71,6 +71,22 @@
   area: transactions
   examples: 9
   status: todo
+  children:
+  - target: grant_connection_w6_reconnect_idle_policy_test.iyi
+    status: done
+    examples:
+    - T-1d4298166d
+    - T-ea47477367
+  - target: grant_connection_w6_reconnect_idle_test.iyi
+    status: todo
+    examples:
+    - T-f50077862d
+    - T-17f741c8ad
+    - T-222f738641
+    - T-b4fba552c2
+    - T-5c2899bd68
+    - T-ad3d9196ef
+    - T-b555f2332b
 - source: crystal-upstream/spec/grant/connection/w6_statement_invalid_sql_spec.cr
   target: grant_connection_w6_statement_invalid_sql_test.iyi
   area: transactions

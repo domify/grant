@@ -14,6 +14,7 @@ pub abstract class Base
   @_database : Database? = nil
   property retry_attempts : Int32 = 1
   property retry_delay : Span = Span.milliseconds(200_i64)
+  property verify_idle_after : Span? = Span.seconds(30_i64)
   @waiting_checkouts : Int32 = 0
 
   def initialize(@name : String, @url : String)
