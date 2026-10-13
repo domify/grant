@@ -39,10 +39,19 @@ pub class TransactionState
   getter connection : Connection
   getter options : Options
   getter list_of_record_rollback_actions = [] of Proc(Nil)
+  getter savepoint_counter : Int32 = 0
+  getter enclosing : TransactionState?
   @@stack = [] of TransactionState
   @@statement_observer : Proc(String, Nil)? = nil
 
-  def initialize(@adapter : Connection, @connection : Connection, @options : Options)
+  def initialize(@adapter : Connection, @connection : Connection, @options : Options, @enclosing : TransactionState? = nil)
+  end
+
+  def next_savepoint_name : String
+    parent = @enclosing
+    return parent.next_savepoint_name unless parent.nil?
+    @savepoint_counter += 1
+    "sp_#{@savepoint_counter}"
   end
 
   def self.statement_observer : Proc(String, Nil)?
@@ -114,13 +123,13 @@ pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | 
 
   connection = options.independent ? adapter.open_independent! : (enclosing.nil? ? adapter : enclosing.connection)
   outer = !connection.in_transaction?
-  savepoint = connection.savepoint_name
+  savepoint = enclosing.nil? ? "" : enclosing.next_savepoint_name
   begun = execute_control(connection, outer ? begin_statements(adapter, options)[0] : "SAVEPOINT #{savepoint}")
   if begun.is_a?(DatabaseError)
     connection.close if options.independent
     return begun
   end
-  state = TransactionState.new(adapter, connection, options)
+  state = TransactionState.new(adapter, connection, options, outer ? nil : enclosing)
   TransactionState.push(state)
   result = yield
   TransactionState.pop
