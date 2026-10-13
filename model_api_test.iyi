@@ -1,0 +1,61 @@
+module model_api_test
+
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import fixtures/model_api::{Item, ItemMapping, FieldItem, FieldBuffer, KeyedModel, MultiModel}
+
+database = Connection.open(":memory:").or_panic
+database.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL)").or_panic
+repository = Repository(Item).new(database, ItemMapping.new)
+assert repository.insert(Item.new(" ")).is_a?(ValidationError)
+assert repository.query.count.or_panic == 0_i64
+item = Item.new("initial", false)
+shared = item
+shared.name = "shared"
+assert item.name == "shared"
+saved = repository.insert(item).or_panic
+assert !saved.active
+id = saved.id || 0_i64
+assert id > 0_i64
+found = repository.find(id).or_panic
+assert !found.nil?
+assert found.name == "shared" if found
+updated = repository.update(repository.query, id, Item.new("updated")).or_panic
+assert !updated.nil?
+assert updated.name == "updated" if updated
+assert Item.from_attributes({"name" => "bad", "active" => 2_i64, "id" => nil} of String => Value).is_a?(DatabaseError)
+assert Item.from_attributes({"active" => true, "id" => nil} of String => Value).is_a?(DatabaseError)
+destroyed = repository.destroy(repository.query, id).or_panic
+assert !destroyed.nil?
+assert repository.query.count.or_panic == 0_i64
+field_repository = Repository(FieldItem).new(database, FieldItem.mapping)
+assert FieldItem.new.name == ""
+assert FieldItem.new.active
+assert FieldItem.new.id.nil?
+assert field_repository.insert(FieldItem.new).is_a?(ValidationError)
+field_saved = field_repository.insert(FieldItem.new("field", false)).or_panic
+assert (field_saved.id || 0_i64) > 0_i64
+assert !field_saved.active
+field_found = field_repository.find(field_saved.id || 0_i64).or_panic
+assert !field_found.nil?
+assert field_found.name == "field" if field_found
+assert FieldItem.new(name: "named", id: 42_i64).id == 42_i64
+assert FieldItem.from_attributes({"active" => true, "id" => nil} of String => Value).is_a?(DatabaseError)
+first_buffer = FieldBuffer.new
+second_buffer = FieldBuffer.new
+first_buffer.entries << "first"
+assert second_buffer.entries.empty?
+database.execute("CREATE TABLE keys(key INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic
+keyed_repository = Repository(KeyedModel).new(database, KeyedModel.mapping)
+keyed = keyed_repository.insert(KeyedModel.new(name: "")).or_panic
+assert (keyed.key || 0_i64) > 0_i64
+assert KeyedModel.mapping.table.primary_key == "key"
+assert !keyed_repository.find(keyed.key || 0_i64).or_panic.nil?
+multi_errors = MultiModel.mapping.validate(MultiModel.new)
+assert multi_errors.is_a?(ValidationError)
+if multi_errors.is_a?(ValidationError)
+  assert multi_errors.messages.has_key?("code")
+  assert multi_errors.messages.has_key?("label")
+end
+assert MultiModel.mapping.validate(MultiModel.new(code: "c", label: "l")).nil?
+database.close.or_panic

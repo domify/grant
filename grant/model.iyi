@@ -1,360 +1,238 @@
 module grant/model
 
-import grant/value::{Value, Row, Attributes}
-import grant/errors::{DatabaseError, ValidationError, CallbackAbort}
-import grant/database::{Database}
-import grant/query::{Query, Table}
-import grant/lifecycle::{Pipeline, Event, AroundError, WriteContext}
-import grant/unit_of_work::{UnitOfWork, Observer}
-import grant/validation::{Context}
-import grant/normalization::{Plan}
-import grant/dirty::{State}
+# A curated model facade. Re-export modules for generated qualified references,
+# and explicit type aliases for consumers choosing `import grant/model::*`.
+pub import grant/record_repository
+pub import grant/query
+pub import grant/value
+pub import grant/scalars
+pub import grant/errors
+pub import grant/database
+pub import grant/validation
+pub import grant/lifecycle
+pub import grant/timestamps
+pub import grant/unit_of_work
 
-# Applications explicitly map their sealed record types to a table. The ORM
-# never reopens those types or discovers their fields through a global macro.
-pub trait Mapping(T)
-  abstract def table : Table
-  abstract def attributes(record : T) : Attributes
-  abstract def from_row(row : Row) : T | DatabaseError
-  abstract def validate(record : T) : Nil | ValidationError | DatabaseError
+pub alias Mapping = ::Grant::RecordRepository::Mapping
+pub alias Repository = ::Grant::RecordRepository::Repository
+pub alias Table = ::Grant::Query::Table
+pub alias Query = ::Grant::Query::Query
+pub alias Value = ::Grant::Value::Value
+pub alias Row = ::Grant::Value::Row
+pub alias Attributes = ::Grant::Value::Attributes
+pub alias Binary = ::Grant::Value::Binary
+pub alias Decimal = ::Grant::Scalars::Decimal
+pub alias Date = ::Grant::Scalars::Date
+pub alias DateTime = ::Grant::Scalars::DateTime
+pub alias Database = ::Grant::Database::Database
+pub alias DatabaseError = ::Grant::Errors::DatabaseError
+pub alias ValidationError = ::Grant::Errors::ValidationError
+pub alias CallbackAbort = ::Grant::Errors::CallbackAbort
+pub alias Errors = ::Grant::Validation::Errors
+pub alias Context = ::Grant::Validation::Context
+pub alias Presence = ::Grant::Validation::Presence
+pub alias Rules = ::Grant::Validation::Rules
+pub alias Pipeline = ::Grant::Lifecycle::Pipeline
+pub alias Event = ::Grant::Lifecycle::Event
+pub alias WriteContext = ::Grant::Lifecycle::WriteContext
+pub alias Clock = ::Grant::Timestamps::Clock
+pub alias SystemClock = ::Grant::Timestamps::SystemClock
+pub alias Timestamps = ::Grant::Timestamps::Timestamps
+pub alias UnitOfWork = ::Grant::UnitOfWork::UnitOfWork
 
-  def readonly_attributes : Array(String)
-    [] of String
-  end
-
-  # Existing simple mappings retain their validation implementation. Mappings
-  # with database/context rules override this overload to use the authoritative
-  # update key even when an application supplies a record with id=nil.
-  def validate(record : T, context : Context) : Nil | ValidationError | DatabaseError
-    validate(record)
-  end
-
-  def normalization : Plan?
-    nil
-  end
-
-  # Sealed application records are rebuilt explicitly; hydration is not an
-  # assignment API and must never be reused to build an unsaved record.
-  def with_attributes(record : T, attributes : Attributes) : T | DatabaseError
-    DatabaseError.new(21, "assignment", "mapping must implement with_attributes for normalization or timestamp assignment")
-  end
-
-  def normalize(record : T, context : Context) : T | DatabaseError
-    if plan = normalization
-      with_attributes(record, plan.apply(attributes(record), context))
-    else
-      record
-    end
-  end
+# Strict checked hydration: a missing column is not an implicitly defaulted
+# attribute, and an exact decimal can never be reconstructed from a Float64.
+pub def record_value(values : Attributes, name : String, target : T.class) : T | DatabaseError forall T
+  return DatabaseError.new(20, "mapping", "missing column: #{name}") unless values.has_key?(name)
+  value = values[name]
+  return value if value.is_a?(T)
+  {% if T.union_types.includes?(Bool) && T.union_types.all? { |member| member == Bool || member == Nil } %}
+    return false if value == 0_i64
+    return true if value == 1_i64
+  {% elsif T.union_types.includes?(Float64) && T.union_types.all? { |member| member == Float64 || member == Nil } %}
+    return value.to_f64 if value.is_a?(Int64)
+  {% elsif T.union_types.includes?(Decimal) && T.union_types.all? { |member| member == Decimal || member == Nil } %}
+    decoded = ::Grant::Value.decode_decimal(value)
+    return decoded if decoded.is_a?(DatabaseError)
+    return decoded
+  {% elsif T.union_types.includes?(Date) && T.union_types.all? { |member| member == Date || member == Nil } %}
+    decoded = ::Grant::Value.decode_date(value)
+    return decoded if decoded.is_a?(DatabaseError)
+    return decoded
+  {% elsif T.union_types.includes?(DateTime) && T.union_types.all? { |member| member == DateTime || member == Nil } %}
+    decoded = ::Grant::Value.decode_datetime(value)
+    return decoded if decoded.is_a?(DatabaseError)
+    return decoded
+  {% end %}
+  DatabaseError.new(20, "mapping", "invalid column type: #{name}")
 end
 
-pub class Repository(T)
-  @database : Database
-  @mapping : Mapping(T)
-  @events : Pipeline(T)?
-  @unit : UnitOfWork
+# Application-local table configuration, read only by its own model derive.
+pub macro table(name, primary_key = "id")
+  {% unless name.is_a?(StringLiteral) && !name.empty? && primary_key.is_a?(StringLiteral) && !primary_key.empty? %}
+    {% raise "table requires nonempty literal table and primary-key names" %}
+  {% end %}
+  GRANT_MODEL_TABLE_NAME = {{name}}
+  GRANT_MODEL_PRIMARY_KEY = {{primary_key}}
+end
 
-  def initialize(@database : Database, @mapping : Mapping(T), @events : Pipeline(T)? = nil, unit : UnitOfWork? = nil)
-    @unit = unit || UnitOfWork.new(@database)
-  end
+# Stateless adapter shared by models; the connection stays in Repository.
+pub struct ModelMapping(T)
+end
 
-  def query : Query
-    Query.new(@database, @mapping.table, normalization: @mapping.normalization)
-  end
-
-  def unit_of_work : UnitOfWork
-    @unit
+impl Mapping(T) for ModelMapping(T) forall T
+  def table : Table
+    T.__grant_model_table
   end
 
   def attributes(record : T) : Attributes
-    @mapping.attributes(record)
+    record.to_attributes
   end
 
-  def with_attributes(record : T, attributes : Attributes) : T | DatabaseError
-    @mapping.with_attributes(record, attributes)
+  def from_row(row : Row) : T | DatabaseError
+    T.from_attributes(row.attributes)
   end
 
-  def all(scope : Query) : Array(T) | DatabaseError
-    valid_scope(scope)!
-    rows = scope.all!
-    records = [] of T
-    rows.each do |row|
-      records << @mapping.from_row(row)!
-    end
-    records
+  def with_attributes(record : T, values : Attributes) : T | DatabaseError
+    T.from_attributes(values)
   end
 
-  def first(scope : Query) : T | Nil | DatabaseError
-    valid_scope(scope)!
-    row = scope.first!
-    row ? @mapping.from_row(row) : nil
-  end
-
-  private def valid_scope(scope : Query) : Nil | DatabaseError
-    table = @mapping.table
-    return DatabaseError.new(21, "scope", "scope belongs to another table") unless scope.table.name == table.name && scope.table.primary_key == table.primary_key
-    return DatabaseError.new(21, "scope", "scope belongs to another database") unless scope.database_identity == @database.identity
-    nil
-  end
-
-  def find(id : Int64) : T | Nil | DatabaseError
-    row = query.where(@mapping.table.primary_key, id).first!
-    row ? @mapping.from_row(row) : nil
-  end
-
-  def insert(record : T) : T | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    return DatabaseError.new(21, "insert", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run(requires_new: true) { insert_record(record) }
-  end
-
-  def update(scope : Query, id : Int64, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    valid_scope(scope)!
-    return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    context = write_context(record)!
-    @unit.run(requires_new: true) { update_record(scope, id, record, context) }
-  end
-
-  # The application supplies the loaded snapshot, rather than comparing against
-  # a fresh row (which would overwrite changes made by a sibling record).
-  def update_changed(scope : Query, id : Int64, record : T, baseline : Attributes,
-                     forced : Array(String) = [] of String, skip_timestamps : Bool = false) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    valid_scope(scope)!
-    return DatabaseError.new(21, "update", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    values = @mapping.attributes(record)
-    return DatabaseError.new(21, "update", "baseline must expose the same mapped attributes") unless values.size == baseline.size && values.keys.all? { |name| baseline.has_key?(name) }
-    return DatabaseError.new(21, "update", "baseline primary key does not match the persisted ID") unless baseline[@mapping.table.primary_key]? == id
-    input_id = values[@mapping.table.primary_key]?
-    return DatabaseError.new(21, "update", "record primary key does not match the persisted ID") unless input_id.nil? || input_id == id
-    forced.each do |name|
-      return DatabaseError.new(21, "update", "forced attribute is not mapped: #{name}") unless values.has_key?(name)
-      return DatabaseError.new(21, "update", "cannot force a primary key write") if name == @mapping.table.primary_key
-    end
-    context = write_context(record, baseline, forced, !skip_timestamps)!
-    @unit.run(requires_new: true) { update_record(scope, id, record, context) }
-  end
-
-  def update_changed(scope : Query, id : Int64, record : T, state : State(Value), skip_timestamps : Bool = false) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    values = @mapping.attributes(record)
-    pending = state.attributes
-    return DatabaseError.new(21, "update", "record attributes do not match the supplied dirty state") unless values.size == pending.size
-    values.each do |name, value|
-      return DatabaseError.new(21, "update", "record attributes do not match the supplied dirty state") unless pending.has_key?(name) && pending[name] == value
-    end
-    update_changed(scope, id, record, state.baseline_attributes, state.forced_changes, skip_timestamps)
-  end
-
-  def destroy(scope : Query, id : Int64) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    valid_scope(scope)!
-    return DatabaseError.new(21, "destroy", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run(requires_new: true) { destroy_record(scope, id) }
-  end
-
-  # A touch is a partial stored write: validation, normalization and save/update
-  # callbacks do not run. AfterTouch and transaction observers still run.
-  def touch(scope : Query, id : Int64, attributes : Attributes) : T | Nil | DatabaseError | ValidationError | CallbackAbort | Panicked | Cancelled
-    valid_scope(scope)!
-    return DatabaseError.new(21, "touch", "unit of work belongs to another database") unless @unit.database_identity == @database.identity
-    @unit.run(requires_new: true) { touch_record(scope, id, attributes) }
-  end
-
-  private def touch_record(scope : Query, id : Int64, attributes : Attributes) : T | Nil | DatabaseError | ValidationError | CallbackAbort
-    return DatabaseError.new(21, "touch", "no timestamp columns are available to touch") if attributes.empty?
-    key = @mapping.table.primary_key
-    return DatabaseError.new(21, "touch", "touch cannot change the primary key") if attributes.has_key?(key)
-    selected = scope.where_stored(key, id)
-    row = selected.first!
-    return nil unless row
-    current = @mapping.from_row(row)!
-    declared = @mapping.attributes(current)
-    attributes.each do |name, value|
-      return DatabaseError.new(20, "touch", "mapping does not expose column: #{name}") unless declared.has_key?(name)
-    end
-    changed = selected.update(attributes)!
-    return nil if changed.changes == 0
-    row = query.where_stored(key, id).first!
-    return DatabaseError.new(20, "touch", "updated row could not be hydrated") unless row
-    current = @mapping.from_row(row)!
-    observe(current, row[key])!
-    callback(Event::AfterTouch, current)
-  end
-
-  private def validated(record : T, context : Context, write_context : WriteContext = WriteContext.new) : T | AroundError
-    normalized = @mapping.normalize(record, context)
-    return normalized if normalized.is_a?(DatabaseError)
-    around_required(Event::AroundValidation, normalized) { |current| validate_prepared(current, context, write_context) }
-  end
-
-  private def validate_prepared(record : T, context : Context, write_context : WriteContext) : T | DatabaseError | ValidationError | CallbackAbort
-    prepared = callback(Event::BeforeValidation, record, write_context)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    validation = @mapping.validate(current, context)
-    prepared = callback(Event::AfterValidation, current, write_context)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    return validation if validation.is_a?(Error)
-    current
-  end
-
-  private def insert_record(record : T) : T | AroundError
-    current = validated(record, Context.new("create"))!
-    around_required(Event::AroundSave, current) { |saving| insert_saved(saving) }
-  end
-
-  private def insert_saved(record : T) : T | AroundError
-    current = record
-    prepared = callback(Event::BeforeSave, current)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    current = around_required(Event::AroundCreate, current) { |creating| create_record(creating) }!
-    callback(Event::AfterSave, current)
-  end
-
-  private def create_record(record : T) : T | DatabaseError | ValidationError | CallbackAbort
-    current = record
-    prepared = callback(Event::BeforeCreate, current)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    row = query.insert(write_attributes(current))!
-    current = @mapping.from_row(row)!
-    observed = observe(current, row[@mapping.table.primary_key])
-    return observed if observed.is_a?(DatabaseError)
-    prepared = callback(Event::AfterCreate, current)
-    return prepared if prepared.is_a?(Error)
-    prepared
-  end
-
-  private def update_record(scope : Query, id : Int64, record : T, context : WriteContext) : T | Nil | AroundError
-    current = validated(record, Context.new("update", persisted_id: id), context)!
-    around(Event::AroundSave, current) { |saving| update_saved(scope, id, saving, context) }
-  end
-
-  private def update_saved(scope : Query, id : Int64, record : T, context : WriteContext) : T | Nil | AroundError
-    current = record
-    prepared = callback(Event::BeforeSave, current, context)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    current = around(Event::AroundUpdate, current) { |updating| update_prepared(scope, id, updating, context) }!
-    return nil unless current
-    callback(Event::AfterSave, current, context)
-  end
-
-  private def update_prepared(scope : Query, id : Int64, record : T, context : WriteContext) : T | Nil | DatabaseError | ValidationError | CallbackAbort
-    current = record
-    prepared = callback(Event::BeforeUpdate, current, context)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    selected = scope.where(@mapping.table.primary_key, id)
-    values = context.changes(@mapping.attributes(current))
-    if values.empty?
-      row = selected.first!
-      return nil unless row
-      current = @mapping.from_row(row)!
-      observe(current, row[@mapping.table.primary_key])!
-      return callback(Event::AfterUpdate, current, context)
-    end
-    changed = selected.update(values)!
-    return nil if changed.changes == 0
-    # The write already applied the original scope. A changed filter column
-    # may no longer match it; hydrate the row actually updated by its fixed key.
-    row = query.where(@mapping.table.primary_key, id).first!
-    return nil unless row
-    current = @mapping.from_row(row)!
-    observed = observe(current, row[@mapping.table.primary_key])
-    return observed if observed.is_a?(DatabaseError)
-    prepared = callback(Event::AfterUpdate, current, context)
-    return prepared if prepared.is_a?(Error)
-    prepared
-  end
-
-  private def destroy_record(scope : Query, id : Int64) : T | Nil | AroundError
-    selected = scope.where(@mapping.table.primary_key, id)
-    row = selected.first!
-    return nil unless row
-    current = @mapping.from_row(row)!
-    around(Event::AroundDestroy, current) { |destroying| destroy_prepared(selected, row[@mapping.table.primary_key], destroying) }
-  end
-
-  private def destroy_prepared(selected : Query, id : Value, record : T) : T | Nil | DatabaseError | ValidationError | CallbackAbort
-    current = record
-    prepared = callback(Event::BeforeDestroy, current)
-    return prepared if prepared.is_a?(Error)
-    current = prepared
-    deleted = selected.delete!
-    return nil if deleted.changes == 0
-    observed = observe(current, id)
-    return observed if observed.is_a?(DatabaseError)
-    callback(Event::AfterDestroy, current)
-  end
-
-  private def around(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | Nil | AroundError
-    if events = @events
-      events.wrap(event, record, &operation)
-    else
-      operation.call(record)
-    end
-  end
-
-  private def around_required(event : Event, record : T, &operation : T -> T | Nil | AroundError) : T | AroundError
-    result = around(event, record, &operation)
-    result.nil? ? CallbackAbort.new("around callback returned no record for #{event}") : result
-  end
-
-  private def callback(event : Event, record : T, context : WriteContext = WriteContext.new) : T | DatabaseError | ValidationError | CallbackAbort
-    if events = @events
-      events.run(event, record, context)
-    else
-      record
-    end
-  end
-
-  private def observe(record : T, id : Value) : Nil | DatabaseError
-    if events = @events
-      @unit.observe(RecordObserver(T).new("#{@mapping.table.name}:#{id}", events, record))!
-    end
-    nil
-  end
-
-  private def write_attributes(record : T) : Attributes
-    values = Attributes.new
-    @mapping.attributes(record).each do |name, value|
-      values[name] = value unless name == @mapping.table.primary_key
-    end
-    values
-  end
-
-  private def write_context(record : T, baseline : Attributes? = nil, forced : Array(String) = [] of String, stamp : Bool = true) : WriteContext | DatabaseError
-    readonly = @mapping.readonly_attributes
-    if events = @events
-      readonly += events.readonly_attributes
-    end
-    declared = @mapping.attributes(record)
-    readonly.each do |name|
-      return DatabaseError.new(21, "update", "readonly attribute is not mapped: #{name}") unless declared.has_key?(name)
-    end
-    WriteContext.new(baseline, forced, readonly, @mapping.table.primary_key, stamp)
+  def validate(record : T) : Nil | ValidationError | DatabaseError
+    T.__grant_model_validate(record)
   end
 end
 
-class RecordObserver(T)
-  getter identity : String
-  @events : Pipeline(T)
-  @record : T
+# Reads configuration declared on this model, never a global model registry.
+pub macro model(declaration)
+  {% unless @type.has_constant?("GRANT_MODEL_TABLE_NAME") %}
+    {% raise "derive model requires table \"table_name\" above the derive" %}
+  {% end %}
+  {% presence_names = @type.has_constant?("GRANT_MODEL_PRESENCE_FIELDS") ? @type.constant("GRANT_MODEL_PRESENCE_FIELDS") : [] of ASTNode %}
+  {% for name in presence_names %}
+    {% unless declaration[:fields].any? { |field| field[:name][1..] == name } %}
+      {% raise "validates_presence references unknown model field #{name}" %}
+    {% end %}
+  {% end %}
 
-  def initialize(@identity : String, @events : Pipeline(T), @record : T)
+  derive field_constructor, mapped_record
+
+  def self.mapping : ::Grant::Model::ModelMapping({{declaration[:name].id}})
+    ::Grant::Model::ModelMapping({{declaration[:name].id}}).new
+  end
+
+  def self.__grant_model_table : ::Grant::Model::Table
+    ::Grant::Model::Table.new(GRANT_MODEL_TABLE_NAME, GRANT_MODEL_PRIMARY_KEY)
+  end
+
+  def self.__grant_model_validate(record : self) : Nil | ::Grant::Model::ValidationError | ::Grant::Model::DatabaseError
+    errors = ::Grant::Model::Errors.new
+    values = record.to_attributes
+    {% for name in presence_names %}
+      ::Grant::Model::Presence.new({{name}}).validate(values, errors, ::Grant::Model::Context.new)
+    {% end %}
+    errors.result
   end
 end
 
-impl Observer for RecordObserver(T) forall T
-  def committed : Nil | DatabaseError | ValidationError | CallbackAbort
-    result = @events.run(Event::AfterCommit, @record)
-    return result if result.is_a?(Error)
-    nil
+# Declare a read-only typed field and a per-construction default factory.
+# Keep defaults as expressions so mutable values are not shared across records.
+pub macro field(declaration)
+  {% unless declaration.is_a?(TypeDeclaration) %}
+    {% raise "field requires a typed declaration, for example field name : String = \"\"" %}
+  {% end %}
+  getter {{declaration.var}} : {{declaration.type}}
+
+  def self.__grant_field_default_{{declaration.var.id}} : {{declaration.type}}
+    {% if declaration.value.is_a?(Nop) %}
+      {% if declaration.type.resolve.nilable? %}
+        nil
+      {% else %}
+        {% raise "field #{declaration.var} requires a default; use an explicit constructor for required arguments" %}
+      {% end %}
+    {% else %}
+      {{declaration.value}}
+    {% end %}
+  end
+end
+
+# Opt-in constructor generation; place after all field declarations.
+pub macro field_constructor(declaration)
+  def initialize(
+    {% for field in declaration[:fields] %}
+      {{field[:name].id}} : {{field[:type]}} = {{declaration[:name].id}}.__grant_field_default_{{field[:name][1..].id}},
+    {% end %}
+  )
+  end
+end
+
+# Runs in the sealed record's declaring module, using only its declared fields.
+# The application supplies a typed keyword constructor matching those fields.
+pub macro mapped_record(declaration)
+  {% for field in declaration[:fields] %}
+    {% unless field[:type] && field[:type] <= ::Grant::Model::Value %}
+      {% raise "mapped_record field #{field[:name]} must have a declared Grant Value type; use an explicit mapping for association caches or custom converters" %}
+    {% end %}
+  {% end %}
+  def to_attributes : ::Grant::Model::Attributes
+    {
+      {% for field in declaration[:fields] %}
+        {{ field[:name][1..] }} => {{ field[:name].id }},
+      {% end %}
+    } of String => ::Grant::Model::Value
   end
 
-  def rolled_back : Nil | DatabaseError | ValidationError | CallbackAbort
-    result = @events.run(Event::AfterRollback, @record)
-    return result if result.is_a?(Error)
-    nil
+  def self.from_attributes(values : ::Grant::Model::Attributes) : self | ::Grant::Model::DatabaseError
+    {% for field in declaration[:fields] %}
+      field_{{ field[:name][1..].id }} = ::Grant::Model.record_value(values, {{ field[:name][1..] }}, {{ field[:type] }})!
+    {% end %}
+    new(
+      {% for field in declaration[:fields] %}
+        {{ field[:name][1..].id }}: field_{{ field[:name][1..].id }},
+      {% end %}
+    )
   end
+end
+
+# Place inside the application's own `impl Mapping(Record) for RecordMapping`.
+# Business validation, normalization, readonly fields and callbacks stay local.
+pub macro mapped(record_type, table_name, primary_key = "id", rebuild = true)
+  def table : ::Grant::Model::Table
+    ::Grant::Model::Table.new({{table_name}}, {{primary_key}})
+  end
+
+  def attributes(record : {{record_type}}) : ::Grant::Model::Attributes
+    record.to_attributes
+  end
+
+  def from_row(row : ::Grant::Model::Row) : {{record_type}} | ::Grant::Model::DatabaseError
+    {{record_type}}.from_attributes(row.attributes)
+  end
+
+  {% if rebuild %}
+    def with_attributes(record : {{record_type}}, values : ::Grant::Model::Attributes) : {{record_type}} | ::Grant::Model::DatabaseError
+      {{record_type}}.from_attributes(values)
+    end
+  {% end %}
+end
+
+# Model form: validates_presence "name", "other".
+# Explicit mapping form remains validates_presence Record, "name".
+pub macro validates_presence(record_type, *names)
+  {% if record_type.is_a?(StringLiteral) %}
+    {% for name in names %}
+      {% unless name.is_a?(StringLiteral) %}
+        {% raise "model validates_presence takes literal field names" %}
+      {% end %}
+    {% end %}
+    GRANT_MODEL_PRESENCE_FIELDS = [{{record_type}}, {% for name in names %} {{name}}, {% end %}]
+  {% else %}
+    def validate(record : {{record_type}}) : Nil | ::Grant::Model::ValidationError | ::Grant::Model::DatabaseError
+      errors = ::Grant::Model::Errors.new
+      values = attributes(record)
+      {% for name in names %}
+        ::Grant::Model::Presence.new({{name}}).validate(values, errors, ::Grant::Model::Context.new)
+      {% end %}
+      errors.result
+    end
+  {% end %}
 end

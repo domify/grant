@@ -1,6 +1,6 @@
 module grant/belongs_to_writes
 
-import grant/model::{Repository}
+import grant/record_repository::{Repository}
 import grant/query::{Query, identifier}
 import grant/value::{Value, Attributes}
 import grant/errors::{DatabaseError}

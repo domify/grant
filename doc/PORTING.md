@@ -258,3 +258,45 @@ separate work and separate commits. No remote or public branch has been changed.
 - In disposable repositories, a new source revision imports only into the
   subtree, leaves the native library tree unchanged, and matches the new
   source tree exactly. A native-root source is rejected.
+
+## Model facade and sealed class mappings (2026-10-13)
+
+- Added package-root `import grant/model::*` with common typed ORM names,
+  preserving the previous model path. Core contracts moved unchanged to
+  `grant/record_repository.iyi`; timestamp/association modules depend on that
+  lower-level module to keep the import graph acyclic.
+- Added local `derive mapped_record`, `mapped` and `validates_presence` macros.
+  Application-owned classes and structs can generate typed attribute extraction,
+  checked hydration and rebuilding with explicit validation. This covers the
+  typed-field portion of the original columns API; it does not port its inherited
+  DSL, converter inference, association caches or all model behavior.
+- `model_api_test.iyi` uses a separate producer class/mapping, real SQLite CRUD,
+  validation errors, class reference semantics and malformed-row rejection. The
+  source-free gate includes the producer's expanded derive and mapping. See
+  `doc/MODEL-API.md` for the API and remaining limitations.
+
+## Field declarations (2026-10-13)
+
+- Added `field` plus opt-in `derive field_constructor` to declare read-only fields,
+  types and defaults once. Existing explicit constructors/mapped_record remain
+  supported. Defaults run per construction, including mutable expressions;
+  nullable fields can omit the nil default. Non-nullable fields require defaults.
+- Native model API checks cover positional/keyword construction, defaults, real
+  SQLite validation/insertion/hydration and isolated mutable defaults. The fixture
+  is also included in the source-free producer/consumer gate.
+- This does not add the inherited Crystal column DSL, writable fields, custom
+  database column names or automatic association metadata.
+
+## Single-declaration models (2026-10-13)
+
+- Added local `table`, the model form of `validates_presence`, and `derive model`.
+  Field constructors and checked attribute hydration delegate to the existing
+  derives. Model-owned metadata configures a stateless generic `ModelMapping(T)`
+  exposed through `Model.mapping`; database connections remain repository-owned.
+- Supports presence rules, omitted validation and custom single primary keys.
+  Missing table declarations and unknown presence fields fail at compile time.
+  Native/API artifact checks cover actual SQLite writes/hydration, validation,
+  default construction, no-validation records and custom-key lookup.
+- Explicit mapping structs and their current presence macro remain supported for
+  custom validation, normalization, tenant policies and other business rules.
+  No inherited ActiveRecord DSL, automatic schema creation or global registry.

@@ -1,0 +1,55 @@
+module fixtures/model_api
+
+import grant/model::*
+
+# Derive expands in this producer module, also when consumed without source.
+pub class Item
+  property name : String
+  getter active : Bool
+  getter id : Int64?
+
+  def initialize(@name : String = "", @active : Bool = true, @id : Int64? = nil)
+  end
+
+  derive mapped_record
+end
+
+pub struct ItemMapping
+end
+
+impl Mapping(Item) for ItemMapping
+  mapped Item, "items"
+  validates_presence Item, "name"
+end
+
+# Field defaults and generated constructors also cross artifact boundaries.
+pub class FieldItem
+  table "items"
+  field name : String = ""
+  field active : Bool = true
+  field id : Int64?
+  validates_presence "name"
+  derive model
+end
+
+# No-validation models and custom primary keys use the same adapter.
+pub class KeyedModel
+  table "keys", primary_key: "key"
+  field key : Int64?
+  field name : String = ""
+  derive model
+end
+
+pub class MultiModel
+  table "multi"
+  field id : Int64?
+  field code : String = ""
+  field label : String = ""
+  validates_presence "code", "label"
+  derive model
+end
+
+pub class FieldBuffer
+  field entries : Array(String) = [] of String
+  derive field_constructor
+end

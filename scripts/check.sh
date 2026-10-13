@@ -8,7 +8,7 @@ export IYI_CACHE_DIR
 mkdir -p "$IYI_CACHE_DIR"
 grant_compiler=${IYI:-iyi}
 "$grant_compiler" check grant.iyi
-"$grant_compiler" fmt --check grant grant.iyi ./*_test.iyi
+"$grant_compiler" fmt --check grant fixtures grant.iyi model.iyi ./*_test.iyi
 # Active porting scope is SQLite; retain the PostgreSQL reference test on disk.
 set --
 for grant_test in ./*_test.iyi; do
@@ -21,7 +21,7 @@ done
 
 grant_check_dir=$(mktemp -d /tmp/grant-iyi-check.XXXXXX)
 trap 'rm -rf "$grant_check_dir"' EXIT HUP INT TERM
-for grant_case in model_test lifecycle_test normalization_model_test uniqueness_test dependent_test binary_test locking_test timestamps_test touch_test scalars_test dynamic_validation_test around_test belongs_to_write_test schema_alter_test schema_snapshot_test schema_constraints_test schema_catalog_test schema_constraint_removal_test schema_metadata_test partial_update_test bulk_test decimal_policy_test; do
+for grant_case in model_api_test model_test lifecycle_test normalization_model_test uniqueness_test dependent_test binary_test locking_test timestamps_test touch_test scalars_test dynamic_validation_test around_test belongs_to_write_test schema_alter_test schema_snapshot_test schema_constraints_test schema_catalog_test schema_constraint_removal_test schema_metadata_test partial_update_test bulk_test decimal_policy_test; do
   grant_case_dir="$grant_check_dir/$grant_case"
   mkdir -p "$grant_case_dir/consumer"
   "$grant_compiler" build "$grant_case.iyi" --emit-iyimod "$grant_case_dir/mods" -o "$grant_case_dir/from-source"

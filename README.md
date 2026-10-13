@@ -35,9 +35,11 @@ The original ORM's full feature set has **not** been ported yet.
 - `grant/errors.iyi`: error values implementing iyi's `Error` trait.
 - `grant/query.iyi`: immutable chained predicates, lazy query execution,
   identifier validation, parameter binding, pagination, and CRUD.
-- `grant/model.iyi`: `Mapping(T)` and `Repository(T)` for typed application
-  records. Each application declares its mapping with an `impl`, rather
-  than inheriting a macro-generated ActiveRecord model.
+- `model.iyi` and `grant/model.iyi`: one-import model facade with local
+  `mapped_record`, `mapped` and `validates_presence` macros for class or struct
+  records. See [doc/MODEL-API.md](doc/MODEL-API.md).
+- `grant/record_repository.iyi`: `Mapping(T)` and `Repository(T)` contracts.
+  Applications own their sealed records and trait implementations.
 - `grant/associations.iyi`: explicit typed `BelongsTo(T)`, `HasMany(T)` and
   `HasOne(T)` readers and batch preloading with preserved scopes. See
   `doc/ASSOCIATIONS.md` for usage and limits.
@@ -113,6 +115,7 @@ iyi check grant.iyi
 iyi run sqlite_test.iyi
 iyi run query_test.iyi
 iyi run model_test.iyi
+iyi run model_api_test.iyi
 iyi run transaction_test.iyi
 iyi run nested_transaction_test.iyi
 iyi run lifecycle_test.iyi
@@ -168,7 +171,7 @@ binding, and transactions are exercised against actual in-memory databases.
 The earlier core passed the source-free artifact consumer check. After adding
 transaction sessions, an artifact layout bug was found and fixed in iyi
 compiler commit `a03fc3438`. The fixed local compiler passes the model consumer. Source builds previously passed 13 native test programs (including PostgreSQL
-connection failure). The current SQLite-only suite has 35 programs, including
+connection failure). The current SQLite-only suite has 36 programs, including
 association reads, transactional writes, dependent destruction, binary data and
 additional validators, SQLite uniqueness, model normalization, locking, timestamps,
 touch, exact scalar values, table/constraint rebuilds, schema snapshots/catalogs
@@ -234,3 +237,12 @@ Run native commands from the root and any Crystal reference commands from
 behavior in separate commits. See `UPSTREAM.md` for review tracking and
 publishing constraints. The source fork's existing Crystal branches and tags
 retain their history; no public release or default-branch change is made here.
+
+Typed read-only model fields can now be declared once with `field name : String
+= ""` and `derive field_constructor, mapped_record`; see [the model
+API](doc/MODEL-API.md). Explicit constructors remain supported.
+
+Simple models can keep `table "accounts"`, `field` declarations and
+`validates_presence "name"` in their class, then use `derive model` and
+`Account.mapping`. This generates the constructor and stateless mapping adapter;
+custom mapping implementations remain supported. See [the model API](doc/MODEL-API.md).

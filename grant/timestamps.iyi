@@ -2,7 +2,7 @@ module grant/timestamps
 
 import std/time::{Time}
 import std/text
-import grant/model::{Repository}
+import grant/record_repository::{Repository}
 import grant/query::{Query, identifier}
 import grant/value::{Attributes}
 import grant/lifecycle::{Callback, Event, WriteContext}

@@ -284,12 +284,28 @@
     {
       "path": "grant/columns.cr",
       "sha256": "eebf80691fb9caf87755697c0758ded0ab1e99c5fbcb1750034bed4b86d6c2bb",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/model.iyi",
+        "grant/record_repository.iyi"
+      ],
+      "native_parity_tests": [
+        "model_api_test.iyi"
+      ],
+      "porting_notes": "doc/MODEL-API.md (field/table/presence declarations and model derive; original column/inheritance DSL remains partial)"
     },
     {
       "path": "grant/columns_helpers.cr",
       "sha256": "2c598bfd981e4bd83bd7009eeb685d3db7dad3a7cc1000cc76596e81df6631ab",
-      "status": "reference_only"
+      "status": "reference_only",
+      "partial_native_modules": [
+        "grant/model.iyi",
+        "grant/record_repository.iyi"
+      ],
+      "native_parity_tests": [
+        "model_api_test.iyi"
+      ],
+      "porting_notes": "doc/MODEL-API.md (field/table/presence declarations and model derive; original column/inheritance DSL remains partial)"
     },
     {
       "path": "grant/commit_callbacks.cr",
@@ -1381,6 +1397,7 @@
     "grant/model.iyi",
     "grant/normalization.iyi",
     "grant/query.iyi",
+    "grant/record_repository.iyi",
     "grant/scalars.iyi",
     "grant/schema.iyi",
     "grant/schema_alter.iyi",
@@ -1397,7 +1414,8 @@
     "grant/unit_of_work.iyi",
     "grant/validation.iyi",
     "grant/validators.iyi",
-    "grant/value.iyi"
+    "grant/value.iyi",
+    "model.iyi"
   ],
   "note": "Native functionality is tracked in PORTING.md; reference_only means this original file has not been fully converted."
 }

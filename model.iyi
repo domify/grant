@@ -1,0 +1,4 @@
+module model
+
+# Package-root entry for `import grant/model::*`.
+pub import grant/model
