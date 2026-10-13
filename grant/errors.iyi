@@ -82,3 +82,25 @@ impl Error for TransactionIsolationError
     @message
   end
 end
+
+
+pub class NotOpenError < ErrorBase
+  def initialize(message : String = "No open transaction")
+    super(message)
+  end
+end
+
+impl Error for NotOpenError
+  def message : String
+    @message
+  end
+end
+
+pub class InvalidSavepointNameError < ErrorBase
+end
+
+impl Error for InvalidSavepointNameError
+  def message : String
+    @message
+  end
+end

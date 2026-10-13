@@ -185,7 +185,7 @@
   target: grant_transaction_handle_test.iyi
   area: transactions
   examples: 15
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/isolation_sql_spec.cr
   target: grant_transaction_isolation_sql_test.iyi
   area: transactions

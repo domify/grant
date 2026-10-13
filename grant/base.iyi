@@ -105,6 +105,10 @@ pub abstract class Base
       ::Grant::Base::Base.current_transaction_connection(transaction_adapter) || transaction_adapter
     end
 
+    def self.connection : ::Grant::Adapter::Sqlite::Connection
+      adapter
+    end
+
     def self.primary_name : String
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}

@@ -1,7 +1,11 @@
 module grant/transaction
 
+import std/indexable
+import std/text
+import std/enumerable
+
 import grant/adapter/sqlite::{Connection, Mutation}
-import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError}
+import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError, NotOpenError, InvalidSavepointNameError}
 pub import grant/errors
 
 pub enum IsolationLevel
@@ -43,6 +47,13 @@ pub class TransactionState
   getter enclosing : TransactionState?
   getter pending_callbacks = [] of NamedTuple(on_commit: Proc(Nil), on_rollback: Proc(Nil))
   property open : Bool = true
+  property manual : Bool = false
+  getter manual_savepoints = [] of Handle
+  @handle : Handle? = nil
+
+  def handle : Handle
+    @handle ||= Handle.new(self)
+  end
   @@stack = [] of TransactionState
   @@statement_observer : Proc(String, Nil)? = nil
 
@@ -107,15 +118,45 @@ pub class TransactionState
   end
 end
 
+pub struct SavepointMarker
+  getter name : String
+  getter marks : NamedTuple(callbacks: Int32, records: Int32)
+
+  def initialize(@name : String, @marks : NamedTuple(callbacks: Int32, records: Int32))
+  end
+end
+
 pub class Handle
   getter state : TransactionState?
+
+  @savepoint : SavepointMarker? = nil
+  @settled : Bool = false
 
   def initialize(@state : TransactionState?)
   end
 
+  def initialize(@state : TransactionState, @savepoint : SavepointMarker)
+  end
+
+  def savepoint? : SavepointMarker?
+    @savepoint
+  end
+
+  def settle : Nil
+    @settled = true
+  end
+
+  def commit : Nil | DatabaseError | NotOpenError
+    ::Grant::Transaction.commit_manual(self)
+  end
+
+  def rollback : Nil | DatabaseError | NotOpenError
+    ::Grant::Transaction.rollback_manual(self)
+  end
+
   def open? : Bool
     state = @state
-    !state.nil? && state.open
+    !state.nil? && state.open && !@settled
   end
 
   def closed? : Bool
@@ -152,7 +193,8 @@ pub class Handle
 end
 
 pub def current_transaction(adapter : Connection) : Handle
-  Handle.new(TransactionState.current_state_for?(adapter))
+  state = TransactionState.current_state_for?(adapter)
+  state.nil? ? Handle.new(nil) : state.handle
 end
 
 pub def in_explicit_transaction? : Bool
@@ -169,7 +211,7 @@ pub def enlist_record_rollback_action(connection : Connection, &block : -> Nil) 
   state.list_of_record_rollback_actions << block unless state.nil?
 end
 
-pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+pub def run(adapter : Connection, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
   enclosing = TransactionState.current_state_for?(adapter)
   return TransactionIsolationError.new if enclosing && options.isolation && !options.independent
   if enclosing && !options.requires_new && !options.independent && enclosing.options.joinable
@@ -183,7 +225,7 @@ pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | 
 
   connection = options.independent ? adapter.open_independent! : (enclosing.nil? ? adapter : enclosing.connection)
   outer = !connection.in_transaction?
-  savepoint = outer || enclosing.nil? ? "" : enclosing.next_savepoint_name
+  savepoint = outer || enclosing.nil? ? "" : (savepoint_name || enclosing.next_savepoint_name)
   begun = execute_control(connection, outer ? begin_statements(adapter, options)[0] : "SAVEPOINT #{savepoint}")
   if begun.is_a?(DatabaseError)
     connection.close if options.independent
@@ -235,11 +277,31 @@ end
 # Native iyi cannot reopen Connection; a trait defined here preserves
 # the connection-level public transaction API.
 pub trait ConnectionTransactions
-  abstract def transaction(options : Options = Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+  abstract def begin_transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new) : ::Grant::Transaction::Handle | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
+  abstract def commit : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
+  abstract def rollback : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
+  abstract def savepoint(name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Errors::NotOpenError | ::Grant::Errors::InvalidSavepointNameError forall T
+  abstract def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
 end
 
 impl ConnectionTransactions for Connection
-  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+  def begin_transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new) : ::Grant::Transaction::Handle | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
+    ::Grant::Transaction.begin_manual(self, options)
+  end
+
+  def commit : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
+    ::Grant::Transaction.commit_manual(::Grant::Transaction.innermost_manual_handle(self)!)
+  end
+
+  def rollback : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
+    ::Grant::Transaction.rollback_manual(::Grant::Transaction.innermost_manual_handle(self)!)
+  end
+
+  def savepoint(name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Errors::NotOpenError | ::Grant::Errors::InvalidSavepointNameError forall T
+    ::Grant::Transaction.with_savepoint(self, name) { yield }
+  end
+
+  def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
     run(self, options) { yield }
   end
 end
@@ -257,4 +319,116 @@ end
 private def execute_control(connection : Connection, sql : String) : Mutation | DatabaseError
   TransactionState.log_statement(sql)
   connection.execute(sql)
+end
+
+# Manual transactions retain the state until their handle is settled.
+pub def begin_manual(adapter : Connection, options : Options) : Handle | DatabaseError | TransactionIsolationError
+  state = TransactionState.current_state_for?(adapter)
+  unless state.nil?
+    return TransactionIsolationError.new if options.isolation
+    name = state.next_savepoint_name
+    marks = {callbacks: state.pending_callbacks.size, records: state.list_of_record_rollback_actions.size}
+    execute_control(state.connection, "SAVEPOINT #{name}")!
+    handle = Handle.new(state, SavepointMarker.new(name, marks))
+    state.manual_savepoints << handle
+    return handle
+  end
+
+  execute_control(adapter, begin_statements(adapter, options)[0])!
+  state = TransactionState.new(adapter, adapter, options)
+  state.manual = true
+  TransactionState.push(state)
+  state.handle
+end
+
+pub def commit_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
+  state = handle.state
+  return NotOpenError.new unless !state.nil? && handle.open?
+  marker = handle.savepoint?
+  unless marker.nil?
+    execute_control(state.connection, "RELEASE SAVEPOINT #{marker.name}")!
+    handle.settle
+    state.manual_savepoints.delete(handle)
+    return nil
+  end
+  return NotOpenError.new("Transaction was not opened with begin_transaction") unless state.manual
+  result = execute_control(state.connection, "COMMIT")
+  if result.is_a?(DatabaseError)
+    rollback_manual(handle)
+    return result
+  end
+  TransactionState.pop
+  state.open = false
+  release_manual(state)
+  state.pending_callbacks.each { |callback| callback[:on_commit].call }
+  nil
+end
+
+pub def rollback_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
+  state = handle.state
+  return NotOpenError.new unless !state.nil? && handle.open?
+  marker = handle.savepoint?
+  unless marker.nil?
+    execute_control(state.connection, "ROLLBACK TO SAVEPOINT #{marker.name}")!
+    while state.list_of_record_rollback_actions.size > marker.marks[:records]
+      state.list_of_record_rollback_actions.pop.call
+    end
+    callbacks = [] of NamedTuple(on_commit: Proc(Nil), on_rollback: Proc(Nil))
+    index = marker.marks[:callbacks]
+    while index < state.pending_callbacks.size
+      callbacks << state.pending_callbacks[index]
+      index += 1
+    end
+    while state.pending_callbacks.size > marker.marks[:callbacks]
+      state.pending_callbacks.pop
+    end
+    handle.settle
+    state.manual_savepoints.delete(handle)
+    callbacks.each { |callback| callback[:on_rollback].call }
+    return nil
+  end
+  return NotOpenError.new("Transaction was not opened with begin_transaction") unless state.manual
+  execute_control(state.connection, "ROLLBACK")!
+  TransactionState.pop
+  state.open = false
+  restore_records(state)
+  release_manual(state)
+  state.pending_callbacks.each { |callback| callback[:on_rollback].call }
+  nil
+end
+
+private def release_manual(state : TransactionState) : Nil
+  state.manual_savepoints.each { |handle| handle.settle }
+  state.manual_savepoints.clear
+end
+
+pub def with_savepoint(adapter : Connection, name : String?, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | NotOpenError | InvalidSavepointNameError forall T
+  state = TransactionState.current_state_for?(adapter)
+  return NotOpenError.new("Savepoints require an open transaction") if state.nil?
+  unless name.nil?
+    return InvalidSavepointNameError.new("Invalid savepoint name: #{name.inspect}") unless valid_savepoint_name?(name)
+  end
+  run(adapter, Options.new(requires_new: true), name) { yield }
+end
+
+private def valid_savepoint_name?(name : String) : Bool
+  return false if name.empty?
+  index = 0
+  name.each_byte do |byte|
+    letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 95
+    digit = byte >= 48 && byte <= 57
+    return false unless letter || (index > 0 && digit)
+    index += 1
+  end
+  true
+end
+
+
+pub def innermost_manual_handle(adapter : Connection) : Handle | NotOpenError
+  state = TransactionState.current_state_for?(adapter)
+  return NotOpenError.new if state.nil?
+  nested = state.manual_savepoints.last?
+  return nested unless nested.nil?
+  return NotOpenError.new("The open transaction was not started with begin_transaction") unless state.manual
+  state.handle
 end
