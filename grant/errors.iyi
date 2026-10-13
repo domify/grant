@@ -70,3 +70,15 @@ impl Error for ErrorBase
     @message
   end
 end
+
+pub class TransactionIsolationError < ErrorBase
+  def initialize(message : String = "Cannot set the isolation level of a nested transaction; it is fixed by the outermost transaction")
+    super(message)
+  end
+end
+
+impl Error for TransactionIsolationError
+  def message : String
+    @message
+  end
+end

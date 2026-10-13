@@ -1,7 +1,7 @@
 module grant/transaction
 
-import grant/adapter/sqlite::{Connection}
-import grant/errors::{DatabaseError, Rollback}
+import grant/adapter/sqlite::{Connection, Mutation}
+import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError}
 pub import grant/errors
 
 pub enum IsolationLevel
@@ -10,13 +10,13 @@ pub enum IsolationLevel
   RepeatableRead
   Serializable
 
-  def to_sql : String
+  def to_sql : String | ErrorBase
     case self
     when ReadUncommitted then "READ UNCOMMITTED"
     when ReadCommitted then "READ COMMITTED"
     when RepeatableRead then "REPEATABLE READ"
     when Serializable then "SERIALIZABLE"
-    else ""
+    else ErrorBase.new("Unknown isolation level: #{self}")
     end
   end
 end
@@ -40,8 +40,22 @@ pub class TransactionState
   getter options : Options
   getter list_of_record_rollback_actions = [] of Proc(Nil)
   @@stack = [] of TransactionState
+  @@statement_observer : Proc(String, Nil)? = nil
 
   def initialize(@adapter : Connection, @connection : Connection, @options : Options)
+  end
+
+  def self.statement_observer : Proc(String, Nil)?
+    @@statement_observer
+  end
+
+  def self.statement_observer=(observer : Proc(String, Nil)?) : Nil
+    @@statement_observer = observer
+  end
+
+  def self.log_statement(sql : String) : Nil
+    observer = @@statement_observer
+    observer.call(sql) unless observer.nil?
   end
 
   def self.push(state : TransactionState) : Nil
@@ -86,8 +100,9 @@ pub def enlist_record_rollback_action(&block : -> Nil) : Nil
   state.list_of_record_rollback_actions << block unless state.nil?
 end
 
-pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | DatabaseError forall T
+pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
   enclosing = TransactionState.current_state_for?(adapter)
+  return TransactionIsolationError.new if enclosing && options.isolation && !options.independent
   if enclosing && !options.requires_new && !options.independent && enclosing.options.joinable
     # Joined blocks swallow Rollback without undoing the enclosing writes.
     TransactionState.push(enclosing)
@@ -100,7 +115,7 @@ pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | 
   connection = options.independent ? adapter.open_independent! : (enclosing.nil? ? adapter : enclosing.connection)
   outer = !connection.in_transaction?
   savepoint = connection.savepoint_name
-  begun = connection.execute(outer ? "BEGIN" : "SAVEPOINT #{savepoint}")
+  begun = execute_control(connection, outer ? begin_statements(adapter, options)[0] : "SAVEPOINT #{savepoint}")
   if begun.is_a?(DatabaseError)
     connection.close if options.independent
     return begun
@@ -110,18 +125,18 @@ pub def run(adapter : Connection, options : Options, &block : -> T) : T | Nil | 
   result = yield
   TransactionState.pop
   if result.is_a?(Error)
-    connection.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
-    connection.execute("RELEASE SAVEPOINT #{savepoint}")! unless outer
+    execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
+    execute_control(connection, "RELEASE SAVEPOINT #{savepoint}")! unless outer
     restore_records(state)
     connection.close! if options.independent
     return nil if result.is_a?(Rollback)
     return result
   end
 
-  committed = connection.execute(outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}")
+  committed = execute_control(connection, outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}")
   if committed.is_a?(DatabaseError)
-    connection.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")
-    connection.execute("RELEASE SAVEPOINT #{savepoint}") unless outer
+    execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")
+    execute_control(connection, "RELEASE SAVEPOINT #{savepoint}") unless outer
     restore_records(state)
     connection.close if options.independent
     return committed
@@ -146,11 +161,26 @@ end
 # Native iyi cannot reopen Connection; a trait defined here preserves
 # the connection-level public transaction API.
 pub trait ConnectionTransactions
-  abstract def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+  abstract def transaction(options : Options = Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
 end
 
 impl ConnectionTransactions for Connection
-  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
     run(self, options) { yield }
   end
+end
+
+# SQLite branch of the upstream adapter-specific control statement builder.
+pub def begin_statements(adapter : Connection, options : Options) : Array(String)
+  case options.isolation
+  when nil then ["BEGIN"]
+  when IsolationLevel::Serializable then ["BEGIN EXCLUSIVE"]
+  when IsolationLevel::ReadUncommitted then ["BEGIN DEFERRED"]
+  else ["BEGIN IMMEDIATE"]
+  end
+end
+
+private def execute_control(connection : Connection, sql : String) : Mutation | DatabaseError
+  TransactionState.log_statement(sql)
+  connection.execute(sql)
 end

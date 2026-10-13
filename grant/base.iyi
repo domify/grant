@@ -7,6 +7,7 @@ pub import grant/connections
 import grant/connections::{Connections}
 pub import grant/transaction
 import grant/transaction::{Options}
+import grant/errors::{TransactionIsolationError}
 pub import grant/errors
 import grant/errors::{DatabaseError, RecordNotFound, RecordNotSaved, Rollback}
 
@@ -229,7 +230,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError forall T
+    def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -237,8 +238,8 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction(requires_new : Bool = false, independent : Bool = false, joinable : Bool = true, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError forall T
-      transaction(::Grant::Transaction::Options.new(requires_new: requires_new, independent: independent, joinable: joinable)) { yield }
+    def self.transaction(isolation : ::Grant::Transaction::IsolationLevel? = nil, readonly : Bool = false, requires_new : Bool = false, independent : Bool = false, joinable : Bool = true, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+      transaction(::Grant::Transaction::Options.new(isolation: isolation, readonly: readonly, requires_new: requires_new, independent: independent, joinable: joinable)) { yield }
     end
 
     def self.transaction_open? : Bool
@@ -333,7 +334,7 @@ pub abstract class Base
   abstract def __adapter : Connection
   abstract def __table_name : String
 
-  def self.run_transaction(adapter : Connection, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+  def self.run_transaction(adapter : Connection, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
     ::Grant::Transaction.run(adapter, options) { yield }
   end
 
@@ -345,7 +346,7 @@ pub abstract class Base
     ::Grant::Transaction.in_explicit_transaction?
   end
 
-  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError forall T
+  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
     Base.run_transaction(__adapter, options) { yield }
   end
 

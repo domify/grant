@@ -190,7 +190,7 @@
   target: grant_transaction_isolation_sql_test.iyi
   area: transactions
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/replica_routing_spec.cr
   target: grant_transaction_replica_routing_test.iyi
   area: transactions
