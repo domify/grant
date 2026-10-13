@@ -70,7 +70,7 @@
   target: grant_connection_w6_reconnect_idle_test.iyi
   area: transactions
   examples: 9
-  status: todo
+  status: done
   children:
   - target: grant_connection_w6_reconnect_idle_policy_test.iyi
     status: done
@@ -78,7 +78,7 @@
     - T-1d4298166d
     - T-ea47477367
   - target: grant_connection_w6_reconnect_idle_test.iyi
-    status: todo
+    status: done
     examples:
     - T-f50077862d
     - T-17f741c8ad

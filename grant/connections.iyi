@@ -1,21 +1,39 @@
 module grant/connections
 
 import grant/adapter/sqlite::{Connection}
+import grant/adapter/base::{Base}
 import grant/errors::{DatabaseError}
 
 # Grant::Connections: named adapters registered once, looked up by models.
 pub class Connections
+  @@adapters = {} of String => Base
   @@registry = {} of String => Connection
 
   def self.register(name : String, connection : Connection) : Nil
+    @@adapters.delete(name)
     @@registry[name] = connection
   end
 
+  def self.register(name : String, adapter : Base) : Nil
+    @@registry.delete(name)
+    @@adapters[name] = adapter
+  end
+
+  def self.unregister(name : String) : Nil
+    @@registry.delete(name)
+    @@adapters.delete(name)
+    nil
+  end
+
   def self.[](name : String) : Connection
+    adapter = @@adapters[name]?
+    return adapter.checkout.or_panic unless adapter.nil?
     @@registry[name]
   end
 
   def self.[]?(name : String) : Connection?
+    adapter = @@adapters[name]?
+    return adapter.checkout.or_panic unless adapter.nil?
     @@registry[name]?
   end
 end

@@ -3,7 +3,7 @@ module grant/adapter/base
 import std/time::{Span}
 import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost}
 import grant/pool_stat::{PoolStat}
-import grant/adapter/pool_support::{backoff, idempotent_read?}
+import grant/adapter/pool_support::{backoff, idempotent_read?, ticks}
 import grant/adapter/sqlite_connection::{Connection}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError}
@@ -88,6 +88,32 @@ pub abstract class Base
     end
   end
 
+  protected def verify_idle_connection(connection : Connection) : Nil | ErrorBase
+    connection.scalar("SELECT 1")!
+    nil
+  end
+
+  private def usable_after_idle?(connection : Connection) : Bool | ErrorBase
+    threshold = @verify_idle_after
+    return true if threshold.nil? || connection.in_transaction? || @in_use > 0
+    now = ticks
+    return true if now - connection.grant_last_used_ticks < threshold.total_milliseconds
+    result = verify_idle_connection(connection)
+    if result.is_a?(::Error)
+      database!.pool.discard(connection, database_path)!
+      false
+    else
+      connection.grant_last_used_ticks = now
+      true
+    end
+  end
+
+  @in_use : Int32 = 0
+
+  def checkout : Connection | ErrorBase | Cancelled
+    checkout_connection
+  end
+
   private def checkout_connection : Connection | ErrorBase | Cancelled
     attempt = 0
     @waiting_checkouts += 1
@@ -108,8 +134,16 @@ pub abstract class Base
         @waiting_checkouts -= 1
         return translate_exception(opened)
       else
-        @waiting_checkouts -= 1
-        return opened!.checkout
+        connection = opened!.checkout
+        usable = usable_after_idle?(connection)
+        if usable.is_a?(ErrorBase)
+          @waiting_checkouts -= 1
+          return usable
+        end
+        if usable
+          @waiting_checkouts -= 1
+          return connection
+        end
       end
     end
   end
@@ -121,7 +155,10 @@ pub abstract class Base
       connection = checkout_connection!
       # The upstream transaction route never enters its replaying pool route.
       lost_retries = 0 if connection.in_transaction?
+      @in_use += 1
       result = yield connection
+      @in_use -= 1
+      connection.grant_last_used_ticks = ticks
       if result.is_a?(ConnectionLost)
         if lost_retries == 0
           return ConnectionFailed.new("Connection to #{name} was lost: #{result.message}", result)

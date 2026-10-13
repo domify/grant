@@ -1,6 +1,7 @@
 module grant/adapter/sqlite_connection
 
 import grant/cstring::{cstring}
+import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
 import grant/error_taxonomy::{InvalidForeignKey}
 
@@ -51,6 +52,7 @@ pub class Connection
   @savepoint_sequence : UInt64
   getter last_statement : String?
   getter path : String
+  property grant_last_used_ticks : Int64 = ticks
   property query_observer : Proc(String, Nil)? = nil
 
   def initialize(@handle : Void*, @path : String = ":memory:")
@@ -113,6 +115,12 @@ pub class Connection
   end
 
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    result = execute_statement(sql, parameters)
+    @grant_last_used_ticks = ticks
+    result
+  end
+
+  private def execute_statement(sql : String, parameters : Array(Value)) : Mutation | DatabaseError
     statement = prepare(sql, parameters)!
     code = SQLite.step(statement)
     if code != 101
@@ -126,6 +134,12 @@ pub class Connection
   end
 
   def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+    result = query_statement(sql, parameters)
+    @grant_last_used_ticks = ticks
+    result
+  end
+
+  private def query_statement(sql : String, parameters : Array(Value)) : Array(Row) | DatabaseError
     statement = prepare(sql, parameters)!
     rows = [] of Row
     code = SQLite.step(statement)

@@ -1,0 +1,113 @@
+import std/file::{File}
+import std/time::{Span}
+import grant/base::{Base}
+import grant/adapter/sqlite::{Sqlite, Connection}
+import grant/connection_registry::{ConnectionRegistry}
+import grant/database::{ConnectionLost}
+import grant/errors::{ErrorBase}
+
+class W6ProbeSqlite < Sqlite
+  property probes : Int32 = 0
+  property dead_probes : Int32 = 0
+
+  protected def verify_idle_connection(connection : Connection) : Nil | ErrorBase
+    @probes += 1
+    if @dead_probes > 0
+      @dead_probes -= 1
+      return ConnectionLost.new(connection)
+    end
+    super
+  end
+end
+
+class W6IdleThing < Base
+  connection "w6_idle"
+  table w6_idle_things
+  column id : Int64, primary: true
+  column label : String?
+end
+
+private def w6_idle_adapter(url : String, verify_idle_after : Span?) : W6ProbeSqlite
+  ConnectionRegistry.establish_connection(database: "w6_idle", adapter: W6ProbeSqlite, url: url,
+    role: :primary, pool_size: 3, initial_pool_size: 1, verify_idle_after: verify_idle_after).or_panic
+  ConnectionRegistry.get_adapter("w6_idle", :primary).as(W6ProbeSqlite)
+end
+
+private def w6_kill_idle_connections(adapter : W6ProbeSqlite) : Nil
+  adapter.dead_probes = 1
+end
+
+private def w6_probes(adapter : W6ProbeSqlite) : Int32
+  adapter.probes
+end
+
+path = File.tempfile("w6_idle_behavior", ".sqlite3")
+url = "sqlite3:#{path}"
+adapter = w6_idle_adapter(url, nil)
+W6IdleThing.migrator.drop_and_create.or_panic
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: replaces a dead idle connection with one probe instead of failing the write
+adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
+W6IdleThing.create_strict(label: "before").or_panic
+sleep(40).or_panic
+w6_kill_idle_connections(adapter)
+assert W6IdleThing.create_strict(label: "after the restart").or_panic.persisted?
+assert W6IdleThing.where(label: "after the restart").or_panic.size == 1
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: starts a transaction on a connection that went stale while idle
+adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
+W6IdleThing.create_strict(label: "warm").or_panic
+sleep(40).or_panic
+w6_kill_idle_connections(adapter)
+W6IdleThing.transaction { W6IdleThing.create_strict(label: "inside a transaction") }.or_panic
+assert W6IdleThing.where(label: "inside a transaction").or_panic.size == 1
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: reads through a dead idle connection
+adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
+W6IdleThing.create_strict(label: "readable").or_panic
+sleep(40).or_panic
+w6_kill_idle_connections(adapter)
+assert W6IdleThing.where(label: "readable").or_panic.size == 1
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: keeps the pool within its size when it discards a dead connection
+adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
+W6IdleThing.create_strict(label: "pool").or_panic
+sleep(40).or_panic
+w6_kill_idle_connections(adapter)
+W6IdleThing.count.or_panic
+assert adapter.pool_stat.connections <= 3
+assert adapter.pool_stat.busy == 0
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: never probes connections that are in use
+adapter = w6_idle_adapter(url, Span.seconds(10_i64))
+statements = [] of String
+adapter.database.or_panic.checkout.query_observer = ->(sql : String) { statements << sql; nil }
+200.times { W6IdleThing.count.or_panic }
+assert w6_probes(adapter) == 0
+assert statements.select { |sql| sql.strip.upcase.starts_with?("SELECT 1") }.size == 0
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: probes once after the idle threshold, not on every checkout
+adapter = w6_idle_adapter(url, Span.milliseconds(30_i64))
+W6IdleThing.count.or_panic
+sleep(60).or_panic
+statements = [] of String
+adapter.database.or_panic.checkout.query_observer = ->(sql : String) { statements << sql; nil }
+50.times { W6IdleThing.count.or_panic }
+probes = statements.select { |sql| sql.strip.upcase.starts_with?("SELECT 1") }.size
+assert w6_probes(adapter) == 1
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+
+# it: rebuilds the pool on reconnect!
+adapter = w6_idle_adapter(url, Span.milliseconds(20_i64))
+W6IdleThing.create_strict(label: "first").or_panic
+adapter.reconnect_strict.or_panic
+assert adapter.connected?
+assert W6IdleThing.where(label: "first").or_panic.size == 1
+ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+File.delete(path)

@@ -67,6 +67,15 @@ pub class Pool
     @connections.first
   end
 
+  def discard(connection : Connection, path : String) : Nil | DatabaseError
+    connection.close!
+    @connections.delete(connection)
+    replacement = Connection.open(path)!
+    replacement.query_observer = connection.query_observer
+    @connections << replacement
+    nil
+  end
+
   def close : Nil | DatabaseError
     @connections.each { |connection| connection.close! }
     nil

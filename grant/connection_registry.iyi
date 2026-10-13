@@ -2,6 +2,7 @@ module grant/connection_registry
 
 import std/time::{Span}
 import grant/adapter/base::{Base}
+import grant/connections::{Connections}
 import grant/errors::{ErrorBase}
 
 # The eager SQLite registration slice of Grant::ConnectionRegistry.
@@ -31,6 +32,7 @@ pub class ConnectionRegistry
     instance.verify_idle_after = verify_idle_after
     @@specifications[key] = ConnectionSpec.new(database, url, role, verify_idle_after)
     @@adapters[key] = instance
+    Connections.register(database, instance) if role == :primary
     previous.disconnect_strict! unless previous.nil?
     nil
   end
@@ -48,6 +50,7 @@ pub class ConnectionRegistry
     spec = @@specifications.delete(key)
     removed = @@adapters.delete(key)
     return false if spec.nil? && removed.nil?
+    Connections.unregister(database) if role == :primary
     removed.disconnect_strict! unless removed.nil?
     true
   end
