@@ -99,11 +99,15 @@ pub abstract class Base
 
   macro after_commit(method = nil, on = nil, &block)
     @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
-    def __callback_commit_{{ @type.methods.size }} : Nil
+    def __callback_commit_{{ @type.methods.size }} : Nil | ::Grant::Error::ErrorBase
       {% if block %}
-        {{ block.body }}
+        %result = begin
+          {{ block.body }}
+        end
+        return %result if %result.is_a?(::Error)
       {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Error)
       {% end %}
       nil
     end
@@ -123,11 +127,15 @@ pub abstract class Base
 
   macro after_create_commit(method = nil, on = :create, &block)
     @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
-    def __callback_commit_{{ @type.methods.size }} : Nil
+    def __callback_commit_{{ @type.methods.size }} : Nil | ::Grant::Error::ErrorBase
       {% if block %}
-        {{ block.body }}
+        %result = begin
+          {{ block.body }}
+        end
+        return %result if %result.is_a?(::Error)
       {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Error)
       {% end %}
       nil
     end
@@ -135,11 +143,15 @@ pub abstract class Base
 
   macro after_update_commit(method = nil, on = :update, &block)
     @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
-    def __callback_commit_{{ @type.methods.size }} : Nil
+    def __callback_commit_{{ @type.methods.size }} : Nil | ::Grant::Error::ErrorBase
       {% if block %}
-        {{ block.body }}
+        %result = begin
+          {{ block.body }}
+        end
+        return %result if %result.is_a?(::Error)
       {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Error)
       {% end %}
       nil
     end
@@ -147,11 +159,15 @@ pub abstract class Base
 
   macro after_destroy_commit(method = nil, on = :destroy, &block)
     @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
-    def __callback_commit_{{ @type.methods.size }} : Nil
+    def __callback_commit_{{ @type.methods.size }} : Nil | ::Grant::Error::ErrorBase
       {% if block %}
-        {{ block.body }}
+        %result = begin
+          {{ block.body }}
+        end
+        return %result if %result.is_a?(::Error)
       {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Error)
       {% end %}
       nil
     end
@@ -159,11 +175,15 @@ pub abstract class Base
 
   macro after_save_commit(method = nil, on = [:create, :update], &block)
     @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
-    def __callback_commit_{{ @type.methods.size }} : Nil
+    def __callback_commit_{{ @type.methods.size }} : Nil | ::Grant::Error::ErrorBase
       {% if block %}
-        {{ block.body }}
+        %result = begin
+          {{ block.body }}
+        end
+        return %result if %result.is_a?(::Error)
       {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Error)
       {% end %}
       nil
     end
@@ -212,6 +232,18 @@ pub abstract class Base
       {% else %}
         %result = {{ method.id }}
         return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro around_save(method = nil, &block)
+    def __callback_around_save_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      {% if block %}
+        {{ block.args[0] }} = continuation
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}(continuation)
       {% end %}
       nil
     end
@@ -354,23 +386,39 @@ pub abstract class Base
       save
     end
 
-    def update_strict(**args) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
+    def update_strict(**args) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase
       assign_attributes(args)
       save_strict
     end
 
-    def __run_commit_callbacks(operation : Symbol) : Nil
+    def __run_around_save(&action : -> T) : T | ::Grant::Errors::RecordNotSaved forall T
+      result = ::Grant::Errors::RecordNotSaved.new(__table_name).as(T | ::Grant::Errors::RecordNotSaved)
+      continuation = -> { result = action.call; nil }
+      \{% begin %}
+      \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_around_save_") } %}
+      \{% for i in (0...callbacks.size) %}
+        \{% m = callbacks[callbacks.size - 1 - i] %}
+        previous_\{{ m.name }} = continuation
+        continuation = -> { \{{ m.name }}(previous_\{{ m.name }}) }
+      \{% end %}
+      \{% end %}
+      continuation.call
+      result
+    end
+
+    def __run_commit_callbacks(operation : Symbol) : Nil | ::Grant::Error::ErrorBase
       \{% begin %}
       \{% for priority in [true, false] %}
       \{% for m in @type.methods.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:event] == :commit && (m.annotation(::Grant::Callbacks::Callback)[:priority] == true) == priority } %}
         \{% on = m.annotation(::Grant::Callbacks::Callback)[:on] %}
         \{% if on == nil %}
-          \{{ m.name }}
+          %result = \{{ m.name }}
         \{% elsif on.is_a?(ArrayLiteral) %}
-          \{{ m.name }} if \{{ on }}.includes?(operation)
+          %result = \{{ m.name }} if \{{ on }}.includes?(operation)
         \{% else %}
-          \{{ m.name }} if operation == \{{ on }}
+          %result = \{{ m.name }} if operation == \{{ on }}
         \{% end %}
+        return %result if %result.is_a?(::Error)
       \{% end %}
       \{% end %}
       nil
@@ -560,7 +608,7 @@ pub abstract class Base
     end
 
     # Crystal `create!`: returns the error instead of raising it.
-    def self.create_strict(**args) : {{ @type }} | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
+    def self.create_strict(**args) : {{ @type }} | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -609,7 +657,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+    def self.transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -617,7 +665,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction(isolation : ::Grant::Transaction::IsolationLevel? = nil, readonly : Bool = false, requires_new : Bool = false, independent : Bool = false, joinable : Bool = true, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+    def self.transaction(isolation : ::Grant::Transaction::IsolationLevel? = nil, readonly : Bool = false, requires_new : Bool = false, independent : Bool = false, joinable : Bool = true, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
       transaction(::Grant::Transaction::Options.new(isolation: isolation, readonly: readonly, requires_new: requires_new, independent: independent, joinable: joinable)) { yield }
     end
 
@@ -838,13 +886,13 @@ pub abstract class Base
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
   abstract def __column_values : Array(Value)
-  abstract def __run_commit_callbacks(operation : Symbol) : Nil
+  abstract def __run_commit_callbacks(operation : Symbol) : Nil | ::Grant::Error::ErrorBase
   abstract def __run_rollback_callbacks(operation : Symbol) : Nil
   abstract def __transaction_adapter : Connection
   abstract def __adapter : Connection
   abstract def __table_name : String
 
-  def self.run_transaction(adapter : Connection, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
+  def self.run_transaction(adapter : Connection, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase forall T
     ::Grant::Transaction.run(adapter, options) { yield }
   end
 
@@ -856,7 +904,7 @@ pub abstract class Base
     ::Grant::Transaction.in_explicit_transaction?
   end
 
-  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
+  def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase forall T
     Base.run_transaction(__transaction_adapter, options) { yield }
   end
 
@@ -893,10 +941,10 @@ pub abstract class Base
   end
 
   # Crystal `save!`.
-  def save_strict(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError
+  def save_strict(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
     operation = @new_record ? :create : :update
     result = Base.run_transaction(__transaction_adapter, Options.new(requires_new: true)) do
-      saved = __save(skip_timestamps: skip_timestamps)
+      saved = __run_around_save { __save(skip_timestamps: skip_timestamps) }
       if saved.is_a?(::Error)
         ::Grant::Transaction.enqueue_pending_callback(-> { nil }, -> { __run_rollback_callbacks(operation) })
       end
@@ -962,11 +1010,11 @@ pub abstract class Base
       self.after_update!
     end
     self.after_save!
-    queue_commit_callbacks(operation)
+    queue_commit_callbacks(operation)!
     true
   end
 
-  def queue_commit_callbacks(operation : Symbol) : Nil
+  def queue_commit_callbacks(operation : Symbol) : Nil | ::Grant::Error::ErrorBase
     ::Grant::Transaction.queue_record_callbacks(__adapter, object_id, operation, ->(op : Symbol) { __run_commit_callbacks(op) }, ->(op : Symbol) { __run_rollback_callbacks(op) })
   end
 

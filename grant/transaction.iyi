@@ -47,7 +47,7 @@ pub class TransactionState
   getter list_of_record_rollback_actions = [] of Proc(Nil)
   getter savepoint_counter : Int32 = 0
   getter enclosing : TransactionState?
-  getter pending_callbacks = [] of NamedTuple(on_commit: Proc(Nil), on_rollback: Proc(Nil))
+  getter pending_callbacks = [] of NamedTuple(on_commit: Proc(Nil | ::Grant::Error::ErrorBase), on_rollback: Proc(Nil))
   getter record_callbacks = {} of UInt64 => CommitCallback
   property open : Bool = true
   property manual : Bool = false
@@ -163,7 +163,7 @@ pub class Handle
     @settled = true
   end
 
-  def commit : Nil | DatabaseError | NotOpenError
+  def commit : Nil | ::Grant::Error::ErrorBase | DatabaseError | NotOpenError
     ::Grant::Transaction.commit_manual(self)
   end
 
@@ -193,7 +193,7 @@ pub class Handle
   def after_commit(&block : -> Nil) : Nil
     state = @state
     if !state.nil? && open?
-      state.pending_callbacks << {on_commit: block, on_rollback: -> { nil }}
+      state.pending_callbacks << {on_commit: -> { block.call.as(Nil | ErrorBase) }, on_rollback: -> { nil }}
     else
       block.call
     end
@@ -203,7 +203,7 @@ pub class Handle
   def after_rollback(&block : -> Nil) : Nil
     state = @state
     if !state.nil? && open?
-      state.pending_callbacks << {on_commit: -> { nil }, on_rollback: block}
+      state.pending_callbacks << {on_commit: -> { nil.as(Nil | ErrorBase) }, on_rollback: block}
     end
     nil
   end
@@ -228,11 +228,10 @@ pub def enlist_record_rollback_action(connection : Connection, &block : -> Nil) 
   state.list_of_record_rollback_actions << block unless state.nil?
 end
 
-pub def queue_record_callbacks(connection : Connection, record_id : UInt64, operation : Symbol, on_commit : Proc(Symbol, Nil), on_rollback : Proc(Symbol, Nil)) : Nil
+pub def queue_record_callbacks(connection : Connection, record_id : UInt64, operation : Symbol, on_commit : Proc(Symbol, Nil | ::Grant::Error::ErrorBase), on_rollback : Proc(Symbol, Nil)) : Nil | ::Grant::Error::ErrorBase
   state = TransactionState.current_state_for_connection?(connection)
   if state.nil?
-    on_commit.call(operation)
-    return nil
+    return on_commit.call(operation)
   end
   existing = state.record_callbacks[record_id]?
   unless existing.nil?
@@ -245,7 +244,7 @@ pub def queue_record_callbacks(connection : Connection, record_id : UInt64, oper
   nil
 end
 
-pub def run(adapter : Connection, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+pub def run(adapter : Connection, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
   enclosing = TransactionState.current_state_for?(adapter)
   return TransactionIsolationError.new if enclosing && options.isolation && !options.independent
   if enclosing && !options.requires_new && !options.independent && enclosing.options.joinable
@@ -307,7 +306,7 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
   end
   connection.close! if options.independent
   if outer
-    state.pending_callbacks.each { |callback| callback[:on_commit].call }
+    state.pending_callbacks.each { |callback| callback[:on_commit].call! }
     finalize_after_all_commit(state)
   end
   result
@@ -325,10 +324,10 @@ end
 # the connection-level public transaction API.
 pub trait ConnectionTransactions
   abstract def begin_transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new) : ::Grant::Transaction::Handle | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
-  abstract def commit : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
+  abstract def commit : Nil | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
   abstract def rollback : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
-  abstract def savepoint(name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Errors::NotOpenError | ::Grant::Errors::InvalidSavepointNameError forall T
-  abstract def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+  abstract def savepoint(name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Errors::NotOpenError | ::Grant::Errors::InvalidSavepointNameError | ::Grant::Error::ErrorBase forall T
+  abstract def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
 end
 
 impl ConnectionTransactions for Connection
@@ -336,7 +335,7 @@ impl ConnectionTransactions for Connection
     ::Grant::Transaction.begin_manual(self, options)
   end
 
-  def commit : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
+  def commit : Nil | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError | ::Grant::Errors::NotOpenError
     ::Grant::Transaction.commit_manual(::Grant::Transaction.innermost_manual_handle(self)!)
   end
 
@@ -344,11 +343,11 @@ impl ConnectionTransactions for Connection
     ::Grant::Transaction.rollback_manual(::Grant::Transaction.innermost_manual_handle(self)!)
   end
 
-  def savepoint(name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Errors::NotOpenError | ::Grant::Errors::InvalidSavepointNameError forall T
+  def savepoint(name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Errors::NotOpenError | ::Grant::Errors::InvalidSavepointNameError | ::Grant::Error::ErrorBase forall T
     ::Grant::Transaction.with_savepoint(self, name) { yield }
   end
 
-  def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError forall T
+  def transaction(options : ::Grant::Transaction::Options = ::Grant::Transaction::Options.new, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T
     run(self, options) { yield }
   end
 end
@@ -388,7 +387,7 @@ pub def begin_manual(adapter : Connection, options : Options) : Handle | Databas
   state.handle
 end
 
-pub def commit_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
+pub def commit_manual(handle : Handle) : Nil | ::Grant::Error::ErrorBase | DatabaseError | NotOpenError
   state = handle.state
   return NotOpenError.new unless !state.nil? && handle.open?
   marker = handle.savepoint?
@@ -407,7 +406,7 @@ pub def commit_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
   TransactionState.pop
   state.open = false
   release_manual(state)
-  state.pending_callbacks.each { |callback| callback[:on_commit].call }
+  state.pending_callbacks.each { |callback| callback[:on_commit].call! }
   finalize_after_all_commit(state)
   nil
 end
@@ -421,7 +420,7 @@ pub def rollback_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
     while state.list_of_record_rollback_actions.size > marker.marks[:records]
       state.list_of_record_rollback_actions.pop.call
     end
-    callbacks = [] of NamedTuple(on_commit: Proc(Nil), on_rollback: Proc(Nil))
+    callbacks = [] of NamedTuple(on_commit: Proc(Nil | ::Grant::Error::ErrorBase), on_rollback: Proc(Nil))
     index = marker.marks[:callbacks]
     while index < state.pending_callbacks.size
       callbacks << state.pending_callbacks[index]
@@ -453,7 +452,7 @@ private def release_manual(state : TransactionState) : Nil
   state.manual_savepoints.clear
 end
 
-pub def with_savepoint(adapter : Connection, name : String?, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | NotOpenError | InvalidSavepointNameError forall T
+pub def with_savepoint(adapter : Connection, name : String?, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | NotOpenError | InvalidSavepointNameError | ErrorBase forall T
   state = TransactionState.current_state_for?(adapter)
   return NotOpenError.new("Savepoints require an open transaction") if state.nil?
   unless name.nil?
@@ -500,7 +499,7 @@ pub def enqueue_pending_callback(on_commit : Proc(Nil), on_rollback : Proc(Nil))
   if state.nil?
     on_commit.call
   else
-    state.pending_callbacks << {on_commit: on_commit, on_rollback: on_rollback}
+    state.pending_callbacks << {on_commit: -> { on_commit.call.as(Nil | ErrorBase) }, on_rollback: on_rollback}
   end
   nil
 end

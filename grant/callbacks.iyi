@@ -18,10 +18,10 @@ end
 pub class CommitCallback
   getter operation : Symbol
   property active : Bool = true
-  getter on_commit : Proc(Symbol, Nil)
+  getter on_commit : Proc(Symbol, Nil | ::Grant::Error::ErrorBase)
   getter on_rollback : Proc(Symbol, Nil)
 
-  def initialize(@operation : Symbol, @on_commit : Proc(Symbol, Nil), @on_rollback : Proc(Symbol, Nil))
+  def initialize(@operation : Symbol, @on_commit : Proc(Symbol, Nil | ::Grant::Error::ErrorBase), @on_rollback : Proc(Symbol, Nil))
   end
 
   def merge(operation : Symbol) : Nil
@@ -29,9 +29,8 @@ pub class CommitCallback
     nil
   end
 
-  def commit : Nil
-    @on_commit.call(@operation) if @active
-    nil
+  def commit : Nil | ::Grant::Error::ErrorBase
+    @active ? @on_commit.call(@operation) : nil
   end
 
   def rollback : Nil

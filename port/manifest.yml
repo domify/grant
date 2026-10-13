@@ -109,7 +109,7 @@
   target: grant_persistence_transaction_lifecycle_test.iyi
   area: transactions
   examples: 5
-  status: todo
+  status: done
   children:
   - target: grant_persistence_transaction_lifecycle_state_test.iyi
     status: done
@@ -118,7 +118,7 @@
     - T-1e547aa4fd
     - T-47d605f443
   - target: grant_persistence_transaction_lifecycle_failure_test.iyi
-    status: todo
+    status: done
     examples:
     - T-57e61eca34
     - T-c957ea6329
