@@ -1,0 +1,34 @@
+module col_demo
+
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import examples/col_models::{Parent, Child, Custom}
+
+connection = Connection.open(":memory:").or_panic
+Parent.schema.create(connection).or_panic
+Child.schema.create(connection).or_panic
+Custom.schema.create(connection).or_panic
+Child.schema.create(connection, if_not_exists: true).or_panic
+puts Child.schema.statements.or_panic.join("\n")
+parents = Repository(Parent).new(connection, Parent.mapping)
+children = Repository(Child).new(connection, Child.mapping)
+parent = parents.insert(Parent.new).or_panic
+child = children.insert(Child.new(parent_id: parent.id)).or_panic
+puts "Saved child ##{child.id}: name=#{child.name}, flag=#{child.flag}, count=#{child.count}, amount=#{child.amount}, day=#{child.day}, instant=#{child.instant}"
+if value = child.settings
+  puts "JSON: #{value.to_json}"
+end
+puts "Instance method: #{child.text}"
+puts "Custom primary key: #{Custom.mapping.table.primary_key}"
+puts "Unique violation: #{children.insert(Child.new(parent_id: parent.id)).is_a?(DatabaseError)}"
+puts "Check violation: #{children.insert(Child.new(name: "negative", count: -1_i64)).is_a?(DatabaseError)}"
+puts "Foreign key violation: #{children.insert(Child.new(name: "orphan", parent_id: 999_i64)).is_a?(DatabaseError)}"
+# Reusing an existing index name makes schema creation fail after CREATE TABLE;
+# the surrounding DDL transaction also rolls back that newly created table.
+failed = ::Grant::ModelSchema::ModelSchema.new("rolled_back", Parent.schema.fields,
+  [::Grant::ModelSchema::Index.new(["name"], name: "unique_parent_name")])
+puts "Schema failure: #{failed.create(connection).is_a?(DatabaseError)}"
+puts "Rolled-back table count: #{connection.query("SELECT COUNT(*) AS count FROM sqlite_master WHERE name = 'rolled_back'").or_panic[0]["count"]}"
+parents.destroy(parents.query, parent.id || 0_i64).or_panic
+puts "Children after cascade: #{children.query.count.or_panic}"
+connection.close.or_panic

@@ -1,0 +1,23 @@
+module examples/inline_validation_models
+
+import grant/model::*
+
+pub class Entry
+  table "entries"
+  col :id, :primary
+  col :tenant_id, :integer, default: 1, null: false
+  col :name, :string, default: "", null: false, presence: true, length: {minimum: 2, maximum: 20}, uniq: {scope: :tenant_id, case_sensitive: false}
+  col :email, :string, default: "a@example.org", null: false, format: {with: "\\A[^@]+@[^@]+\\z"}
+  col :role, :string, default: "reader", null: false, inclusion: {in: ["reader", "writer"]}, exclusion: {in: ["banned"]}
+  col :count, :integer, default: 2, null: false, numericality: {only_integer: true, greater_than: 0, even: true}
+  col :accepted, :boolean, default: true, null: false, acceptance: true
+  col :secret, :string, absence: true
+  col :hint, :string, format: {with: /\Aok\z/, allow_nil: true}
+  col :payload, :json, presence: true
+  col :token, :string, confirmation: {case_sensitive: false}, allow_nil: true
+  col :token_confirmation, :string
+  col :create_only, :string, presence: {on: :create, message: "needed at creation"}, default: "yes"
+  col :legacy_alias, :string, uniqueness: {allow_nil: true}
+  col :typo_alias, :string, uniquness: {allow_nil: true}
+  derive model
+end

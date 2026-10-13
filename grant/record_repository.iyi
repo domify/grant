@@ -29,6 +29,12 @@ pub trait Mapping(T)
     validate(record)
   end
 
+  # The default preserves existing application-owned context validation; model
+  # mappings may evaluate SQL rules on this caller-owned connection.
+  def validate(record : T, database : Database, context : Context) : Nil | ValidationError | DatabaseError
+    validate(record, context)
+  end
+
   def normalization : Plan?
     nil
   end
@@ -188,7 +194,7 @@ pub class Repository(T)
     prepared = callback(Event::BeforeValidation, record, write_context)
     return prepared if prepared.is_a?(Error)
     current = prepared
-    validation = @mapping.validate(current, context)
+    validation = @mapping.validate(current, @database, context)
     prepared = callback(Event::AfterValidation, current, write_context)
     return prepared if prepared.is_a?(Error)
     current = prepared

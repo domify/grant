@@ -1,0 +1,45 @@
+module examples/col_models
+
+import grant/model::*
+
+pub class Parent
+  col :id, :primary
+  col :name, :string, default: "parent", null: false
+  derive model
+end
+
+pub class Child
+  table "children"
+  col :name, :string, default: "child", null: false, collation: "NOCASE", limit: 255
+  col :id, :primary
+  col :count, :integer, default: 0, null: false, limit: 4
+  col :big_count, :bigint, default: 9223372036854775807_i64
+  col :flag, :boolean, default: false, null: false
+  col :score, :float, default: 0.5
+  col :amount, :decimal, default: "12345678901234567890.25", precision: 25, scale: 2
+  col :day, :date, default: "2026-10-13"
+  col :instant, :timestamp, default: "2026-10-13T12:34:56Z", precision: 3
+  col :clock, :time, default: "12:34:56"
+  col :data, :binary, default: "hello"
+  col :settings, :json, default: {"enabled" => false, "tags" => "none"}
+  col :items, :json, default: [] of String
+  col :nothing, :json, default: nil
+  col :notes, :text
+  references :parent, foreign_key: true, to_table: :parents, on_delete: :cascade
+  references :owner, polymorphic: true, index: true
+  timestamps as: String, null: true, precision: 0
+  index [:parent_id, :name], unique: true, name: "unique_parent_name", where: "parent_id IS NOT NULL", order: :desc
+  check_constraint "count >= 0", name: "nonnegative_count"
+  validates_presence :name
+  derive model
+
+  def text : String
+    "Business method"
+  end
+end
+
+pub class Custom
+  col :key, :bigint, primary_key: true
+  col :name, :string
+  derive model
+end

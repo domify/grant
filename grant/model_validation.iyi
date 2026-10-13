@@ -1,0 +1,43 @@
+module grant/model_validation
+
+import std/json::{JSON, Any}
+import grant/value::{Value, Attributes}
+import grant/validation::{Errors, Context, Options, blank?}
+
+# JSON is stored as text, but its empty array/object is still blank to a model.
+pub def field_blank?(value : Value, kind : String) : Bool
+  return blank?(value) unless kind == "json" && value.is_a?(String)
+  parsed = JSON.parse?(value)
+  return false unless parsed
+  raw = parsed.raw
+  case raw
+  when Nil               then true
+  when Bool              then !raw
+  when String            then raw.strip.empty?
+  when Array(Any)        then raw.empty?
+  when Hash(String, Any) then raw.empty?
+  else                        false
+  end
+end
+
+pub def presence(attribute : String, kind : String, values : Attributes, errors : Errors,
+                 context : Context, options : Options, absence : Bool = false) : Nil
+  value = values[attribute]?
+  return nil unless options.applies?(value, context)
+  return nil if options.allow_blank && field_blank?(value, kind)
+  blank = field_blank?(value, kind)
+  if absence ? !blank : blank
+    errors.add(attribute, options.message || (absence ? "must be blank" : "can't be blank"), absence ? "present" : "blank")
+  end
+  nil
+end
+
+# Keep Rails' explicit accepted values separate from the more permissive native
+# Acceptance validator's existing API. No coercion turns "true" into true.
+pub def acceptance(attribute : String, values : Attributes, errors : Errors, context : Context,
+                   options : Options, accepted : Array(Value)) : Nil
+  value = values[attribute]?
+  return nil unless options.applies?(value, context)
+  errors.add(attribute, options.message || "must be accepted", "accepted", {"value" => value} of String => Value) unless accepted.includes?(value)
+  nil
+end

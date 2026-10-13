@@ -2,7 +2,7 @@ module model_api_test
 
 import grant/model::*
 import grant/adapters/sqlite::{Connection}
-import fixtures/model_api::{Item, ItemMapping, FieldItem, FieldBuffer, KeyedModel, MultiModel}
+import fixtures/model_api::{Item, ItemMapping, ColumnItem, ColumnBuffer, KeyedModel, MultiModel}
 
 database = Connection.open(":memory:").or_panic
 database.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL)").or_panic
@@ -28,21 +28,21 @@ assert Item.from_attributes({"active" => true, "id" => nil} of String => Value).
 destroyed = repository.destroy(repository.query, id).or_panic
 assert !destroyed.nil?
 assert repository.query.count.or_panic == 0_i64
-field_repository = Repository(FieldItem).new(database, FieldItem.mapping)
-assert FieldItem.new.name == ""
-assert FieldItem.new.active
-assert FieldItem.new.id.nil?
-assert field_repository.insert(FieldItem.new).is_a?(ValidationError)
-field_saved = field_repository.insert(FieldItem.new("field", false)).or_panic
+field_repository = Repository(ColumnItem).new(database, ColumnItem.mapping)
+assert ColumnItem.new.name == ""
+assert ColumnItem.new.active
+assert ColumnItem.new.id.nil?
+assert field_repository.insert(ColumnItem.new).is_a?(ValidationError)
+field_saved = field_repository.insert(ColumnItem.new("field", false)).or_panic
 assert (field_saved.id || 0_i64) > 0_i64
 assert !field_saved.active
 field_found = field_repository.find(field_saved.id || 0_i64).or_panic
 assert !field_found.nil?
 assert field_found.name == "field" if field_found
-assert FieldItem.new(name: "named", id: 42_i64).id == 42_i64
-assert FieldItem.from_attributes({"active" => true, "id" => nil} of String => Value).is_a?(DatabaseError)
-first_buffer = FieldBuffer.new
-second_buffer = FieldBuffer.new
+assert ColumnItem.new(name: "named", id: 42_i64).id == 42_i64
+assert ColumnItem.from_attributes({"active" => true, "id" => nil} of String => Value).is_a?(DatabaseError)
+first_buffer = ColumnBuffer.new
+second_buffer = ColumnBuffer.new
 first_buffer.entries << "first"
 assert second_buffer.entries.empty?
 database.execute("CREATE TABLE keys(key INTEGER PRIMARY KEY, name TEXT NOT NULL)").or_panic

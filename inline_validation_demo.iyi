@@ -1,0 +1,31 @@
+module inline_validation_demo
+
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+import std/json::{Any}
+import examples/inline_validation_models::{Entry}
+
+connection = Connection.open(":memory:").or_panic
+Entry.schema.create(connection).or_panic
+repository = Repository(Entry).new(connection, Entry.mapping)
+# Failures accumulate as model errors; presence validation also infers NOT NULL schema constraints.
+invalid = repository.insert(Entry.new(name: " ", email: "bad", role: "banned", count: -1_i64, accepted: false, secret: "present"))
+if invalid.is_a?(ValidationError)
+  puts "Invalid: #{invalid.messages}"
+end
+first = repository.insert(Entry.new(name: "First", payload: Any.new("data"))).or_panic
+puts "Saved ##{first.id}: #{first.name}"
+puts "Case-insensitive duplicate rejected: #{repository.insert(Entry.new(name: "FIRST", payload: Any.new("data"))).is_a?(ValidationError)}"
+puts "Duplicate rejected: #{repository.insert(Entry.new(name: "First", payload: Any.new("data"))).is_a?(ValidationError)}"
+other = repository.insert(Entry.new(name: "First", tenant_id: 2_i64, payload: Any.new("data"))).or_panic
+puts "Other scope saved: #{other.id}"
+unchanged = repository.update(repository.query, first.id || 0_i64, Entry.new(name: "First", payload: Any.new("data"))).or_panic
+puts "Update excludes persisted ID with nil input ID: #{!unchanged.nil?}"
+puts "Confirmation failure: #{repository.insert(Entry.new(name: "Token", payload: Any.new("data"), token: "ABC", token_confirmation: "xyz")).is_a?(ValidationError)}"
+puts "Create-only rule failure: #{repository.insert(Entry.new(name: "Create", payload: Any.new("data"), create_only: nil)).is_a?(ValidationError)}"
+puts "Update skips create-only rule: #{!repository.update(repository.query, first.id || 0_i64, Entry.new(name: "First", payload: Any.new("data"), create_only: nil)).or_panic.nil?}"
+puts "Empty JSON array is blank: #{repository.insert(Entry.new(name: "Empty", payload: Any.new([] of Any))).is_a?(ValidationError)}"
+puts "Stateless mapping requires database for uniq: #{Entry.mapping.validate(Entry.new(name: "Direct", payload: Any.new("data"))).is_a?(DatabaseError)}"
+connection.execute("DROP TABLE entries").or_panic
+puts "SQL failure remains DatabaseError: #{repository.insert(Entry.new(name: "SQL", payload: Any.new("data"))).is_a?(DatabaseError)}"
+connection.close.or_panic

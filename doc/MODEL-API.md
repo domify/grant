@@ -22,12 +22,9 @@ module models/account
 import grant/model::*
 
 pub class Account
-  table "accounts"
+  col :name, :string, default: "", presence: true
+  col :id, :primary
 
-  field name : String = ""
-  field id : Int64? = nil
-
-  validates_presence "name"
   derive model
 end
 
@@ -35,27 +32,39 @@ end
 repository = Repository(Account).new(database, Account.mapping)
 ```
 
-`derive model` combines the field constructor, checked attribute mapping and a
-stateless `Account.mapping` adapter implementing `Mapping(Account)`. Declare
-`table "accounts"` before the derive; optionally set `primary_key: "key"`.
-`validates_presence "name", "other"` declares all presence checks in one call
+`derive model` combines the column constructor, checked attribute mapping and a
+stateless `Account.mapping` adapter implementing `Mapping(Account)`. The default
+table name is the unqualified model name in snake_case plus `s`: `Account` maps
+to `accounts`, and `AccountSetting` maps to `account_settings`. Override it with
+`table "legacy_accounts"` before the columns/derive; optionally set
+`primary_key: "key"`. The default primary key is `id`.
+`validates_presence :name, :other` declares all presence checks in one call
 before the derive. Omitting it adds no validation. Unknown validation field names
-and a missing table fail at compile time. Table/presence metadata belong to the
+fail at compile time. Table/presence metadata belong to the
 model declaration, not a global registry. The derive neither opens a connection
 nor creates tables; schema, migrations and repository ownership remain explicit.
+
+`col :report, :text` adds Rails-inspired symbol type declarations alongside the
+original typed `column` API. It supports literal defaults, null/size/precision
+metadata and explicit SQLite schema plans. Index, storage-reference, timestamp
+and CHECK declarations are described in [RAILS-DSL.md](RAILS-DSL.md). A model
+with `col` declarations exposes `Model.schema`; only an explicit schema create
+or migration changes a database. Inline `presence: true`, `uniq:` and other Rails-style policies can be declared
+on col. Literal presence: true implies NOT NULL; null: true conflicts at compile
+time. The :timestamp role bundles DateTime storage, NOT NULL and precision 6.
+Standalone symbol/string presence declarations remain supported.
 
 For models needing custom database-backed validation, normalization, readonly
 columns or converters, the explicit mapping API below remains available:
 `derive field_constructor, mapped_record`, a caller-owned mapping struct, and
 `mapped Account, "accounts"` inside its `impl Mapping(Account)`.
 
-`field name : String = ""` declares a typed read-only getter and a default
-factory. `derive field_constructor` generates the matching typed positional and
+`column name : String = ""` declares a typed read/write property and a per-construction default factory. Crystal Grant's richer column options are being ported incrementally; unsupported options fail at compile time. `derive field_constructor` generates the matching typed positional and
 keyword constructor. Put it after all fields, before `mapped_record`. Defaults
 are evaluated for each construction, so mutable defaults are not shared. A
 nullable field without a default uses `nil`; non-nullable fields require an
-explicit default. Generated `__grant_field_default_*` methods are implementation
-helpers. Use only `field` declarations with `field_constructor`; models needing
+explicit default. Generated `__grant_column_default_*` methods are implementation
+helpers. Use `column` or `col` declarations with `field_constructor`; models needing
 custom constructors can continue using `getter`/`property` and `mapped_record`
 without the constructor derive.
 
@@ -76,8 +85,7 @@ Validation is explicit: use `validates_presence` for this simple case or provide
 typed `validate` methods for business rules. Normalization, readonly columns,
 callbacks, authorization and account scopes remain application-owned policies.
 
-Class properties can expose mutation; getters alone retain the application's
-read-only field API. Repository operations still rebuild records and return the
+`column` exposes assignment in memory. `attr_readonly` persistence policy and database column annotations are separate features. Repository operations still rebuild records and return the
 saved record. Use that return value for generated IDs/timestamps. These macros
 do not add an identity map, change tracking, instance `save`, automatic association
 loading, callbacks or ActiveRecord-style inheritance.

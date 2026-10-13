@@ -1,0 +1,171 @@
+module grant/model_schema
+
+import std/text
+import std/json::{Any}
+import grant/database::{Database, Dialect}
+import grant/value::{Value}
+import grant/scalars::{DateTime}
+import grant/errors::{DatabaseError}
+import grant/query::{identifier}
+import grant/schema::{Unset, literal}
+import grant/schema_constraints::{Constraint, constraint_sql, validate_columns}
+import grant/schema_transaction::{ddl_transaction}
+
+# Schema metadata is separate from a record's current values. Merely obtaining
+# a schema never creates tables or changes the caller's database.
+pub enum Role
+  PrimaryKey
+  Timestamp
+  Reference
+end
+
+pub struct Field
+  getter name : String
+  getter kind : String
+  getter nullable : Bool
+  getter default : Value | Unset
+  getter primary : Bool
+  getter limit : Int32?
+  getter precision : Int32?
+  getter scale : Int32?
+  getter collation : String?
+  getter role : Role?
+
+  def initialize(@name : String, @kind : String, @nullable : Bool = true,
+                 @default : Value | Unset = Unset.new, @primary : Bool = false,
+                 @limit : Int32? = nil, @precision : Int32? = nil,
+                 @scale : Int32? = nil, @collation : String? = nil, @role : Role? = nil)
+    @role = Role::PrimaryKey if primary && @role.nil?
+  end
+
+  def to_sql : String | DatabaseError
+    quoted = identifier(name)!
+    sql_type = case kind
+               when "string"                       then limit ? "VARCHAR(#{limit})" : "VARCHAR"
+               when "integer", "bigint", "primary" then primary ? "INTEGER" : (kind == "bigint" ? "BIGINT" : "INTEGER")
+               when "boolean"                      then "BOOLEAN"
+               when "float"                        then "REAL"
+               when "binary"                       then "BLOB"
+               when "date"                         then "DATE"
+               when "datetime"                     then "DATETIME(#{precision || 6})"
+               when "time"                         then "TIME(#{precision || 6})"
+                 # Exact native Decimal must retain SQLite TEXT affinity.
+               when "text", "decimal", "json" then "TEXT"
+               else                                return DatabaseError.new(21, "model schema", "unsupported field type: #{kind}")
+               end
+    sql = "#{quoted} #{sql_type}"
+    sql += " PRIMARY KEY AUTOINCREMENT" if primary
+    sql += " NOT NULL" unless nullable && !primary
+    value = default
+    sql += " DEFAULT #{literal(value)}" unless value.is_a?(Unset)
+    if value = collation
+      sql += " COLLATE #{identifier(value)!}"
+    end
+    sql
+  end
+end
+
+pub struct Index
+  getter name : String?
+  getter unique : Bool
+  getter where : String?
+  getter descending : Bool
+  getter if_not_exists : Bool
+  @columns : Array(String)
+
+  def initialize(columns : Array(String), @name : String? = nil, @unique : Bool = false,
+                 @where : String? = nil, @descending : Bool = false, @if_not_exists : Bool = false)
+    @columns = columns.map { |column| column }
+  end
+
+  def columns : Array(String)
+    @columns.map { |column| column }
+  end
+
+  def to_sql(table : String, if_not_exists : Bool = false) : String | DatabaseError
+    return DatabaseError.new(21, "model schema", "index needs columns") if @columns.empty?
+    index_name = name || "index_#{table}_on_#{@columns.join("_and_")}"
+    terms = [] of String
+    @columns.each { |column| terms << "#{identifier(column)!}#{descending ? " DESC" : ""}" }
+    sql = "CREATE#{unique ? " UNIQUE" : ""} INDEX#{(@if_not_exists || if_not_exists) ? " IF NOT EXISTS" : ""} #{identifier(index_name)!} ON #{identifier(table)!} (#{terms.join(", ")})"
+    if expression = where
+      return DatabaseError.new(21, "model schema", "index condition is empty") if expression.strip.empty?
+      sql += " WHERE #{expression}"
+    end
+    sql
+  end
+end
+
+pub class ModelSchema
+  getter name : String
+  @fields : Array(Field)
+  @indexes : Array(Index)
+  @constraints : Array(Constraint)
+
+  def initialize(@name : String, fields : Array(Field), indexes : Array(Index) = [] of Index,
+                 constraints : Array(Constraint) = [] of Constraint)
+    @fields = fields.map { |field| field }
+    @indexes = indexes.map { |index| index }
+    @constraints = constraints.map { |constraint| constraint }
+  end
+
+  def fields : Array(Field)
+    @fields.map { |field| field }
+  end
+
+  def indexes : Array(Index)
+    @indexes.map { |index| index }
+  end
+
+  def constraints : Array(Constraint)
+    @constraints.map { |constraint| constraint }
+  end
+
+  # The statements can also feed the existing checksum-verified SQLMigration.
+  def statements(if_not_exists : Bool = false) : Array(String) | DatabaseError
+    return DatabaseError.new(21, "model schema", "table needs fields") if @fields.empty?
+    names = @fields.map { |field| field.name }
+    return DatabaseError.new(21, "model schema", "duplicate field names") unless names.map { |name| name.downcase }.uniq.size == names.size
+    return DatabaseError.new(21, "model schema", "only one model primary key is supported") if @fields.count { |field| field.primary } > 1
+    parts = [] of String
+    @fields.each { |field| parts << field.to_sql! }
+    constraint_names = [] of String
+    @constraints.each do |constraint|
+      return DatabaseError.new(21, "model schema", "duplicate constraint name: #{constraint.name}") if constraint_names.includes?(constraint.name.downcase)
+      constraint_names << constraint.name.downcase
+      validate_columns(constraint, names)!
+      parts << constraint_sql(constraint)!
+    end
+    sql = ["CREATE TABLE#{if_not_exists ? " IF NOT EXISTS" : ""} #{identifier(name)!} (#{parts.join(", ")})"]
+    index_names = [] of String
+    @indexes.each do |index|
+      index.columns.each do |column|
+        return DatabaseError.new(21, "model schema", "unknown index column: #{column}") unless names.includes?(column)
+      end
+      index_name = index.name || "index_#{name}_on_#{index.columns.join("_and_")}"
+      return DatabaseError.new(21, "model schema", "duplicate index name: #{index_name}") if index_names.includes?(index_name.downcase)
+      index_names << index_name.downcase
+      sql << index.to_sql(name, if_not_exists)!
+    end
+    sql
+  end
+
+  def create(database : Database, if_not_exists : Bool = false) : Nil | DatabaseError | Panicked | Cancelled
+    return DatabaseError.new(21, "model schema", "model schema creation currently supports SQLite only") unless database.dialect == Dialect::SQLite
+    queries = statements(if_not_exists)!
+    ddl_transaction(database) { execute(database, queries) }
+  end
+
+  private def execute(database : Database, queries : Array(String)) : Nil | DatabaseError
+    queries.each { |sql| database.execute(sql, [] of Value)! }
+    nil
+  end
+end
+
+pub def stored_attribute(value : Value | Any, precision : Int32? = nil) : Value
+  case value
+  when Any      then value.to_json
+  when DateTime then value.instant.to_rfc3339(precision || 6)
+  else               value
+  end
+end

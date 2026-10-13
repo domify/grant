@@ -238,11 +238,47 @@ behavior in separate commits. See `UPSTREAM.md` for review tracking and
 publishing constraints. The source fork's existing Crystal branches and tags
 retain their history; no public release or default-branch change is made here.
 
-Typed read-only model fields can now be declared once with `field name : String
+Typed writable model columns can now be declared once with `column name : String
 = ""` and `derive field_constructor, mapped_record`; see [the model
 API](doc/MODEL-API.md). Explicit constructors remain supported.
 
-Simple models can keep `table "accounts"`, `field` declarations and
+Simple models can keep `column` declarations and
 `validates_presence "name"` in their class, then use `derive model` and
-`Account.mapping`. This generates the constructor and stateless mapping adapter;
+`Account.mapping`. `Account` defaults to table `accounts`; override the name
+with `table "legacy_accounts"`. This generates the constructor and stateless mapping adapter;
 custom mapping implementations remain supported. See [the model API](doc/MODEL-API.md).
+
+
+## Symbol column and schema DSL
+
+`col :report, :text` and `col :active, :boolean, default: false, null: false`
+add a Rails-inspired model declaration API alongside typed `column`.
+`derive model` generates the same typed mapping and an explicit SQLite schema
+plan, with index, foreign-key, reference, timestamp and CHECK declarations.
+See [the DSL guide](doc/RAILS-DSL.md) for type mappings, examples and limits.
+Rails v8.1.4 migration/schema source is pinned under `rails-reference/8.1.4`
+with its original MIT license and SHA-256 manifest; no Ruby is loaded at runtime.
+
+```sh
+# Disposable in-memory example with native scalars and real constraints:
+IYI_CACHE_DIR=/tmp/iyi-grant-native-cache iyi run col_demo.iyi
+```
+
+
+Col declarations now accept inline validation policies, for example
+`col :name, :string, presence: true` and
+`col :username, :string, uniq: {scope: :account_id}`. The default model mapping
+remains stateless; Repository supplies the connection/update context for SQL
+rules. See [the validation section](doc/RAILS-DSL.md#inline-validation-policies)
+for options and limits. Run `iyi run inline_validation_demo.iyi` for an isolated
+in-memory example; standalone validates_presence remains supported.
+
+The :timestamp role bundles DateTime storage, NOT NULL and precision 6, much
+like :primary bundles primary-key rules. Caller-owned timestamp callbacks still
+fill the values. Literal presence: true also implies NOT NULL; either role or
+that validation combined with null: true fails compilation.
+
+Reference columns can use `col :account_id, belongs_to: :account`, which declares BIGINT storage,
+a schema foreign key to accounts.id and an index. Use to: :org for an explicit model name,
+to_table: "old_orgs" for a custom table, or index: false to omit the index. This does not load an association or apply
+a migration. See [the DSL guide](doc/RAILS-DSL.md#reference-columns).

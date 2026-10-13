@@ -23,11 +23,11 @@ impl Mapping(Item) for ItemMapping
 end
 
 # Field defaults and generated constructors also cross artifact boundaries.
-pub class FieldItem
+pub class ColumnItem
   table "items"
-  field name : String = ""
-  field active : Bool = true
-  field id : Int64?
+  column name : String = ""
+  column active : Bool = true
+  column id : Int64?
   validates_presence "name"
   derive model
 end
@@ -35,21 +35,21 @@ end
 # No-validation models and custom primary keys use the same adapter.
 pub class KeyedModel
   table "keys", primary_key: "key"
-  field key : Int64?
-  field name : String = ""
+  column key : Int64?
+  column name : String = ""
   derive model
 end
 
 pub class MultiModel
   table "multi"
-  field id : Int64?
-  field code : String = ""
-  field label : String = ""
+  column id : Int64?
+  column code : String = ""
+  column label : String = ""
   validates_presence "code", "label"
   derive model
 end
 
-pub class FieldBuffer
-  field entries : Array(String) = [] of String
+pub class ColumnBuffer
+  column entries : Array(String) = [] of String
   derive field_constructor
 end

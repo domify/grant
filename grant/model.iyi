@@ -9,9 +9,17 @@ pub import grant/scalars
 pub import grant/errors
 pub import grant/database
 pub import grant/validation
+pub import grant/validators
+pub import grant/database_validation
+pub import grant/model_validation
+pub import std/regex
 pub import grant/lifecycle
 pub import grant/timestamps
 pub import grant/unit_of_work
+pub import grant/model_schema
+pub import grant/schema
+pub import grant/schema_constraints
+pub import std/json
 
 pub alias Mapping = ::Grant::RecordRepository::Mapping
 pub alias Repository = ::Grant::RecordRepository::Repository
@@ -46,7 +54,12 @@ pub def record_value(values : Attributes, name : String, target : T.class) : T |
   return DatabaseError.new(20, "mapping", "missing column: #{name}") unless values.has_key?(name)
   value = values[name]
   return value if value.is_a?(T)
-  {% if T.union_types.includes?(Bool) && T.union_types.all? { |member| member == Bool || member == Nil } %}
+  {% if T.union_types.includes?(::Std::Json::Any) %}
+    if value.is_a?(String)
+      parsed = ::Std::Json::JSON.parse?(value)
+      return parsed if parsed
+    end
+  {% elsif T.union_types.includes?(Bool) && T.union_types.all? { |member| member == Bool || member == Nil } %}
     return false if value == 0_i64
     return true if value == 1_i64
   {% elsif T.union_types.includes?(Float64) && T.union_types.all? { |member| member == Float64 || member == Nil } %}
@@ -69,7 +82,7 @@ end
 
 # Application-local table configuration, read only by its own model derive.
 pub macro table(name, primary_key = "id")
-  {% unless name.is_a?(StringLiteral) && !name.empty? && primary_key.is_a?(StringLiteral) && !primary_key.empty? %}
+  {% unless name.is_a?(StringLiteral) || name.is_a?(SymbolLiteral) && !name.empty? && primary_key.is_a?(StringLiteral) && !primary_key.empty? %}
     {% raise "table requires nonempty literal table and primary-key names" %}
   {% end %}
   GRANT_MODEL_TABLE_NAME = {{name}}
@@ -100,12 +113,21 @@ impl Mapping(T) for ModelMapping(T) forall T
   def validate(record : T) : Nil | ValidationError | DatabaseError
     T.__grant_model_validate(record)
   end
+
+  def validate(record : T, context : Context) : Nil | ValidationError | DatabaseError
+    T.__grant_model_validate(record, context)
+  end
+
+  def validate(record : T, database : Database, context : Context) : Nil | ValidationError | DatabaseError
+    T.__grant_model_validate(record, context, database)
+  end
 end
 
 # Reads configuration declared on this model, never a global model registry.
 pub macro model(declaration)
   {% unless @type.has_constant?("GRANT_MODEL_TABLE_NAME") %}
-    {% raise "derive model requires table \"table_name\" above the derive" %}
+    GRANT_MODEL_TABLE_NAME = {{@type.name.underscore.stringify.split("::").last + "s"}}
+    GRANT_MODEL_PRIMARY_KEY = {{@type.has_constant?("GRANT_MODEL_DECLARED_PRIMARY_KEY") ? @type.constant("GRANT_MODEL_DECLARED_PRIMARY_KEY") : "id"}}
   {% end %}
   {% presence_names = @type.has_constant?("GRANT_MODEL_PRESENCE_FIELDS") ? @type.constant("GRANT_MODEL_PRESENCE_FIELDS") : [] of ASTNode %}
   {% for name in presence_names %}
@@ -114,7 +136,7 @@ pub macro model(declaration)
     {% end %}
   {% end %}
 
-  derive field_constructor, mapped_record
+  derive field_constructor, mapped_record, declared_schema
 
   def self.mapping : ::Grant::Model::ModelMapping({{declaration[:name].id}})
     ::Grant::Model::ModelMapping({{declaration[:name].id}}).new
@@ -124,30 +146,58 @@ pub macro model(declaration)
     ::Grant::Model::Table.new(GRANT_MODEL_TABLE_NAME, GRANT_MODEL_PRIMARY_KEY)
   end
 
-  def self.__grant_model_validate(record : self) : Nil | ::Grant::Model::ValidationError | ::Grant::Model::DatabaseError
+  def self.__grant_model_validate(record : self, context : ::Grant::Model::Context = ::Grant::Model::Context.new, database : ::Grant::Model::Database? = nil) : Nil | ::Grant::Model::ValidationError | ::Grant::Model::DatabaseError
     errors = ::Grant::Model::Errors.new
     values = record.to_attributes
     {% for name in presence_names %}
-      ::Grant::Model::Presence.new({{name}}).validate(values, errors, ::Grant::Model::Context.new)
+      ::Grant::Model::Presence.new({{name.id.stringify}}).validate(values, errors, context)
+    {% end %}
+    {% for field in declaration[:fields] %}
+      {% validation_key = "GRANT_MODEL_VALIDATION_" + field[:name][1..].upcase %}
+      {% if @type.has_constant?(validation_key) %}
+        {% config = @type.constant(validation_key) %}
+        {% for scoped in config[:scope] %}
+          {% unless declaration[:fields].any? { |other| other[:name][1..] == scoped } %}
+            {% raise "uniq references unknown scope field #{scoped}" %}
+          {% end %}
+        {% end %}
+        {% if config[:confirmation] && !declaration[:fields].any? { |other| other[:name][1..] == field[:name][1..] + "_confirmation" } %}
+          {% raise "confirmation requires a declared #{field[:name][1..]}_confirmation field" %}
+        {% end %}
+        rule_result = __grant_col_validate_{{field[:name][1..].id}}(values, errors, context, database)
+        return rule_result if rule_result.is_a?(::Grant::Model::DatabaseError)
+      {% end %}
     {% end %}
     errors.result
   end
 end
 
-# Declare a read-only typed field and a per-construction default factory.
+# Declare a writable typed database column and a per-construction default.
 # Keep defaults as expressions so mutable values are not shared across records.
-pub macro field(declaration)
+pub macro column(declaration, **options)
   {% unless declaration.is_a?(TypeDeclaration) %}
-    {% raise "field requires a typed declaration, for example field name : String = \"\"" %}
+    {% raise "column requires a typed declaration, for example column name : String = \"\"" %}
   {% end %}
-  getter {{declaration.var}} : {{declaration.type}}
+  {% supported = ["primary"] %}
+  {% for option in options.keys %}
+    {% unless supported.includes?(option.stringify) %}
+      {% raise "column option #{option} is not ported yet" %}
+    {% end %}
+  {% end %}
+  {% if options[:primary] %}
+    {% primary_name = @type.has_constant?("GRANT_MODEL_PRIMARY_KEY") ? @type.constant("GRANT_MODEL_PRIMARY_KEY") : "id" %}
+    {% unless primary_name && primary_name.id.stringify == declaration.var.stringify %}
+      {% raise "primary column #{declaration.var} must match the table primary_key" %}
+    {% end %}
+  {% end %}
+  property {{declaration.var}} : {{declaration.type}}
 
-  def self.__grant_field_default_{{declaration.var.id}} : {{declaration.type}}
+  def self.__grant_column_default_{{declaration.var.id}} : {{declaration.type}}
     {% if declaration.value.is_a?(Nop) %}
       {% if declaration.type.resolve.nilable? %}
         nil
       {% else %}
-        {% raise "field #{declaration.var} requires a default; use an explicit constructor for required arguments" %}
+        {% raise "column #{declaration.var} requires a default; use an explicit constructor for required arguments" %}
       {% end %}
     {% else %}
       {{declaration.value}}
@@ -155,11 +205,11 @@ pub macro field(declaration)
   end
 end
 
-# Opt-in constructor generation; place after all field declarations.
+# Opt-in constructor generation; place after all column declarations.
 pub macro field_constructor(declaration)
   def initialize(
     {% for field in declaration[:fields] %}
-      {{field[:name].id}} : {{field[:type]}} = {{declaration[:name].id}}.__grant_field_default_{{field[:name][1..].id}},
+      {{field[:name].id}} : {{field[:type]}} = {{declaration[:name].id}}.__grant_column_default_{{field[:name][1..].id}},
     {% end %}
   )
   end
@@ -169,14 +219,14 @@ end
 # The application supplies a typed keyword constructor matching those fields.
 pub macro mapped_record(declaration)
   {% for field in declaration[:fields] %}
-    {% unless field[:type] && field[:type] <= ::Grant::Model::Value %}
-      {% raise "mapped_record field #{field[:name]} must have a declared Grant Value type; use an explicit mapping for association caches or custom converters" %}
+    {% unless field[:type] && field[:type].union_types.all? { |member| member <= ::Grant::Model::Value || member == ::Std::Json::Any } %}
+      {% raise "mapped_record column #{field[:name]} must have a declared Grant Value type; use an explicit mapping for association caches or custom converters" %}
     {% end %}
   {% end %}
   def to_attributes : ::Grant::Model::Attributes
     {
       {% for field in declaration[:fields] %}
-        {{ field[:name][1..] }} => {{ field[:name].id }},
+        {{ field[:name][1..] }} => {% if @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) %} ::Grant::ModelSchema.stored_attribute({{ field[:name].id }}, {{@type.constant("GRANT_MODEL_FIELD_" + field[:name][1..].upcase)[:precision]}}) {% else %} {{field[:name].id}} {% end %},
       {% end %}
     } of String => ::Grant::Model::Value
   end
@@ -218,21 +268,576 @@ end
 # Model form: validates_presence "name", "other".
 # Explicit mapping form remains validates_presence Record, "name".
 pub macro validates_presence(record_type, *names)
-  {% if record_type.is_a?(StringLiteral) %}
+  {% if record_type.is_a?(StringLiteral) || record_type.is_a?(SymbolLiteral) %}
     {% for name in names %}
-      {% unless name.is_a?(StringLiteral) %}
+      {% unless name.is_a?(StringLiteral) || name.is_a?(SymbolLiteral) %}
         {% raise "model validates_presence takes literal field names" %}
       {% end %}
     {% end %}
-    GRANT_MODEL_PRESENCE_FIELDS = [{{record_type}}, {% for name in names %} {{name}}, {% end %}]
+    GRANT_MODEL_PRESENCE_FIELDS = [{{record_type.id.stringify}}, {% for name in names %} {{name.id.stringify}}, {% end %}]
   {% else %}
     def validate(record : {{record_type}}) : Nil | ::Grant::Model::ValidationError | ::Grant::Model::DatabaseError
       errors = ::Grant::Model::Errors.new
       values = attributes(record)
       {% for name in names %}
-        ::Grant::Model::Presence.new({{name}}).validate(values, errors, ::Grant::Model::Context.new)
+        ::Grant::Model::Presence.new({{name.id.stringify}}).validate(values, errors, ::Grant::Model::Context.new)
       {% end %}
       errors.result
+    end
+  {% end %}
+end
+
+# Rails-inspired schema type declarations, with names kept in one visual column.
+# `column` remains the original typed Grant API; this is an additional facade.
+pub macro col(name, kind = nil, **options)
+  {% if options.has_key?(:belongs_to) %}
+    {% unless kind.is_a?(NilLiteral) && options[:belongs_to].is_a?(SymbolLiteral) && !options[:belongs_to].id.stringify.empty? %}
+      {% raise "use col :account_id, belongs_to: :account without a positional type" %}
+    {% end %}
+    {% if options.has_key?(:to) %}{% raise "belongs_to already names the target; use to_table: for a custom table" %}{% end %}
+    {% options[:to] = options[:belongs_to] %}
+    {% kind = :ref %}
+  {% end %}
+  {% unless name.is_a?(SymbolLiteral) && kind.is_a?(SymbolLiteral) %}
+    {% raise "col requires symbol names and types, or col :account_id, belongs_to: :account" %}
+  {% end %}
+  {% kind = kind.id.stringify %}
+  {% reference_role = kind == "ref" || kind == "reference" %}
+  {% kind = "bigint" if reference_role %}
+  {% timestamp_role = kind == "timestamp" %}
+  {% kind = "datetime" if timestamp_role %}
+  {% kind = "primary" if kind == "primary_key" %}
+  {% kind = "decimal" if kind == "numeric" %}
+  {% kind = "binary" if kind == "blob" %}
+  {% unless ["primary", "string", "text", "integer", "bigint", "boolean", "float", "decimal", "date", "datetime", "time", "binary", "json"].includes?(kind) %}
+    {% raise "col type #{kind} is not supported by the native SQLite model API" %}
+  {% end %}
+  {% aliases = ["uniq", "uniqueness", "uniquness"].select { |key| options.has_key?(key.id) } %}
+  {% if aliases.size > 1 %}{% raise "use only one of uniq, uniqueness or uniquness" %}{% end %}
+  {% unless aliases.empty? %}
+    {% options[:uniq] = options[aliases.first.id] %}
+  {% end %}
+  {% for option in options.keys %}
+    {% unless ["belongs_to", "to", "to_table", "index", "default", "null", "limit", "precision", "scale", "collation", "primary_key", "as", "presence", "absence", "length", "inclusion", "exclusion", "format", "numericality", "acceptance", "confirmation", "uniq", "uniqueness", "uniquness", "allow_nil", "allow_blank", "on", "message"].includes?(option.id.stringify) %}
+      {% raise "col option #{option} is not supported; options are never silently ignored" %}
+    {% end %}
+  {% end %}
+  {% if reference_role %}
+    {% if options[:primary_key] == true %}{% raise "a ref cannot also be a primary key" %}{% end %}
+    {% if options.has_key?(:index) && !options[:index].is_a?(BoolLiteral) %}
+      {% raise "ref index requires true or false" %}
+    {% end %}
+    {% if options[:to] %}
+      {% unless options[:to].is_a?(SymbolLiteral) && !options[:to].id.stringify.empty? %}
+        {% raise "ref to requires a nonempty model-name symbol, for example to: :org" %}
+      {% end %}
+      {% reference_name = options[:to].id.stringify %}
+    {% elsif !options[:to_table] %}
+      {% unless name.id.stringify.ends_with?("_id") && name.id.stringify.size > 3 %}
+        {% raise "ref needs an _id field name or an explicit to: model / to_table: table" %}
+      {% end %}
+      {% reference_name = name.id.stringify[0..-4] %}
+    {% end %}
+    {% if options[:to_table] %}
+      {% unless (options[:to_table].is_a?(SymbolLiteral) || options[:to_table].is_a?(StringLiteral)) && !options[:to_table].id.stringify.empty? %}
+        {% raise "ref to_table requires a nonempty symbol or literal table name" %}
+      {% end %}
+      {% reference_table = options[:to_table] %}
+    {% else %}
+      {% reference_table = (reference_name + "s").id.symbolize %}
+    {% end %}
+    foreign_key {{reference_table}}, column: {{name}}
+    {% if options[:index] != false %}index {{name}}{% end %}
+  {% elsif options.has_key?(:to) || options.has_key?(:to_table) || options.has_key?(:index) %}
+    {% raise "col to/to_table/index options require :ref" %}
+  {% end %}
+  # Timestamp is a role bundle: DateTime storage, required SQL value and
+  # microsecond precision. The caller-owned timestamp callback fills the value.
+  {% if timestamp_role %}
+    {% if options[:null] == true %}
+      {% raise ":timestamp requires a NOT NULL column; use :datetime for nullable event times" %}
+    {% end %}
+    {% options[:null] = false unless options.has_key?(:null) %}
+    {% options[:precision] = 6 unless options.has_key?(:precision) %}
+  {% end %}
+  # A literal presence rule also promises NOT NULL at the schema boundary.
+  # Conditional/named policies keep an explicit schema nullability choice.
+  {% if options[:presence] == true %}
+    {% if options[:null] == true %}
+      {% raise "presence: true conflicts with null: true; presence requires a NOT NULL column" %}
+    {% end %}
+    {% unless options.has_key?(:null) %}
+      {% options[:null] = false %}
+    {% end %}
+  {% end %}
+  {% for option in ["null", "primary_key"] %}
+    {% if options.has_key?(option.id) && !options[option.id].is_a?(BoolLiteral) %}
+      {% raise "col #{option} requires true or false" %}
+    {% end %}
+  {% end %}
+  {% for option in ["limit", "precision", "scale"] %}
+    {% if options.has_key?(option.id) %}
+      {% value = options[option.id] %}
+      {% unless value.is_a?(NumberLiteral) && ["i32", "i64"].includes?(value.kind.id.stringify) && value >= 0 %}
+        {% raise "col #{option} requires a non-negative integer literal" %}
+      {% end %}
+    {% end %}
+  {% end %}
+  {% if options[:limit] %}
+    {% unless ["string", "text", "binary", "integer", "bigint"].includes?(kind) && options[:limit] > 0 %}
+      {% raise "col limit requires a positive size on a string, text, binary or integer field" %}
+    {% end %}
+  {% end %}
+  {% if options[:precision] %}
+    {% unless ["decimal", "datetime", "time"].includes?(kind) %}
+      {% raise "col precision is supported only for decimal and temporal fields" %}
+    {% end %}
+    {% if kind != "decimal" && options[:precision] > 6 %}
+      {% raise "Rails-style temporal precision must be between zero and six" %}
+    {% end %}
+    {% if kind == "decimal" && options[:precision] == 0 %}
+      {% raise "decimal precision must be positive" %}
+    {% end %}
+  {% end %}
+  {% if options[:scale] %}
+    {% unless kind == "decimal" %}
+      {% raise "col scale is supported only for decimal" %}
+    {% end %}
+    {% if options[:precision] && options[:scale] > options[:precision] %}
+      {% raise "decimal scale must not exceed precision" %}
+    {% end %}
+  {% end %}
+  {% if options[:collation] %}
+    {% unless ["string", "text"].includes?(kind) && options[:collation].is_a?(StringLiteral) %}
+      {% raise "col collation requires a literal collation name on a string or text field" %}
+    {% end %}
+  {% end %}
+  {% primary = kind == "primary" || options[:primary_key] == true %}
+  {% if primary %}
+    {% if options[:null] == true %}{% raise "a primary key cannot declare null: true" %}{% end %}
+    {% unless ["primary", "integer", "bigint"].includes?(kind) %}
+      {% raise "native model primary keys currently require an integer type" %}
+    {% end %}
+    {% if @type.has_constant?("GRANT_MODEL_DECLARED_PRIMARY_KEY") %}
+      {% raise "a model may declare only one primary key" %}
+    {% end %}
+    {% if @type.has_constant?("GRANT_MODEL_PRIMARY_KEY") && @type.constant("GRANT_MODEL_PRIMARY_KEY").id.stringify != name.id.stringify %}
+      {% raise "col primary key must match the explicit table primary_key" %}
+    {% end %}
+    GRANT_MODEL_DECLARED_PRIMARY_KEY = {{name.id.stringify}}
+  {% end %}
+  {% field_constant = ("GRANT_MODEL_FIELD_" + name.id.stringify.upcase).id %}
+  {% if @type.has_constant?(field_constant.stringify) %}
+    {% raise "duplicate col declaration for #{name}" %}
+  {% end %}
+  {% native_type = kind == "boolean" ? Bool : (kind == "integer" || kind == "bigint" || kind == "primary" ? Int64 : (kind == "float" ? Float64 : (kind == "decimal" ? ::Grant::Scalars::Decimal : (kind == "date" ? ::Grant::Scalars::Date : (kind == "datetime" ? ::Grant::Scalars::DateTime : (kind == "binary" ? ::Grant::Value::Binary : (kind == "json" ? ::Std::Json::Any : String))))))) %}
+  {% if options[:as] %}
+    {% unless ["date", "datetime", "time"].includes?(kind) && options[:as].resolve == String %}
+      {% raise "col as currently supports String only for date, datetime and time compatibility fields" %}
+    {% end %}
+    {% native_type = String %}
+  {% end %}
+  {% has_default = options.has_key?(:default) %}
+  {% if primary && has_default %}
+    {% raise "generated primary keys cannot have a model default" %}
+  {% end %}
+  {% if has_default %}
+    {% default = options[:default] %}
+    {% unless default.is_a?(StringLiteral) || default.is_a?(NumberLiteral) || default.is_a?(BoolLiteral) || default.is_a?(NilLiteral) || (kind == "json" && (default.is_a?(ArrayLiteral) || default.is_a?(HashLiteral))) %}
+      {% raise "col default requires literal data; use column for expression defaults" %}
+    {% end %}
+    {% if options[:null] == false && default.is_a?(NilLiteral) %}
+      {% raise "col default nil conflicts with null: false" %}
+    {% end %}
+    {% if !default.is_a?(NilLiteral) %}
+      {% if ["integer", "bigint"].includes?(kind) && (!default.is_a?(NumberLiteral) || !["i32", "i64"].includes?(default.kind.id.stringify)) %}
+        {% raise "integer defaults require signed integer literals; fractional defaults are not truncated" %}
+      {% end %}
+      {% if kind == "float" && !default.is_a?(NumberLiteral) %}
+        {% raise "float defaults require numeric literals" %}
+      {% end %}
+      {% if kind == "boolean" && !default.is_a?(BoolLiteral) %}
+        {% raise "boolean defaults require true or false" %}
+      {% end %}
+      {% if ["string", "text", "date", "datetime", "time", "binary"].includes?(kind) && !default.is_a?(StringLiteral) %}
+        {% raise "#{kind} defaults require literal strings" %}
+      {% end %}
+      {% if kind == "decimal" && !default.is_a?(StringLiteral) && !default.is_a?(NumberLiteral) %}
+        {% raise "decimal defaults require exact strings or integers" %}
+      {% end %}
+    {% end %}
+    {% if kind == "decimal" && default.is_a?(NumberLiteral) && ["f32", "f64"].includes?(default.kind.id.stringify) %}
+      {% raise "decimal defaults must use exact strings or integers, never floating-point literals" %}
+    {% end %}
+  {% end %}
+  {% nullable_type = !has_default || options[:default].is_a?(NilLiteral) || options[:null] != false %}
+  {{field_constant}} = {kind: {{kind}}, role: {{reference_role ? "reference" : (timestamp_role ? "timestamp" : (primary ? "primary" : nil))}}, nullable: {{primary ? false : options[:null] != false}}, primary: {{primary}}, limit: {{options[:limit] || nil}}, precision: {{options[:precision] || nil}}, scale: {{options[:scale] || nil}}}
+
+  property {{name.id}} : {{native_type}} {% if nullable_type %} | Nil {% end %}
+
+  def self.__grant_column_default_{{name.id}} : {{native_type}} {% if nullable_type %} | Nil {% end %}
+    {% if !has_default || options[:default].is_a?(NilLiteral) %}
+      nil
+    {% elsif kind == "integer" || kind == "bigint" %}
+      ({{options[:default]}}).to_i64
+    {% elsif kind == "float" %}
+      ({{options[:default]}}).to_f64
+    {% elsif kind == "decimal" %}
+      ::Grant::Scalars::Decimal.parse(({{options[:default]}}).to_s).or_panic
+    {% elsif kind == "date" && native_type != String %}
+      ::Grant::Scalars::Date.parse({{options[:default]}}).or_panic
+    {% elsif kind == "datetime" && native_type != String %}
+      ::Grant::Scalars::DateTime.parse({{options[:default]}}).or_panic
+    {% elsif kind == "binary" %}
+      ::Grant::Value::Binary.new({{options[:default]}})
+    {% elsif kind == "json" %}
+      grant_json_literal({{options[:default]}})
+    {% else %}
+      {{options[:default]}}
+    {% end %}
+  end
+
+  {% validation_options = options.select(:presence, :absence, :length, :inclusion, :exclusion, :format, :numericality, :acceptance, :confirmation, :uniq, :allow_nil, :allow_blank, :on, :message) %}
+  col_validations({{name}}, {{kind}}{% unless validation_options.empty? %}, {{validation_options.double_splat}}{% end %})
+
+  def self.__grant_schema_field_{{name.id}} : ::Grant::ModelSchema::Field
+    ::Grant::ModelSchema::Field.new({{name.id.stringify}}, {{kind}},
+      nullable: {{primary ? false : options[:null] != false}}, primary: {{primary}},
+      role: {% if reference_role %} ::Grant::ModelSchema::Role::Reference {% elsif timestamp_role %} ::Grant::ModelSchema::Role::Timestamp {% elsif primary %} ::Grant::ModelSchema::Role::PrimaryKey {% else %} nil {% end %},
+      default: {% if has_default %} ::Grant::ModelSchema.stored_attribute(__grant_column_default_{{name.id}}, {{options[:precision] || nil}}) {% else %} ::Grant::Schema::Unset.new {% end %},
+      limit: {{options[:limit] || nil}}, precision: {{options[:precision] || nil}},
+      scale: {{options[:scale] || nil}}, collation: {{options[:collation] || nil}})
+  end
+end
+
+# Schema generation is opt-in through col; existing fully typed column models
+# continue to generate their mapping without acquiring inferred schema policy.
+pub macro declared_schema(declaration)
+  {% fields = declaration[:fields].select { |field| @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) } %}
+  {% unless fields.empty? %}
+    def self.schema : ::Grant::ModelSchema::ModelSchema
+      fields = [] of ::Grant::ModelSchema::Field
+      {% for field in declaration[:fields] %}
+        {% if @type.has_constant?("GRANT_MODEL_FIELD_" + field[:name][1..].upcase) %}
+          fields << __grant_schema_field_{{field[:name][1..].id}}
+        {% else %}
+          {% members = field[:type].union_types.reject { |member| member == Nil } %}
+          {% unless members.size == 1 %}
+            {% raise "mixed col/column schema needs an unambiguous scalar type for #{field[:name]}" %}
+          {% end %}
+          {% native_type = members.first %}
+          {% kind = native_type == String ? "text" : (native_type == Bool ? "boolean" : (native_type == Int64 ? "integer" : (native_type == Float64 ? "float" : (native_type == ::Grant::Scalars::Decimal ? "decimal" : (native_type == ::Grant::Scalars::Date ? "date" : (native_type == ::Grant::Scalars::DateTime ? "datetime" : (native_type == ::Grant::Value::Binary ? "binary" : nil))))))) %}
+          {% unless kind %}
+            {% raise "mixed col/column schema cannot infer a SQL type for #{field[:name]}" %}
+          {% end %}
+          {% if @type.constant("GRANT_MODEL_PRIMARY_KEY").id.stringify == field[:name][1..] && native_type != Int64 %}
+            {% raise "native schema primary keys currently require Int64" %}
+          {% end %}
+          # Typed column defaults remain model defaults, not inferred SQL defaults.
+          fields << ::Grant::ModelSchema::Field.new({{field[:name][1..]}}, {{kind}}, nullable: {{field[:type].nilable?}}, primary: {{@type.constant("GRANT_MODEL_PRIMARY_KEY").id.stringify == field[:name][1..]}})
+        {% end %}
+      {% end %}
+      indexes = [] of ::Grant::ModelSchema::Index
+      constraints = [] of ::Grant::SchemaConstraints::Constraint
+      {% for constant in @type.constants %}
+        {% if constant.stringify.starts_with?("GRANT_MODEL_INDEX_") %}
+          {% config = @type.constant(constant) %}
+          indexes << ::Grant::ModelSchema::Index.new({{config[:columns]}}, name: {{config[:name]}}, unique: {{config[:unique]}}, where: {{config[:where]}}, descending: {{config[:descending]}}, if_not_exists: {{config[:if_not_exists]}})
+        {% elsif constant.stringify.starts_with?("GRANT_MODEL_CHECK_") %}
+          {% config = @type.constant(constant) %}
+          constraints << ::Grant::SchemaConstraints::Check.new({{config[:name]}}, {{config[:expression]}})
+        {% elsif constant.stringify.starts_with?("GRANT_MODEL_REFERENCE_") %}
+          {% config = @type.constant(constant) %}
+          constraints << ::Grant::SchemaConstraints::Reference.new({{config[:name]}}, {{config[:columns]}}, {{config[:table]}}, {{config[:primary]}},
+            ::Grant::SchemaConstraints::Action::{{config[:on_delete].id}}, ::Grant::SchemaConstraints::Action::{{config[:on_update].id}})
+        {% end %}
+      {% end %}
+      ::Grant::ModelSchema::ModelSchema.new(GRANT_MODEL_TABLE_NAME, fields, indexes, constraints)
+    end
+  {% end %}
+end
+
+# Schema-only declarations share the existing SQLite DDL and constraint layer.
+pub macro index(columns, **options)
+  {% names = columns.is_a?(ArrayLiteral) ? columns : [columns] %}
+  {% if names.empty? %}
+    {% raise "index requires at least one symbol column name" %}
+  {% end %}
+  {% for name in names %}
+    {% unless name.is_a?(SymbolLiteral) %}
+      {% raise "index requires symbol column names" %}
+    {% end %}
+  {% end %}
+  {% for option in options.keys %}
+    {% unless ["name", "unique", "where", "order", "if_not_exists"].includes?(option.id.stringify) %}
+      {% raise "index option #{option} is not supported by the native SQLite schema API" %}
+    {% end %}
+  {% end %}
+  {% for option in ["unique", "if_not_exists"] %}
+    {% if options.has_key?(option.id) && !options[option.id].is_a?(BoolLiteral) %}
+      {% raise "index #{option} requires true or false" %}
+    {% end %}
+  {% end %}
+  {% for option in ["name", "where"] %}
+    {% if options.has_key?(option.id) && !options[option.id].is_a?(StringLiteral) %}
+      {% raise "index #{option} requires a literal string" %}
+    {% end %}
+  {% end %}
+  {% if options[:order] && (!options[:order].is_a?(SymbolLiteral) || !["asc", "desc"].includes?(options[:order].id.stringify)) %}
+    {% raise "index order currently supports :asc or :desc for all columns" %}
+  {% end %}
+  {% ordinal = @type.constants.select { |constant| constant.stringify.starts_with?("GRANT_MODEL_INDEX_") }.size %}
+  GRANT_MODEL_INDEX_{{ordinal.id}} = {columns: [{% for name in names %} {{name.id.stringify}}, {% end %}], name: {{options[:name] || nil}}, unique: {{options[:unique] || false}}, where: {{options[:where] || nil}}, descending: {{options[:order] == :desc}}, if_not_exists: {{options[:if_not_exists] || false}}}
+end
+
+pub macro check_constraint(expression, **options)
+  {% unless expression.is_a?(StringLiteral) && !expression.empty? %}
+    {% raise "check_constraint requires a nonempty SQL expression string" %}
+  {% end %}
+  {% for option in options.keys %}
+    {% unless option.id.stringify == "name" %}
+      {% raise "check_constraint option #{option} is not supported" %}
+    {% end %}
+  {% end %}
+  {% if options[:name] && !options[:name].is_a?(StringLiteral) %}
+    {% raise "check_constraint name requires a literal string" %}
+  {% end %}
+  {% ordinal = @type.constants.select { |constant| constant.stringify.starts_with?("GRANT_MODEL_CHECK_") }.size %}
+  GRANT_MODEL_CHECK_{{ordinal.id}} = {expression: {{expression}}, name: {{options[:name] || "check_" + @type.name.underscore.stringify.split("::").last + "_" + ordinal.stringify}}}
+end
+
+pub macro foreign_key(target, **options)
+  {% unless target.is_a?(SymbolLiteral) || target.is_a?(StringLiteral) %}
+    {% raise "foreign_key requires a symbol or literal table name" %}
+  {% end %}
+  {% for option in options.keys %}
+    {% unless ["column", "primary_key", "name", "on_delete", "on_update"].includes?(option.id.stringify) %}
+      {% raise "foreign_key option #{option} is not supported" %}
+    {% end %}
+  {% end %}
+  {% target_name = target.id.stringify %}
+  {% base_name = target_name.ends_with?("s") ? target_name[0..-2] : target_name %}
+  {% columns = options[:column] || (base_name + "_id").id.symbolize %}
+  {% columns = columns.is_a?(ArrayLiteral) ? columns : [columns] %}
+  {% primary = options[:primary_key] || :id %}
+  {% primary = primary.is_a?(ArrayLiteral) ? primary : [primary] %}
+  {% for name in columns + primary %}
+    {% unless name.is_a?(SymbolLiteral) %}
+      {% raise "foreign_key column and primary_key require symbols or arrays of symbols" %}
+    {% end %}
+  {% end %}
+  {% unless !columns.empty? && columns.size == primary.size %}
+    {% raise "foreign_key requires matching nonempty column and primary-key lists" %}
+  {% end %}
+  {% if options[:name] && !options[:name].is_a?(StringLiteral) %}
+    {% raise "foreign_key name requires a literal string" %}
+  {% end %}
+  {% actions = {"cascade" => "Cascade", "restrict" => "Restrict", "nullify" => "SetNull", "set_null" => "SetNull", "set_default" => "SetDefault", "no_action" => "NoAction"} %}
+  {% for option in ["on_delete", "on_update"] %}
+    {% if options[option.id] && (!options[option.id].is_a?(SymbolLiteral) || !actions.has_key?(options[option.id].id.stringify)) %}
+      {% raise "foreign_key #{option} requires a supported action symbol" %}
+    {% end %}
+  {% end %}
+  {% ordinal = @type.constants.select { |constant| constant.stringify.starts_with?("GRANT_MODEL_REFERENCE_") }.size %}
+  GRANT_MODEL_REFERENCE_{{ordinal.id}} = {table: {{target_name}}, columns: [{% for name in columns %} {{name.id.stringify}}, {% end %}], primary: [{% for name in primary %} {{name.id.stringify}}, {% end %}], name: {{options[:name] || "fk_" + @type.name.underscore.stringify.split("::").last + "_" + ordinal.stringify}}, on_delete: {{options[:on_delete] ? actions[options[:on_delete].id.stringify] : "NoAction"}}, on_update: {{options[:on_update] ? actions[options[:on_update].id.stringify] : "NoAction"}}}
+end
+
+# These declare storage references, not automatic association loading.
+pub macro references(name, **options)
+  {% unless name.is_a?(SymbolLiteral) %}
+    {% raise "references requires a symbol name" %}
+  {% end %}
+  {% for option in options.keys %}
+    {% unless ["type", "null", "index", "foreign_key", "polymorphic", "to_table", "on_delete", "on_update"].includes?(option.id.stringify) %}
+      {% raise "references option #{option} is not supported" %}
+    {% end %}
+  {% end %}
+  {% for option in ["null", "index", "foreign_key", "polymorphic"] %}
+    {% if options.has_key?(option.id) && !options[option.id].is_a?(BoolLiteral) %}
+      {% raise "references #{option} requires true or false" %}
+    {% end %}
+  {% end %}
+  {% type = options[:type] || :bigint %}
+  {% unless type.is_a?(SymbolLiteral) && ["integer", "bigint"].includes?(type.id.stringify) %}
+    {% raise "native storage references currently support :integer and :bigint" %}
+  {% end %}
+  {% if options[:polymorphic] == true && options[:foreign_key] == true %}
+    {% raise "a polymorphic storage reference cannot have a single-table foreign key" %}
+  {% end %}
+  {% if options[:foreign_key] != true && (options[:to_table] || options[:on_delete] || options[:on_update]) %}
+    {% raise "reference target/action options require foreign_key: true" %}
+  {% end %}
+  col {{(name.id.stringify + "_id").id.symbolize}}, {{type}}, null: {{options.has_key?(:null) ? options[:null] : true}}
+  {% if options[:polymorphic] == true %}
+    col {{(name.id.stringify + "_type").id.symbolize}}, :string, null: {{options.has_key?(:null) ? options[:null] : true}}
+  {% end %}
+  {% if options[:index] != false %}
+    {% if options[:polymorphic] == true %}
+      index [{{(name.id.stringify + "_type").id.symbolize}}, {{(name.id.stringify + "_id").id.symbolize}}]
+    {% else %}
+      index {{(name.id.stringify + "_id").id.symbolize}}
+    {% end %}
+  {% end %}
+  {% if options[:foreign_key] == true %}
+    foreign_key {{options[:to_table] || (name.id.stringify + "s").id.symbolize}}, column: {{(name.id.stringify + "_id").id.symbolize}}, on_delete: {{options[:on_delete] || :no_action}}, on_update: {{options[:on_update] || :no_action}}
+  {% end %}
+end
+
+pub macro belongs_to(name, **options)
+  references {{name}}, {{options.double_splat}}
+end
+
+pub macro timestamps(**options)
+  {% options[:null] = false unless options.has_key?(:null) %}
+  {% options[:precision] = 6 unless options.has_key?(:precision) %}
+  col :created_at, :datetime, {{options.double_splat}}
+  col :updated_at, :datetime, {{options.double_splat}}
+end
+
+pub macro grant_json_literal(value)
+  {% if value.is_a?(ArrayLiteral) %}
+    ::Std::Json::Any.new([{% for item in value %} grant_json_literal({{item}}), {% end %}] of ::Std::Json::Any)
+  {% elsif value.is_a?(HashLiteral) %}
+    ::Std::Json::Any.new({ {% for key, item in value %}
+      {% unless key.is_a?(StringLiteral) %}{% raise "JSON default object keys must be literal strings" %}{% end %}
+      {{key}} => grant_json_literal({{item}}),
+    {% end %}} of String => ::Std::Json::Any)
+  {% elsif value.is_a?(StringLiteral) || value.is_a?(NumberLiteral) || value.is_a?(BoolLiteral) || value.is_a?(NilLiteral) %}
+    ::Std::Json::Any.new({{value}})
+  {% else %}
+    {% raise "JSON defaults must be literal JSON data" %}
+  {% end %}
+end
+
+# Expand only declared, literal validation policies. Execution uses the existing
+# validators and a caller-owned Database supplied by Repository for SQL rules.
+pub macro col_validations(name, kind, **options)
+  {% for option in ["allow_nil", "allow_blank"] %}
+    {% if options.has_key?(option.id) && !options[option.id].is_a?(BoolLiteral) %}{% raise "validation #{option} requires true or false" %}{% end %}
+  {% end %}
+  {% if options[:message] && !options[:message].is_a?(StringLiteral) %}{% raise "validation message requires a literal string" %}{% end %}
+  {% if options[:on] && !options[:on].is_a?(SymbolLiteral) && !options[:on].is_a?(StringLiteral) %}{% raise "validation on requires one operation/context symbol or string" %}{% end %}
+  {% rules = ["presence", "absence", "length", "inclusion", "exclusion", "format", "numericality", "acceptance", "confirmation", "uniq"] %}
+  {% active = rules.select { |rule| options.has_key?(rule.id) && options[rule.id] != false } %}
+  {% unless active.empty? %}
+    {% scope = [] of ASTNode %}
+    {% if options[:uniq].is_a?(NamedTupleLiteral) && options[:uniq][:scope] %}
+      {% scope = options[:uniq][:scope].is_a?(ArrayLiteral) ? options[:uniq][:scope] : [options[:uniq][:scope]] %}
+      {% for field in scope %}
+        {% unless field.is_a?(SymbolLiteral) %}{% raise "uniq scope requires a symbol or array of symbols" %}{% end %}
+      {% end %}
+    {% end %}
+    GRANT_MODEL_VALIDATION_{{name.id.stringify.upcase.id}} = {scope: [{% for field in scope %} {{field.id.stringify}}, {% end %}] of String, confirmation: {{active.includes?("confirmation")}}}
+
+    def self.__grant_col_validate_{{name.id}}(values : ::Grant::Model::Attributes, errors : ::Grant::Model::Errors,
+        context : ::Grant::Model::Context, database : ::Grant::Model::Database?) : Nil | ::Grant::Model::DatabaseError
+      {% for rule in active %}
+        {% value = options[rule.id] %}
+        {% unless value == true || value.is_a?(NamedTupleLiteral) %}
+          {% raise "col #{rule} requires true, false or a named option tuple" %}
+        {% end %}
+        {% config = value.is_a?(NamedTupleLiteral) ? value : {} of Symbol => ASTNode %}
+        {% allowed = ["allow_nil", "allow_blank", "on", "message"] %}
+        {% extra = rule == "length" ? ["minimum", "maximum", "is"] : (rule == "inclusion" || rule == "exclusion" ? ["in"] : (rule == "format" ? ["with", "without"] : (rule == "numericality" ? ["only_integer", "only_numeric", "odd", "even", "greater_than", "greater_than_or_equal_to", "less_than", "less_than_or_equal_to", "equal_to", "other_than"] : (rule == "acceptance" ? ["accept"] : (rule == "confirmation" ? ["case_sensitive"] : (rule == "uniq" ? ["scope", "case_sensitive"] : [] of ASTNode)))))) %}
+        {% for option in config.keys %}
+          {% unless allowed.includes?(option.id.stringify) || extra.includes?(option.id.stringify) %}
+            {% raise "unsupported #{rule} option #{option}" %}
+          {% end %}
+        {% end %}
+        {% for option in allowed %}
+          {% unless config.has_key?(option.id) %}
+            {% if options.has_key?(option.id) %}
+              {% config[option.id] = options[option.id] %}
+            {% end %}
+          {% end %}
+        {% end %}
+        {% for option in ["allow_nil", "allow_blank", "only_integer", "only_numeric", "odd", "even", "case_sensitive"] %}
+          {% if config.has_key?(option.id) && !config[option.id].is_a?(BoolLiteral) %}
+            {% raise "#{rule} #{option} requires true or false" %}
+          {% end %}
+        {% end %}
+        {% if config[:message] && !config[:message].is_a?(StringLiteral) %}
+          {% raise "validation message requires a literal string" %}
+        {% end %}
+        {% if config[:on] && !config[:on].is_a?(SymbolLiteral) && !config[:on].is_a?(StringLiteral) %}
+          {% raise "validation on requires one operation/context symbol or string" %}
+        {% end %}
+        rule_options = ::Grant::Validation::Options.new(
+          allow_nil: {{config.has_key?(:allow_nil) ? config[:allow_nil] : rule == "acceptance"}},
+          allow_blank: {{config[:allow_blank] || false}},
+          on: {{config[:on] ? config[:on].id.stringify : nil}}, message: {{config[:message] || nil}})
+
+        {% if rule == "presence" || rule == "absence" %}
+          ::Grant::ModelValidation.presence({{name.id.stringify}}, {{kind}}, values, errors, context, rule_options, absence: {{rule == "absence"}})
+        {% elsif rule == "length" %}
+          {% unless ["string", "text"].includes?(kind) %}{% raise "inline length currently requires a string/text column" %}{% end %}
+          {% bounds = ["minimum", "maximum", "is"].select { |key| config.has_key?(key.id) } %}
+          {% if bounds.empty? %}{% raise "length requires minimum, maximum or is" %}{% end %}
+          {% if config[:is] && (config[:minimum] || config[:maximum]) %}{% raise "length is cannot be combined with minimum/maximum" %}{% end %}
+          {% for bound in bounds %}
+            {% unless config[bound.id].is_a?(NumberLiteral) && ["i32", "i64"].includes?(config[bound.id].kind.id.stringify) && config[bound.id] >= 0 && config[bound.id] <= 2147483647 %}
+              {% raise "length #{bound} requires a non-negative Int32-sized integer" %}
+            {% end %}
+          {% end %}
+          {% if config[:minimum] && config[:maximum] && config[:minimum] > config[:maximum] %}{% raise "length maximum must not be below minimum" %}{% end %}
+          ::Grant::Validation::Length.new({{name.id.stringify}}, minimum: {{config[:minimum] || nil}}, maximum: {{config[:maximum] || nil}}, exact: {{config[:is] || nil}}, options: rule_options).validate(values, errors, context)
+        {% elsif rule == "inclusion" || rule == "exclusion" || rule == "acceptance" %}
+          {% unless ["string", "text", "integer", "bigint", "float", "boolean"].includes?(kind) %}{% raise "inline #{rule} currently supports primitive string/boolean/integer/float columns" %}{% end %}
+          {% list = rule == "acceptance" ? (config[:accept] || ["1", true]) : config[:in] %}
+          {% list = rule == "acceptance" && !list.is_a?(ArrayLiteral) ? [list] : list %}
+          {% unless list.is_a?(ArrayLiteral) %}{% raise "#{rule} requires a literal value array" %}{% end %}
+          accepted = [] of ::Grant::Model::Value
+          {% for item in list %}
+            {% unless item.is_a?(StringLiteral) || item.is_a?(BoolLiteral) || item.is_a?(NilLiteral) || item.is_a?(NumberLiteral) %}{% raise "#{rule} accepts only literal scalar values" %}{% end %}
+            {% if item.is_a?(NumberLiteral) && !["i32", "i64", "f32", "f64"].includes?(item.kind.id.stringify) %}{% raise "validation lists require signed integer or floating-point literals" %}{% end %}
+            accepted << {% if item.is_a?(NumberLiteral) %} ({{item}}).{% if ["f32", "f64"].includes?(item.kind.id.stringify) %}to_f64{% else %}to_i64{% end %} {% else %} {{item}} {% end %}
+          {% end %}
+          {% if rule == "acceptance" %}
+            ::Grant::ModelValidation.acceptance({{name.id.stringify}}, values, errors, context, rule_options, accepted)
+          {% else %}
+            ::Grant::Validation::Inclusion.new({{name.id.stringify}}, accepted, exclude: {{rule == "exclusion"}}, options: rule_options).validate(values, errors, context)
+          {% end %}
+        {% elsif rule == "format" %}
+          {% unless ["string", "text"].includes?(kind) %}{% raise "inline format requires a string/text column" %}{% end %}
+          {% if !config[:with] && !config[:without] || config[:with] && config[:without] %}{% raise "format requires exactly one of with or without" %}{% end %}
+          {% pattern = config[:with] || config[:without] %}
+          {% unless pattern.is_a?(StringLiteral) || pattern.is_a?(RegexLiteral) %}{% raise "format requires a literal pattern string or regex" %}{% end %}
+          {% if pattern.is_a?(RegexLiteral) %}
+            {% unless pattern.options.empty? && pattern.source.is_a?(StringLiteral) %}{% raise "inline format supports literal regex sources without flags; advanced patterns use explicit validators" %}{% end %}
+            {% pattern = pattern.source %}
+          {% end %}
+          pattern = ::Std::Regex::Regex.compile({{pattern}})
+          ::Grant::Validators::Format.new({{name.id.stringify}}, pattern, without: {{config.has_key?(:without)}}, options: rule_options).validate(values, errors, context)
+        {% elsif rule == "numericality" %}
+          {% unless ["integer", "bigint", "float", "string", "text"].includes?(kind) %}{% raise "inline numericality supports integer/float/numeric-text columns; exact Decimal uses DecimalPolicy" %}{% end %}
+          constraints = [] of ::Grant::Validators::Constraint
+          {% comparisons = {"greater_than" => "GreaterThan", "greater_than_or_equal_to" => "GreaterThanOrEqual", "less_than" => "LessThan", "less_than_or_equal_to" => "LessThanOrEqual", "equal_to" => "EqualTo", "other_than" => "OtherThan"} %}
+          {% for key, comparison in comparisons %}
+            {% if config.has_key?(key.id) %}
+              {% bound = config[key.id] %}
+              {% unless bound.is_a?(NumberLiteral) && ["i32", "i64", "f32", "f64"].includes?(bound.kind.id.stringify) %}{% raise "numericality bounds require literal signed numbers" %}{% end %}
+              constraints << ::Grant::Validators::Constraint.new(::Grant::Validators::Comparison::{{comparison.id}}, ({{bound}}).{% if ["f32", "f64"].includes?(bound.kind.id.stringify) %}to_f64{% else %}to_i64{% end %})
+            {% end %}
+          {% end %}
+          ::Grant::Validators::Numericality.new({{name.id.stringify}}, constraints,
+            only_integer: {{config[:only_integer] || false}}, only_numeric: {{config[:only_numeric] || false}},
+            odd: {{config[:odd] || false}}, even: {{config[:even] || false}}, options: rule_options).validate(values, errors, context)
+        {% elsif rule == "confirmation" %}
+          ::Grant::Validation::Confirmation.new({{name.id.stringify}}, case_sensitive: {{config.has_key?(:case_sensitive) ? config[:case_sensitive] : true}}, options: rule_options).validate(values, errors, context)
+        {% elsif rule == "uniq" %}
+          {% if config[:case_sensitive] == false && !["string", "text"].includes?(kind) %}{% raise "case-insensitive uniq requires a string/text column" %}{% end %}
+          if !values[{{name.id.stringify}}]?.nil? && rule_options.applies?(values[{{name.id.stringify}}]?, context)
+            if connection = database
+              ::Grant::DatabaseValidation::Uniqueness.new({{name.id.stringify}}, ::Grant::Model::Query.new(connection, __grant_model_table),
+                [{% for field in scope %} {{field.id.stringify}}, {% end %}] of String,
+                case_sensitive: {{config.has_key?(:case_sensitive) ? config[:case_sensitive] : true}}, options: rule_options).validate(values, errors, context)!
+            else
+              return ::Grant::Model::DatabaseError.new(21, "uniq", "database connection required for uniqueness validation; validate through Repository")
+            end
+          end
+        {% end %}
+      {% end %}
+      nil
     end
   {% end %}
 end

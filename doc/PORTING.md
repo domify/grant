@@ -277,15 +277,17 @@ separate work and separate commits. No remote or public branch has been changed.
 
 ## Field declarations (2026-10-13)
 
-- Added `field` plus opt-in `derive field_constructor` to declare read-only fields,
-  types and defaults once. Existing explicit constructors/mapped_record remain
-  supported. Defaults run per construction, including mutable expressions;
+- Added `column` plus opt-in `derive field_constructor` to declare writable columns,
+  types and defaults once, matching Crystal Grant column's default accessor
+  mutability. Added `getter-only declarations` for getter-only attributes. Existing explicit
+  constructors/mapped_record remain supported. Defaults run per construction,
+  including mutable expressions;
   nullable fields can omit the nil default. Non-nullable fields require defaults.
 - Native model API checks cover positional/keyword construction, defaults, real
   SQLite validation/insertion/hydration and isolated mutable defaults. The fixture
   is also included in the source-free producer/consumer gate.
-- This does not add the inherited Crystal column DSL, writable fields, custom
-  database column names or automatic association metadata.
+- This does not add the inherited Crystal column DSL, Grant column annotations,
+  custom database column names or automatic association metadata.
 
 ## Single-declaration models (2026-10-13)
 
@@ -300,3 +302,74 @@ separate work and separate commits. No remote or public branch has been changed.
 - Explicit mapping structs and their current presence macro remain supported for
   custom validation, normalization, tenant policies and other business rules.
   No inherited ActiveRecord DSL, automatic schema creation or global registry.
+
+
+## Default model table names (2026-10-13)
+
+- `derive model` defaults to the unqualified model name in snake_case plus `s`,
+  with primary key `id`. `table` remains an explicit override. This supersedes
+  the earlier requirement to declare a table on every model.
+- Account defaults to `accounts`; existing custom-table and custom-primary-key
+  models still type-check. CT's in-memory CRUD demo successfully saves Account
+  through the inferred mapping. General English inflection is not implemented.
+
+
+## Symbol col DSL and explicit model schemas (2026-10-13)
+
+- Added `col :name, :type` with Rails-inspired types/default/null/size/precision
+  options. False/zero/nil/default absence stay distinct. JSON defaults allocate
+  per record; checked hydration rejects malformed JSON. Typed column declarations
+  remain available and keep their existing scalar attribute representation.
+- Added explicit SQLite model schema plans, indexes (including unique/partial),
+  CHECK and foreign-key constraints, references/belongs_to storage declarations,
+  polymorphic reference columns and timestamps. Default table names and explicit
+  overrides remain supported. Schema creation is atomic and caller-owned.
+- Pinned Rails 8.1.4 migration/schema reference source and MIT license separately
+  in rails-reference/8.1.4 with file/archive hashes and commit provenance.
+- Verified the in-memory col_demo including all supported scalar/JSON types,
+  custom keys, unique/CHECK/FK failures, cascade deletion, idempotent creation,
+  DDL rollback and an instance text method. The demo also builds/runs from
+  source-free producer artifacts with the fixed local iyi compiler. Native model
+  API consumers type-check; no test suite was run in this session.
+- Remaining scope and SQLite metadata limitations are explicit in RAILS-DSL.md;
+  this does not establish full Rails migration or ActiveRecord parity.
+
+
+## Inline col validation policies (2026-10-13)
+
+- Added presence/absence, length, inclusion/exclusion, format, numericality,
+  acceptance, confirmation and uniq policies to col, with literal rule options
+  and shared/per-rule allow_nil/allow_blank/on/message. uniq is the application
+  spelling; uniqueness and uniquness aliases remain supported. Schema null/limit
+  options remain independent from presence/length validation.
+- Repository now supplies its caller-owned database and authoritative update
+  context through a backward-compatible Mapping overload. Model mappings remain
+  stateless. Existing context-aware application mappings still delegate correctly.
+  SQL errors propagate independently from evaluated validation failures.
+- Verified in-memory examples covering accumulated errors, false/nil handling,
+  scoped/case-insensitive uniqueness, self-exclusion with nil input ID, confirmation,
+  create-only rules, JSON blankness and SQL failure/missing-connection handling.
+  The example builds and runs through source-free artifacts with the fixed local
+  compiler. Existing native model API/uniqueness consumers type-check; no test
+  suite was run. Configuration/virtual attribute/regex/numeric limitations are
+  documented in RAILS-DSL.md. This is not full ActiveRecord validation parity.
+
+Timestamp columns now expose Role::Timestamp and bundle DateTime storage,
+NOT NULL and precision 6; :datetime remains a plain temporal storage kind.
+Literal presence: true implies NOT NULL and conflicting null: true is rejected.
+Callbacks and clocks remain caller-owned.
+
+## Reference column role (2026-10-13)
+
+- Added col :account_id, :ref (alias :reference), normalizing storage to BIGINT
+  while exposing Role::Reference. Target inference uses the _id stem plus s;
+  to: overrides the singular model stem; to_table: overrides the physical table. The schema plan contains a foreign key and a default index;
+  index: false opts out. Existing null/default/validation options remain usable.
+- This is storage metadata, without automatic association loading or migration.
+  Verified a disposable SQLite example with valid and nullable references, explicit
+  targets, index suppression, missing-parent and parent-deletion failures.
+
+- Added the preferred col :account_id, belongs_to: :account shorthand. It delegates
+  to the same reference role and rejects conflicting positional types/to:.
+  Existing :ref/:reference spellings remain compatible; this does not add
+  automatic associated-object loading.

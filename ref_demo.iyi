@@ -1,0 +1,31 @@
+module ref_demo
+import grant/model::*
+import grant/adapters/sqlite::{Connection}
+
+pub class Owner
+  col :id, :primary
+  derive model
+end
+
+pub class Item
+  col :id, :primary
+  col :owner_id, belongs_to: :owner
+  col :reviewer_id, :reference, to: :owner, index: false
+  col :legacy_owner_id, belongs_to: :owner, to_table: "owners", index: false
+  derive model
+end
+
+connection = Connection.open(":memory:").or_panic
+connection.execute("PRAGMA foreign_keys = ON").or_panic
+Owner.schema.create(connection).or_panic
+Item.schema.create(connection).or_panic
+puts Item.schema.statements.or_panic.join("\n")
+puts "Reference role: #{Item.schema.fields[1].role}"
+owners = Repository(Owner).new(connection, Owner.mapping)
+items = Repository(Item).new(connection, Item.mapping)
+owner = owners.insert(Owner.new).or_panic
+puts "Valid reference saved: #{items.insert(Item.new(owner_id: owner.id, reviewer_id: owner.id)).or_panic.owner_id == owner.id}"
+puts "Missing owner rejected: #{items.insert(Item.new(owner_id: 999_i64)).is_a?(DatabaseError)}"
+puts "Nullable reference preserved: #{items.insert(Item.new).or_panic.owner_id.nil?}"
+puts "Referenced owner deletion blocked: #{owners.destroy(owners.query, owner.id || 0_i64).is_a?(DatabaseError)}"
+connection.close.or_panic

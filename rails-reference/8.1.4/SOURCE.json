@@ -1,0 +1,58 @@
+{
+  "repository": "https://github.com/rails/rails",
+  "tag": "v8.1.4",
+  "commit": "c3466ea00d7121798e3aa3144ffdf7174b81d8cb",
+  "release_published_at": "2026-09-24T14:19:52Z",
+  "archive_sha256": "de9cbe378af3083d5a12ee6629980108c5e825a24c17db7e74ef3324b43f1b62",
+  "purpose": "Unmodified migration/schema reference; native port is in grant/model.iyi and grant/model_schema.iyi",
+  "files": [
+    {
+      "path": "MIT-LICENSE",
+      "sha256": "717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2"
+    },
+    {
+      "path": "activerecord/lib/active_record/migration.rb",
+      "sha256": "ec900945bf9d91929a9a28ba0439b0ff9955898b33ceb925274546ac53b3c209"
+    },
+    {
+      "path": "activerecord/lib/active_record/schema.rb",
+      "sha256": "6cba555400ac1f04147107cf93bdb11114c8d141405c655fb75866a520c5bc62"
+    },
+    {
+      "path": "activerecord/lib/active_record/schema_dumper.rb",
+      "sha256": "6b8068d864d7d3dc2685a44ba85833287bf80c2a9f42a830eaee479a05d62729"
+    },
+    {
+      "path": "activerecord/lib/active_record/migration/command_recorder.rb",
+      "sha256": "17808a861b89232d076c377284a98a58d2887110d768f2466023813f10d1e61b"
+    },
+    {
+      "path": "activerecord/lib/active_record/migration/compatibility.rb",
+      "sha256": "f853a7d7a2cb58ebcad64617f745766583e3c8322de605e5313927e1cc237205"
+    },
+    {
+      "path": "activerecord/lib/active_record/connection_adapters/abstract/schema_definitions.rb",
+      "sha256": "0dae8751095fd71670021114cee34aa41655ddec1c254746b90e2aa7c698bf95"
+    },
+    {
+      "path": "activerecord/lib/active_record/connection_adapters/abstract/schema_statements.rb",
+      "sha256": "cef4e6d01dbd9300ca9c29152bed4ea6db782590a97d6dc53d1fec9e652c519e"
+    },
+    {
+      "path": "activerecord/lib/active_record/connection_adapters/abstract/schema_creation.rb",
+      "sha256": "edc1e0f3625a0adfc1b9de26c58f23a04a41a87a77796e87e62564c03a87c075"
+    },
+    {
+      "path": "activerecord/lib/active_record/connection_adapters/sqlite3/schema_statements.rb",
+      "sha256": "28e7459c595eee26aedbfee9574ce33a44de5220b940a05d5be44b57383ab0d6"
+    },
+    {
+      "path": "activerecord/lib/active_record/connection_adapters/sqlite3/schema_creation.rb",
+      "sha256": "1aaa70b1fe71bda20c2d4c0c2ce0727e2dc3ccd22f3acc9f26d9e30f34065747"
+    },
+    {
+      "path": "activerecord/lib/active_record/connection_adapters/sqlite3/schema_dumper.rb",
+      "sha256": "4c094260b4e4d227c6ccbf2772377d0ee83cf97ab2485e11206b0ca77267b50f"
+    }
+  ]
+}

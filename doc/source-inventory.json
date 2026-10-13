@@ -284,15 +284,23 @@
     {
       "path": "grant/columns.cr",
       "sha256": "eebf80691fb9caf87755697c0758ded0ab1e99c5fbcb1750034bed4b86d6c2bb",
-      "status": "reference_only",
+      "status": "partially_ported",
       "partial_native_modules": [
         "grant/model.iyi",
-        "grant/record_repository.iyi"
+        "grant/model_schema.iyi",
+        "grant/record_repository.iyi",
+        "grant/model_validation.iyi"
       ],
       "native_parity_tests": [
         "model_api_test.iyi"
       ],
-      "porting_notes": "doc/MODEL-API.md (field/table/presence declarations and model derive; original column/inheritance DSL remains partial)"
+      "porting_notes": "doc/MODEL-API.md and doc/RAILS-DSL.md: typed column plus symbol col declarations, literal defaults, checked JSON hydration and explicit SQLite schema plans. Original inherited Crystal column DSL and remaining annotations are partial. col also accepts inline validation policies delegated to native scalar/database validators; source-free validation consumers are verified.",
+      "native_examples": [
+        "col_demo.iyi",
+        "examples/col_models.iyi",
+        "inline_validation_demo.iyi",
+        "ref_demo.iyi"
+      ]
     },
     {
       "path": "grant/columns_helpers.cr",
@@ -1217,7 +1225,8 @@
     {
       "path": "grant/table.cr",
       "sha256": "da62451e3d5bde49137cfbd56035700faa3974f8f1d6be39b97a774012be70cf",
-      "status": "reference_only"
+      "status": "partially_ported",
+      "porting_notes": "Native model derive provides default snake_case plus s table names and explicit table overrides; adapter quoting remains in the query/database layers. Full inherited Crystal table API is pending."
     },
     {
       "path": "grant/target.cr",
