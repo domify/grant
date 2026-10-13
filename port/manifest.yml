@@ -34,7 +34,7 @@
   target: grant_callbacks_lifecycle_callbacks_test.iyi
   area: transactions
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/reconnect_spec.cr
   target: grant_connection_reconnect_test.iyi
   area: transactions

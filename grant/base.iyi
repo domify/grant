@@ -49,6 +49,7 @@ pub abstract class Base
 
   def initialize(**args)
     assign_attributes(args)
+    self.after_initialize.or_panic
   end
 
   macro inherited
@@ -116,7 +117,7 @@ pub abstract class Base
   end
 
   macro after_create_commit(method = nil, on = :create, &block)
-    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
     def __callback_commit_{{ @type.methods.size }} : Nil
       {% if block %}
         {{ block.body }}
@@ -128,7 +129,7 @@ pub abstract class Base
   end
 
   macro after_update_commit(method = nil, on = :update, &block)
-    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
     def __callback_commit_{{ @type.methods.size }} : Nil
       {% if block %}
         {{ block.body }}
@@ -140,7 +141,7 @@ pub abstract class Base
   end
 
   macro after_destroy_commit(method = nil, on = :destroy, &block)
-    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
     def __callback_commit_{{ @type.methods.size }} : Nil
       {% if block %}
         {{ block.body }}
@@ -152,7 +153,7 @@ pub abstract class Base
   end
 
   macro after_save_commit(method = nil, on = [:create, :update], &block)
-    @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
+    @[::Grant::Callbacks::Callback(event: :commit, priority: true, on: {{ on }})]
     def __callback_commit_{{ @type.methods.size }} : Nil
       {% if block %}
         {{ block.body }}
@@ -163,51 +164,157 @@ pub abstract class Base
     end
   end
 
-  macro after_destroy(name)
-    def __callback_after_destroy_{{ name.id }} : Nil
-      {{ name.id }}
+  macro after_initialize(method = nil, &block)
+    def __callback_after_initialize_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_find(method = nil, &block)
+    def __callback_after_find_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro before_validation(method = nil, &block)
+    def __callback_before_validation_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_validation(method = nil, &block)
+    def __callback_after_validation_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
     end
   end
 
   macro before_save(method = nil, &block)
-    def __callback_before_save_{{ method ? method.id : "block".id }} : Nil
+    def __callback_before_save_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
       {% if block %}
         {{ block.body }}
       {% else %}
-        {{ method.id }}
-      {% end %}
-      nil
-    end
-  end
-
-  macro before_create(method = nil, &block)
-    def __callback_before_create_{{ method ? method.id : "block".id }} : Nil
-      {% if block %}
-        {{ block.body }}
-      {% else %}
-        {{ method.id }}
-      {% end %}
-      nil
-    end
-  end
-
-  macro after_create(method = nil, &block)
-    def __callback_after_create_{{ method ? method.id : "block".id }} : Nil
-      {% if block %}
-        {{ block.body }}
-      {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
       {% end %}
       nil
     end
   end
 
   macro after_save(method = nil, &block)
-    def __callback_after_save_{{ method ? method.id : "block".id }} : Nil
+    def __callback_after_save_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
       {% if block %}
         {{ block.body }}
       {% else %}
-        {{ method.id }}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro before_create(method = nil, &block)
+    def __callback_before_create_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_create(method = nil, &block)
+    def __callback_after_create_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro before_update(method = nil, &block)
+    def __callback_before_update_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_update(method = nil, &block)
+    def __callback_after_update_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro before_destroy(method = nil, &block)
+    def __callback_before_destroy_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_destroy(method = nil, &block)
+    def __callback_after_destroy_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+      {% end %}
+      nil
+    end
+  end
+
+  macro after_touch(method = nil, &block)
+    def __callback_after_touch_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      {% if block %}
+        {{ block.body }}
+      {% else %}
+        %result = {{ method.id }}
+        return %result if %result.is_a?(::Grant::Callbacks::Abort)
       {% end %}
       nil
     end
@@ -216,7 +323,8 @@ pub abstract class Base
   macro __process_columns
     def __run_commit_callbacks(operation : Symbol) : Nil
       \{% begin %}
-      \{% for m in @type.methods.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:event] == :commit } %}
+      \{% for priority in [true, false] %}
+      \{% for m in @type.methods.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:event] == :commit && (m.annotation(::Grant::Callbacks::Callback)[:priority] == true) == priority } %}
         \{% on = m.annotation(::Grant::Callbacks::Callback)[:on] %}
         \{% if on == nil %}
           \{{ m.name }}
@@ -225,6 +333,7 @@ pub abstract class Base
         \{% else %}
           \{{ m.name }} if operation == \{{ on }}
         \{% end %}
+      \{% end %}
       \{% end %}
       nil
       \{% end %}
@@ -264,7 +373,7 @@ pub abstract class Base
       nil
     end
 
-    def touch(*fields, time : ::Std::Time::Time = ::Grant::Timestamps.current_time) : Bool | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError
+    def touch(*fields, time : ::Std::Time::Time = ::Grant::Timestamps.current_time) : Bool | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError | ::Grant::Callbacks::Abort
       \{% begin %}
       return ::Grant::Error::ErrorBase.new("Cannot touch on a new record object") unless persisted?
       __remember_transaction_state
@@ -299,6 +408,7 @@ pub abstract class Base
       assignments = touch_fields.map { |field| "#{field} = ?" }.join(", ")
       touch_values << __primary_value
       __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", touch_values)!
+      self.after_touch!
       true
       \{% end %}
     end
@@ -387,6 +497,7 @@ pub abstract class Base
         \{% end %}
       \{% end %}
       record.__mark_persisted
+      record.after_find.or_panic
       record
       \{% end %}
     end
@@ -411,7 +522,7 @@ pub abstract class Base
     end
 
     # Crystal `create!`: returns the error instead of raising it.
-    def self.create_strict(**args) : {{ @type }} | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError
+    def self.create_strict(**args) : {{ @type }} | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -565,42 +676,99 @@ pub abstract class Base
       \{% end %}
     end
 
-    def __run_after_destroy : Nil
-      \{% begin %}
-    \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-    \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_destroy_") } %}
-        \{{ m.name }}
+    def after_initialize : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_initialize_") } %}
+        \{{ m.name }}!
       \{% end %}
-      \{% end %}
+      nil
     end
 
-    def before_save : Nil
+    def after_find : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_find_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def before_validation : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_validation_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def after_validation : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_validation_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def before_save : Nil | ::Grant::Callbacks::Abort
       \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_save_") } %}
-        \{{ m.name }}
+        \{{ m.name }}!
       \{% end %}
       nil
     end
 
-    def before_create : Nil
-      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_create_") } %}
-        \{{ m.name }}
-      \{% end %}
-      nil
-    end
-
-    def after_create : Nil
-      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_create_") } %}
-        \{{ m.name }}
-      \{% end %}
-      nil
-    end
-
-    def after_save : Nil
+    def after_save : Nil | ::Grant::Callbacks::Abort
       \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_save_") } %}
-        \{{ m.name }}
+        \{{ m.name }}!
       \{% end %}
       nil
+    end
+
+    def before_create : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_create_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def after_create : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_create_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def before_update : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_update_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def after_update : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_update_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def before_destroy : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_destroy_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def after_destroy : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_destroy_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def after_touch : Nil | ::Grant::Callbacks::Abort
+      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_after_touch_") } %}
+        \{{ m.name }}!
+      \{% end %}
+      nil
+    end
+
+    def __transaction_adapter : ::Grant::Adapter::Sqlite::Connection
+      self.class.transaction_adapter
     end
 
     def __adapter : ::Grant::Adapter::Sqlite::Connection
@@ -632,9 +800,9 @@ pub abstract class Base
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
   abstract def __column_values : Array(Value)
-  abstract def __run_after_destroy : Nil
   abstract def __run_commit_callbacks(operation : Symbol) : Nil
   abstract def __run_rollback_callbacks(operation : Symbol) : Nil
+  abstract def __transaction_adapter : Connection
   abstract def __adapter : Connection
   abstract def __table_name : String
 
@@ -651,7 +819,7 @@ pub abstract class Base
   end
 
   def transaction(options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError forall T
-    Base.run_transaction(__adapter, options) { yield }
+    Base.run_transaction(__transaction_adapter, options) { yield }
   end
 
   def __remember_transaction_state : Nil
@@ -687,7 +855,34 @@ pub abstract class Base
   end
 
   # Crystal `save!`.
-  def save_strict(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError
+  def save_strict(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError
+    operation = @new_record ? :create : :update
+    result = Base.run_transaction(__transaction_adapter, Options.new(requires_new: true)) do
+      saved = __save(skip_timestamps: skip_timestamps)
+      if saved.is_a?(::Error)
+        ::Grant::Transaction.enqueue_pending_callback(-> { nil }, -> { __run_rollback_callbacks(operation) })
+      end
+      saved
+    end
+    if result.is_a?(::Grant::Callbacks::Abort)
+      errors << ::Grant::Error::Error.new(:base, result.message)
+      return RecordNotSaved.new(__table_name)
+    end
+    return false if result.nil?
+    result
+  end
+
+  def valid? : Bool | ::Grant::Callbacks::Abort
+    self.before_validation!
+    self.after_validation!
+    true
+  end
+
+  def abort_strict(message : String = "Aborted") : ::Grant::Callbacks::Abort
+    ::Grant::Callbacks::Abort.new(message)
+  end
+
+  def __save(*, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | ::Grant::Callbacks::Abort
     return RecordNotSaved.new(__table_name) if @destroyed
     errors.clear
     if @new_record && !__primary_auto? && __primary_value.nil?
@@ -696,6 +891,13 @@ pub abstract class Base
     end
     __remember_transaction_state
     operation = @new_record ? :create : :update
+    valid?!
+    self.before_save!
+    if @new_record
+      self.before_create!
+    else
+      self.before_update!
+    end
     set_timestamps(mode: @new_record ? :create : :update) unless skip_timestamps
     names = __column_names
     values = __column_values
@@ -716,6 +918,12 @@ pub abstract class Base
       result = __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", values)
       return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
     end
+    if operation == :create
+      self.after_create!
+    else
+      self.after_update!
+    end
+    self.after_save!
     queue_commit_callbacks(operation)
     true
   end
@@ -735,8 +943,9 @@ pub abstract class Base
   end
 
   def destroy : Bool
+    self.before_destroy.or_panic
     delete
-    __run_after_destroy
+    self.after_destroy.or_panic
     queue_commit_callbacks(:destroy)
     true
   end

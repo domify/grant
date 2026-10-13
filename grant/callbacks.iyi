@@ -1,4 +1,14 @@
 module grant/callbacks
+import grant/error
+
+pub class Abort < ::Grant::Error::ErrorBase
+end
+
+impl ::Error for Abort
+  def message : String
+    @message
+  end
+end
 
 pub annotation Callback
 end
