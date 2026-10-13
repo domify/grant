@@ -1,0 +1,23 @@
+import grant/base::{Base}
+import grant/connections::{Connections}
+import grant/adapter/sqlite::{Connection}
+import grant/errors::{RecordNotSaved}
+import grant/error_taxonomy::{StatementInvalid}
+
+class ReadOnlyTxRow < Base
+  connection sqlite
+  table read_only_tx_rows
+  column id : Int64, primary: true
+  column name : String?
+end
+
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+ReadOnlyTxRow.migrator.drop_and_create.or_panic
+ReadOnlyTxRow.clear.or_panic
+
+# it: keeps a translated statement error as the cause of RecordNotSaved
+ReadOnlyTxRow.create_strict(id: 7_i64, name: "first").or_panic
+error = ReadOnlyTxRow.create_strict(id: 7_i64, name: "duplicate")
+assert error.is_a?(RecordNotSaved)
+assert error.as(RecordNotSaved).cause.is_a?(StatementInvalid)
+ReadOnlyTxRow.adapter.close.or_panic

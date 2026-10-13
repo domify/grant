@@ -24,16 +24,22 @@ impl ::Error for RecordNotFound
   end
 end
 
-pub struct RecordNotSaved
+pub class RecordNotSaved < ErrorBase
   getter model : String
+  getter cause : StatementInvalid?
 
-  def initialize(@model : String)
+  def initialize(@model : String, @cause : StatementInvalid? = nil)
+    super("#{@model} was not saved")
+  end
+
+  def statement_error : StatementInvalid?
+    @cause
   end
 end
 
 impl ::Error for RecordNotSaved
   def message : String
-    "#{@model} was not saved"
+    @message
   end
 end
 

@@ -282,6 +282,10 @@ pub abstract class Base
       adapter.query("SELECT COUNT(*) AS count FROM #{table_name}")![0]["count"].as(Int64)
     end
 
+    def __primary_name : String
+      self.class.primary_name
+    end
+
     def __primary_value : Int64 | Nil
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
@@ -354,6 +358,7 @@ pub abstract class Base
     {% end %}
   end
 
+  abstract def __primary_name : String
   abstract def __primary_value : Int64 | Nil
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
@@ -417,14 +422,21 @@ pub abstract class Base
     names = __column_names
     values = __column_values
     if @new_record
+      primary_value = __primary_value
+      unless primary_value.nil?
+        names << __primary_name
+        values << primary_value
+      end
       placeholders = names.map { "?" }.join(", ")
-      result = __adapter.execute("INSERT INTO #{__table_name} (#{names.join(", ")}) VALUES (#{placeholders})", values)!
+      result = __adapter.execute("INSERT INTO #{__table_name} (#{names.join(", ")}) VALUES (#{placeholders})", values)
+      return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
       __set_primary_value(result.last_insert_id) if __primary_value.nil?
       @new_record = false
     else
       assignments = names.map { |name| "#{name} = ?" }.join(", ")
       values << __primary_value
-      __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE id = ?", values)!
+      result = __adapter.execute("UPDATE #{__table_name} SET #{assignments} WHERE #{__primary_name} = ?", values)
+      return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
     end
     true
   end

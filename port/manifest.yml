@@ -104,7 +104,7 @@
   target: grant_persistence_read_only_transaction_create_test.iyi
   area: transactions
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/transaction_lifecycle_spec.cr
   target: grant_persistence_transaction_lifecycle_test.iyi
   area: transactions
