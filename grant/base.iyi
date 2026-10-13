@@ -40,6 +40,7 @@ pub abstract class Base
   @destroyed : Bool = false
   @@transaction_records = [] of Base
   @@transaction_states = [] of TransactionState
+  @@transaction_adapters = [] of Connection
 
   macro inherited
     @@table_name : String = {{ @type.name.split("::").last.underscore.stringify }} + "s"
@@ -225,12 +226,20 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction(&block : -> T) : Bool | ::Grant::Errors::DatabaseError forall T
+    def self.transaction(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError forall T
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       ::Grant::Base::Base.run_transaction(adapter) { yield }
       \{% end %}
+    end
+
+    def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError
+      adapter.query("SELECT * FROM #{table_name}")!.map { |row| from_row(row) }
+    end
+
+    def self.count : Int64 | ::Grant::Errors::DatabaseError
+      adapter.query("SELECT COUNT(*) AS count FROM #{table_name}")![0]["count"].as(Int64)
     end
 
     def __primary_value : Int64 | Nil
@@ -313,13 +322,17 @@ pub abstract class Base
   abstract def __adapter : Connection
   abstract def __table_name : String
 
-  def self.run_transaction(adapter : Connection, &block : -> T) : Bool | DatabaseError forall T
+  def self.run_transaction(adapter : Connection, &block : -> T) : T | Nil | DatabaseError forall T
     outer = !adapter.in_transaction?
-    adapter.execute(outer ? "BEGIN" : "SAVEPOINT grant_tx")!
+    savepoint = adapter.savepoint_name
+    adapter.execute(outer ? "BEGIN" : "SAVEPOINT #{savepoint}")!
+    @@transaction_adapters << adapter
     mark = @@transaction_records.size
     result = yield
+    @@transaction_adapters.pop
     if result.is_a?(Error)
-      adapter.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT grant_tx")!
+      adapter.execute(outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
+      adapter.execute("RELEASE SAVEPOINT #{savepoint}")! unless outer
       index = @@transaction_records.size - 1
       while index >= mark
         @@transaction_records[index].__restore_transaction_state(@@transaction_states[index])
@@ -329,14 +342,22 @@ pub abstract class Base
         @@transaction_records.pop
         @@transaction_states.pop
       end
-      return result.is_a?(Rollback) ? false : DatabaseError.new(1, "transaction", result.message)
+      return nil if result.is_a?(Rollback)
+      return result
     end
-    adapter.execute(outer ? "COMMIT" : "RELEASE SAVEPOINT grant_tx")!
+    adapter.execute(outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}")!
     if outer
       @@transaction_records = [] of Base
       @@transaction_states = [] of TransactionState
     end
-    true
+    result
+  end
+
+  def self.current_transaction_connection(adapter : Connection) : Connection?
+    @@transaction_adapters.each do |active|
+      return active if active.object_id == adapter.object_id
+    end
+    nil
   end
 
   def __remember_transaction_state : Nil

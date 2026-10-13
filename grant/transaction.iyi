@@ -1,0 +1,10 @@
+module grant/transaction
+
+import grant/base::{Base}
+import grant/adapter/sqlite::{Connection}
+pub import grant/errors
+
+# Model classes share the Base-owned transaction registry.
+pub def current_connection?(adapter : Connection) : Connection?
+  Base.current_transaction_connection(adapter)
+end
