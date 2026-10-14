@@ -1,7 +1,8 @@
 module grant/query/builder
 
 import grant/adapter/sqlite_connection::{Value}
-import grant/errors::{DatabaseError}
+import grant/errors::{DatabaseError, RecordNotFound}
+import grant/locking::{LockMode}
 import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
@@ -10,6 +11,8 @@ import grant/query/grouping::{Grouping}
 # Structural slice of Grant::Query::Builder(Model): lazy clauses and terminal
 # reads. The model remains responsible for its connection and row hydration.
 pub class Builder(Model)
+  getter lock_mode : LockMode? = nil
+
   @where_fields = [] of String
   @where_values = [] of Value
   getter group_fields = [] of NamedTuple(field: String)
@@ -21,6 +24,7 @@ pub class Builder(Model)
     copied = Builder(Model).new
     copied.copy_conditions(@where_fields, @where_values)
     copied.copy_groups(@group_fields)
+    copied.lock_in_place(@lock_mode)
     copied
   end
 
@@ -78,6 +82,15 @@ pub class Builder(Model)
     self
   end
 
+  def lock(mode : LockMode = LockMode::Update) : self
+    chain_copy.lock_in_place(mode)
+  end
+
+  def lock_in_place(mode : LockMode?) : self
+    @lock_mode = mode
+    self
+  end
+
   def to_sql : String
     projection_sql(Model.select_fields_sql)
   end
@@ -86,6 +99,11 @@ pub class Builder(Model)
     sql = "SELECT #{fields} FROM \"#{Model.table_name}\""
     sql += where_sql
     sql += " GROUP BY #{@group_fields.map { |field| field[:field] }.join(", ")}" unless @group_fields.empty?
+    mode = @lock_mode
+    unless mode.nil?
+      clause = mode.to_sql(Model.adapter)
+      sql += " #{clause}" unless clause.empty?
+    end
     sql
   end
 
@@ -172,6 +190,12 @@ pub class Builder(Model)
     rows = Model.__connection.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT 1", @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
+  end
+
+  def first_strict : Model | DatabaseError | RecordNotFound
+    record = first!
+    return RecordNotFound.new(Model.to_s, "first") if record.nil?
+    record
   end
 
   def last : Model | Nil | DatabaseError

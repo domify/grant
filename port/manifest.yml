@@ -205,6 +205,25 @@
   area: transactions
   examples: 12
   status: todo
+  children:
+  - target: grant_locking_lock_wait_single_connection_test.iyi
+    status: done
+    examples:
+    - T-9febc1c8f8
+    - T-8fdbf68cc1
+  - target: grant_locking_lock_wait_test.iyi
+    status: todo
+    examples:
+    - T-e1e9f87a90
+    - T-8f1ab401e4
+    - T-14eb8a04f5
+    - T-ed496948f6
+    - T-2ea9ff00e9
+    - T-197f055011
+    - T-242dcbf7ac
+    - T-e67e7debdf
+    - T-35e1936194
+    - T-ead354e788
 - source: crystal-upstream/spec/grant/locking/pessimistic_spec.cr
   target: grant_locking_pessimistic_test.iyi
   area: transactions

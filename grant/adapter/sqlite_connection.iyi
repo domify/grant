@@ -1,6 +1,7 @@
 module grant/adapter/sqlite_connection
 
 import grant/cstring::{cstring}
+import grant/locking::{LockMode}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
 import grant/error_taxonomy::{InvalidForeignKey, RecordNotUnique, NotNullViolation, LockWaitTimeout}
@@ -99,6 +100,15 @@ pub class ResultSet
 end
 
 pub class Connection
+  # Direct-driver model registrations retain the same SQLite adapter contract.
+  def supports_lock_mode?(mode : LockMode) : Bool
+    false
+  end
+
+  def lock_clause(mode : LockMode) : String
+    ""
+  end
+
   @handle : Void*
   @closed : Bool
   @savepoint_sequence : UInt64

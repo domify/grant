@@ -1,6 +1,7 @@
 module grant/adapter/base
 
 import std/time::{Span}
+import grant/locking::{LockMode}
 import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost}
 import grant/pool_stat::{PoolStat}
 import grant/adapter/pool_support::{backoff, idempotent_read?, ticks}
@@ -11,6 +12,9 @@ import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError, ConnectionTimeo
 pub abstract class Base
   abstract def insert(table_name : String, fields : Array(String), params : Array(Value), lastval : String?) : Int64 | ErrorBase | Cancelled
   abstract def delete(table_name : String, primary_name : String, value : Value) : Mutation | ErrorBase | Cancelled
+
+  abstract def lock_clause(mode : LockMode) : String
+  abstract def supports_lock_mode?(mode : LockMode) : Bool
 
   def ensure_clause_template(clause : String) : String
     clause

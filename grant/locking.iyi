@@ -1,0 +1,16 @@
+module grant/locking
+
+# The adapter owns SQL rendering so a SQLite-only application never imports
+# an adapter it does not use.
+pub enum LockMode
+  Update
+  Share
+  UpdateNoWait
+  UpdateSkipLocked
+  ShareNoWait
+  ShareSkipLocked
+
+  def to_sql(adapter) : String
+    adapter.lock_clause(self)
+  end
+end

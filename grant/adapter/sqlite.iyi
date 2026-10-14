@@ -10,6 +10,7 @@ import std/text
 import std/file::{File}
 import std/time::{Span}
 import grant/adapter/base::{Base}
+import grant/locking::{LockMode}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{NoDatabaseError}
 import grant/adapter/error_translator::{Kind}
@@ -98,6 +99,14 @@ pub class Sqlite < Base
     else
       error
     end
+  end
+
+  def supports_lock_mode?(mode : LockMode) : Bool
+    false
+  end
+
+  def lock_clause(mode : LockMode) : String
+    ""
   end
 
   def sqlite? : Bool
