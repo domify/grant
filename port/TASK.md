@@ -38,8 +38,8 @@ Native iyi (no --crystal) supports class inheritance, `macro inherited`,
   - Crystal names that are iyi keywords (e.g. `import`) get a documented
     alias such as `import_records`.
 - Specs are translated near line by line: spec/grant/x_spec.cr ->
-  spec/grant/x_test.iyi (or a root-level x_test.iyi if `iyi test` requires it;
-  verify once). Each original `it` becomes a section with a
+  test/grant_x_test.iyi, headed `module test/grant_x_test` with its models
+  declared `pub`. Each original `it` becomes a section with a
   `# it: <exact original description>` comment above its assertions. Keep
   every assertion; `x.should eq(y)` -> `assert x == y`, `expect_raises(E)` ->
   assert the call returns an `E`.

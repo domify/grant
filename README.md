@@ -56,10 +56,19 @@ attributes, query cache, MySQL.
 
 ## Example
 
+Add Grant to your project's `iyi.mod`:
+
+```
+require github.com/domify/grant v0.0.0 as grant
+```
+
+The modules live under `grant/` inside the package, so an import names the
+package's short name and then that directory:
+
 ```iyi
-import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Sqlite}
+import grant/grant/base::{Base}
+import grant/grant/connections::{Connections}
+import grant/grant/adapter/sqlite::{Sqlite}
 
 class User < Base
   table users
@@ -79,7 +88,7 @@ users = User.where(name: "Anna").order(:id).select.or_panic
 user.destroy
 ```
 
-For PostgreSQL use `grant/adapter/pg::{Pg}` with a `postgres://user:pass@host:port/db` URL.
+For PostgreSQL use `grant/grant/adapter/pg::{Pg}` with a `postgres://user:pass@host:port/db` URL.
 
 ## Differences from Crystal Grant
 
@@ -103,8 +112,13 @@ Requires the iyi compiler and, for PostgreSQL, a local server
 export IYI_CACHE_DIR=$PWD/.iyi-cache
 bin/port-check                          # all tests, SQLite and PostgreSQL, plus coverage
 PORT_ADAPTERS=sqlite bin/port-check     # SQLite only
-bin/port-check --fast grant_transaction_test.iyi
+bin/port-check --fast test/grant_transaction_test.iyi
+iyi test test/delete_test.iyi           # one test, SQLite, no coverage check
 ```
+
+Tests live in `test/` and run from the repository root. iyi resolves imports from the
+entry file's directory, so each test starts with a `module test/<name>` header that anchors
+its imports at the root, and declares its models `pub` so Grant's macros can reach them.
 
 `bin/port-check` exits 0 only when every in-scope upstream spec is ported, so today it reports
 the remaining coverage as a failure even when all tests pass.

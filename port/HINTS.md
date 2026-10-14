@@ -2,7 +2,7 @@
 
 Scope is SQLite and PostgreSQL (2026-10-14). Only MySQL-only examples are excluded. `bin/port-check` runs every `*_test.iyi` with `CURRENT_ADAPTER=sqlite` and `CURRENT_ADAPTER=pg`; `PORT_ADAPTERS=sqlite` limits a local run. PostgreSQL runs in docker: `docker start grant-pg` (postgres:17, user grant/password, 127.0.0.1:5433); each checkout gets its own database `grant_<hash>`.
 
-Run one test by hand: `CURRENT_ADAPTER=pg PG_DATABASE_URL=postgres://grant:password@127.0.0.1:5433/<db> IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi test file_test.iyi` (create `<db>` with psql first; use your checkout's own name, never a shared one). Use `bin/port-check --fast FILE...` for your targets, `bin/port-check --integrate` before handing a branch back; only full `bin/port-check` establishes completion.
+Tests live in `test/`; each starts with `module test/<name>` and declares its models `pub`. Run one test by hand from the repository root: `CURRENT_ADAPTER=pg PG_DATABASE_URL=postgres://grant:password@127.0.0.1:5433/<db> IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi test test/file_test.iyi` (create `<db>` with psql first; use your checkout's own name, never a shared one). Use `bin/port-check --fast FILE...` for your targets, `bin/port-check --integrate` before handing a branch back; only full `bin/port-check` establishes completion.
 
 ## Faithfulness rules that have been broken before
 
@@ -14,10 +14,10 @@ Run one test by hand: `CURRENT_ADAPTER=pg PG_DATABASE_URL=postgres://grant:passw
 
 ## Spec support modules (root of the repo)
 
-- `spec_helper.iyi`: `CURRENT_ADAPTER`, `ADAPTER_URL`, `ADAPTER_REPLICA_URL`, `register_spec_connections` (upstream's top-level `Grant::Connections <<`), `restore_default_spec_connections`, `establish_spec_connection`. Models use `connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}` where upstream uses `adapter_literal`.
-- `pool_spec_support.iyi` (`C02Support`) and `w6_c04_support.iyi` (`W6C04`, real per-name databases; PostgreSQL names are prefixed with the checkout database).
-- `query_spec_helper.iyi`: stub `Model`, `builder`/`pg_builder`/`sqlite_builder`, `with_legacy_implicit_order`, `ignore_whitespace?(actual, expected)`, `same_entries?` (see iyi bugs).
-- `transaction_crud_models.iyi`, `transaction_sql_recorder.iyi`: shared models and the statement recorder.
+- `test/spec_helper.iyi`: `CURRENT_ADAPTER`, `ADAPTER_URL`, `ADAPTER_REPLICA_URL`, `register_spec_connections` (upstream's top-level `Grant::Connections <<`), `restore_default_spec_connections`, `establish_spec_connection`. Models use `connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}` where upstream uses `adapter_literal`.
+- `test/pool_spec_support.iyi` (`C02Support`) and `test/w6_c04_support.iyi` (`W6C04`, real per-name databases; PostgreSQL names are prefixed with the checkout database).
+- `test/query_spec_helper.iyi`: stub `Model`, `builder`/`pg_builder`/`sqlite_builder`, `with_legacy_implicit_order`, `ignore_whitespace?(actual, expected)`, `same_entries?` (see iyi bugs).
+- `test/transaction_crud_models.iyi`, `test/transaction_sql_recorder.iyi`: shared models and the statement recorder.
 
 ## Core layout
 

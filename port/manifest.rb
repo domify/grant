@@ -10,8 +10,8 @@ module Manifest
       parsed = CoverageGen.parse_spec(file)
       scoped = parsed.reject { |e| e["status"] == "excluded" }
       relative = source.delete_prefix("crystal-upstream/spec/")
-      target = relative.sub(/_spec\.cr$/, "_test.iyi").tr("/", "_")
-      target = "delete_test.iyi" if relative == "grant/persistence/delete_spec.cr"
+      target = "test/" + relative.sub(/_spec\.cr$/, "_test.iyi").tr("/", "_")
+      target = "test/delete_test.iyi" if relative == "grant/persistence/delete_spec.cr"
       excluded = scoped.empty? && (parsed.any? || relative.match?(CoverageGen::ADAPTER_FILE))
       entry = {"source" => source, "target" => target,
                "area" => CoverageGen.classify(relative, parsed.map { |e| e["name"] }.join(" ")),
