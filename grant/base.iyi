@@ -468,8 +468,9 @@ pub abstract class Base
     end
   end
 
-  macro around_save(method = nil, &block)
+  macro around_save(method = nil, **options, &block)
     def __callback_around_save_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, continuation)
       {% if block %}
         {{ block.args[0] }} = continuation
         {{ block.body }}
@@ -480,8 +481,9 @@ pub abstract class Base
     end
   end
 
-  macro before_save(method = nil, &block)
+  macro before_save(method = nil, **options, &block)
     def __callback_before_save_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, nil)
       {% if block %}
         {{ block.body }}
       {% else %}
@@ -492,8 +494,9 @@ pub abstract class Base
     end
   end
 
-  macro after_save(method = nil, &block)
+  macro after_save(method = nil, **options, &block)
     def __callback_after_save_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+      ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, nil)
       {% if block %}
         {{ block.body }}
       {% else %}
