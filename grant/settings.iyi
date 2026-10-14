@@ -10,6 +10,10 @@ pub class Settings
   end
 
   property default_timezone : String = "UTC"
+
+  # When true, relations with no ORDER BY order by the primary key; finders
+  # and `find_each` order by `implicit_order_columns` either way.
+  property implicit_order : Bool = false
 end
 
 SETTINGS = Settings.new

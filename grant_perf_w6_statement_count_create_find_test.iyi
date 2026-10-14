@@ -98,14 +98,15 @@ assert W6PerfPerson.find_strict(-1_i64).is_a?(RecordNotFound)
 reset
 person = W6PerfPerson.create_strict(name: "Lovelace").or_panic
 kept = w6_perf_statements { W6PerfPerson.find(person.id).or_panic }
-relation = w6_perf_statements { W6PerfPerson.where(:id, :eq, person.id).or_panic.first.or_panic }
+relation = w6_perf_statements { W6PerfPerson.where(:id, :eq, person.id).first.or_panic }
 assert kept == relation
 
-# Native checks verify bound operator calls and returned unsupported-operator
+# Native checks verify bound operator calls and unsupported-operator
 # errors without mutating the original relation.
 base = W6PerfPerson.where("name = ?", "Lovelace")
-assert base.where(:score, :gt, 10_i64).or_panic.select.or_panic.empty?
+assert base.where(:score, :gt, 10_i64).select.or_panic.empty?
 assert base.first.or_panic.as(W6PerfPerson).name == "Lovelace"
-assert W6PerfPerson.where(:name, :unsupported, "Lovelace").is_a?(ErrorBase)
-assert base.where(:name, :like, "Love%").or_panic.first.or_panic.as(W6PerfPerson).name == "Lovelace"
+# Upstream renders an unknown operator as written, so the database rejects it.
+assert W6PerfPerson.where(:name, :unsupported, "Lovelace").first.is_a?(ErrorBase)
+assert base.where(:name, :like, "Love%").first.or_panic.as(W6PerfPerson).name == "Lovelace"
 W6PerfPerson.__connection.close.or_panic

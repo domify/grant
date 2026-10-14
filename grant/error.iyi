@@ -30,3 +30,14 @@ end
 
 pub class ConversionError < Error
 end
+
+# Crystal's ArgumentError, returned where upstream raises it for invalid
+# query input (unknown fields, mismatched placeholders, ...).
+pub class ArgumentError < ErrorBase
+end
+
+impl ::Error for ArgumentError
+  def message : String
+    @message
+  end
+end

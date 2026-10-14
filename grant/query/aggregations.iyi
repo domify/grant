@@ -1,7 +1,7 @@
 module grant/query/aggregations
 
 import grant/adapter/driver::{Value}
-import grant/errors::{DatabaseError}
+import grant/errors::{DatabaseError, ErrorBase}
 
 # Structural SQLite slice of the upstream Builder reopening. Database values
 # stay integers for integer SUMs; AVG is returned by SQLite as Float64.
@@ -51,20 +51,6 @@ pub trait Aggregations(Model)
       rows.first[1]
     else
       grouped_values(rows, Value) { |value| value }
-    end
-  end
-
-  protected def aggregate_rows(function : String, column : String) : Array(Tuple(Array(Value), Value)) | DatabaseError
-    fields = [] of String
-    group_fields.each_with_index do |field, index|
-      fields << "#{field[:field]} AS \"grant_group_#{index}\""
-    end
-    fields << "#{function}(#{column}) AS \"grant_aggregate\""
-    rows = Model.__connection.query(projection_sql(fields.join(", ")), batch_values)!
-    rows.map do |row|
-      key = [] of Value
-      group_fields.each_with_index { |field, index| key << row["grant_group_#{index}"] }
-      {key, row["grant_aggregate"]}
     end
   end
 

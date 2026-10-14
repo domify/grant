@@ -63,7 +63,7 @@ statements = [] of String
 driver = W6LookupPlain.__connection
 driver.query_observer = ->(sql : String) { statements << sql; nil }
 assert W6LookupPlain.find(key).or_panic.as(W6LookupPlain).label == "bound"
-assert W6LookupPlain.where(:id, :eq, key.to_i64).or_panic.first.or_panic.as(W6LookupPlain).label == "bound"
+assert W6LookupPlain.where(:id, :eq, key.to_i64).first.or_panic.as(W6LookupPlain).label == "bound"
 assert statements.size == 2
 assert statements[0] == statements[1]
 driver.query_observer = nil

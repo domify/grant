@@ -1,43 +1,15 @@
 module grant/query_extensions
 
 import grant/adapter/driver::{Value}
-import grant/errors::{DatabaseError}
-import grant/transaction
+import grant/errors::{ErrorBase}
+import grant/query/bind_value::{to_value}
 
 # Native trait supplies the upstream Builder reopening without an import cycle.
 pub trait QueryExtensions(Model)
-  def update_all(**assignments) : Int64 | DatabaseError
+  def update_all(**assignments) : Int64 | ErrorBase
     pairs = [] of Tuple(String, Value)
-    assignments.each do |key, value|
-      converted = if value.is_a?(Int32)
-                    value.to_i64
-                  elsif value.is_a?(Float32)
-                    value.to_f64
-                  else
-                    value.as(Value)
-                  end
-      pairs << {key.to_s, converted}
-    end
+    assignments.each { |key, value| pairs << {key.to_s, to_value(value)} }
+    return 0_i64 if pairs.empty?
     update_all(pairs)
-  end
-
-  def update_all(assignments : Array(Tuple(String, Value))) : Int64 | DatabaseError
-    return 0_i64 if assignments.empty?
-    update_all_single(assignments)
-  end
-
-  protected def update_all_single(assignments : Array(Tuple(String, Value))) : Int64 | DatabaseError
-    return 0_i64 if assignments.empty?
-    fields = [] of String
-    values = [] of Value
-    assignments.each do |field, value|
-      fields << "\"#{field}\" = ?"
-      values << value
-    end
-    values.concat(batch_values)
-    Model.mark_write_operation
-    original = Model.__transaction_connection
-    connection = ::Grant::Transaction.current_connection?(original) || original
-    connection.execute("UPDATE \"#{Model.table_name}\" SET #{fields.join(", ")}#{where_sql}", values)!.changes
   end
 end

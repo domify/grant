@@ -1010,7 +1010,7 @@ pub abstract class Base
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       return nil if id.nil?
-      where(primary_name, :eq, id).or_panic.first
+      where(primary_name, :eq, id).first
       \{% end %}
     end
 
@@ -1061,27 +1061,94 @@ pub abstract class Base
     end
 
     def self.where(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})
-      current_scope.where_in_place(stmt)
+      current_scope.where(stmt)
     end
 
-    def self.where(field : Symbol | String, operator : Symbol, value : ::Grant::Adapter::Driver::Value) : ::Grant::Query::Builder::Builder({{ @type }}) | ::Grant::Error::ErrorBase
-      current_scope.where_in_place(field, operator, value)
+    def self.where(field : Symbol | String, operator : Symbol, value : V) : ::Grant::Query::Builder::Builder({{ @type }}) forall V
+      current_scope.where(field, operator, value)
     end
 
     def self.where(stmt : String, values : Array(V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall V
-      current_scope.where_in_place(stmt, values)
+      current_scope.where(stmt, values)
     end
 
-    def self.where(stmt : String, value : ::Grant::Adapter::Driver::Value) : ::Grant::Query::Builder::Builder({{ @type }})
-      current_scope.where_in_place(stmt, value)
+    def self.where(stmt : String, value : V) : ::Grant::Query::Builder::Builder({{ @type }}) forall V
+      current_scope.where(stmt, value)
+    end
+
+    def self.where(stmt : String, first : A, second : B, *rest) : ::Grant::Query::Builder::Builder({{ @type }}) forall A, B
+      current_scope.where(stmt, first, second, *rest)
     end
 
     def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})
-      current_scope.where_in_place(**args)
+      current_scope.where(**args)
     end
 
-    def self.order(field : Symbol) : ::Grant::Query::Builder::Builder({{ @type }})
-      current_scope.order_in_place(field)
+    def self.order(field : Symbol | String) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.order(field)
+    end
+
+    def self.order(fields : Array(Symbol)) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.order(fields)
+    end
+
+    def self.order(**dsl) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.order(**dsl)
+    end
+
+    def self.group_by(field : Symbol | String) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.group_by(field)
+    end
+
+    def self.limit(num : Int32 | Int64 | Nil) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.limit(num)
+    end
+
+    def self.offset(num : Int32 | Int64 | Nil) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.offset(num)
+    end
+
+    def self.joins(table : String, *, on : String) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.joins(table, on: on)
+    end
+
+    def self.left_joins(table : String, *, on : String) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.left_joins(table, on: on)
+    end
+
+    def self.distinct(value : Bool = true) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.distinct(value)
+    end
+
+    def self.having(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.having(stmt)
+    end
+
+    def self.none : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.none
+    end
+
+    def self.reorder(field : Symbol) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.reorder(field)
+    end
+
+    def self.pluck(*fields : Symbol | String) : Array(Array(::Grant::Adapter::Driver::Value)) | ::Grant::Error::ErrorBase
+      current_scope.pluck_columns(fields.to_a.map { |field| field.to_s })
+    end
+
+    def self.ids : Array(::Grant::Adapter::Driver::Value) | ::Grant::Error::ErrorBase
+      current_scope.ids
+    end
+
+    # The adapter's identifier quoting, as upstream Model.quote.
+    def self.quote(name : String) : String
+      adapter.quote(name)
+    end
+
+    # The columns finders order by before the primary key; empty unless the
+    # model declares an implicit order column.
+    def self.implicit_order_columns : Array(String)
+      [] of String
     end
 
     def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
