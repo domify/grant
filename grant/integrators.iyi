@@ -3,6 +3,16 @@ module grant/integrators
 # Native class-method slice of Grant::Integrators, expanded into each model
 # because imported classes cannot be reopened in iyi.
 pub macro create_methods(model)
+  def self.find_or_create_by(**args) : {{ model }} | ::Grant::Errors::ErrorBase
+    found = find_by(**args)!
+    found || create(**args)
+  end
+
+  def self.find_or_initialize_by(**args) : {{ model }} | ::Grant::Errors::ErrorBase
+    found = find_by(**args)!
+    found || new(**args)
+  end
+
   def self.create(**args, &block : {{ model }} -> R) : {{ model }} forall R
     create(args) { |record| yield record }
   end

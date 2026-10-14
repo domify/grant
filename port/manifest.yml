@@ -837,7 +837,7 @@
   target: grant_integrators_find_or_test.iyi
   area: query
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/locking/lock_clause_spec.cr
   target: grant_locking_lock_clause_test.iyi
   area: query
