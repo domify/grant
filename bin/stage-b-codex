@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Runs one Stage B Codex worker in its own worktree until it stops committing.
+#   bin/stage-b-codex <owner> [max_rounds]
+set -uo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+owner=${1:?owner}
+max_rounds=${2:-30}
+directory="$root/port/worktrees/$owner"
+branch="stage-b/$owner"
+cd "$root"
+[[ -f "port/owners/$owner.txt" ]] || { echo "no port/owners/$owner.txt" >&2; exit 1; }
+if [[ ! -d $directory ]]; then
+  git worktree add -b "$branch" "$directory" HEAD || exit 1
+fi
+log="$root/port/stage-b-$owner.log"
+prompt="Your owner name is $owner. Read port/STAGE_B.md and follow it exactly, together with AGENTS.md, port/HINTS.md and doc/NAMING.md. Continue porting the spec files listed in port/owners/$owner.txt whose manifest entries are not done yet. Make several committed spec files of progress in this iteration; commit after each spec file. Never end with a list of remaining work."
+flat=0
+for ((round = 1; round <= max_rounds; round++)); do
+  before=$(git -C "$directory" rev-parse HEAD)
+  waits=0
+  while :; do
+    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec -p port -C "$directory" \
+      --output-last-message "$root/port/last-$owner.txt" "$prompt" < /dev/null > "$root/port/codex-$owner.log" 2>&1)
+    status=$?
+    if grep -q 'hit your usage limit' "$root/port/codex-$owner.log" && [[ $waits -lt 72 ]]; then
+      waits=$((waits + 1))
+      echo "$(date -Iseconds) round=$round waiting for usage limit" >> "$log"
+      sleep 600
+      continue
+    fi
+    break
+  done
+  after=$(git -C "$directory" rev-parse HEAD)
+  commits=$(git -C "$directory" rev-list --count "$before..$after")
+  echo "$(date -Iseconds) round=$round status=$status commits=$commits head=$(git -C "$directory" log --oneline -1)" >> "$log"
+  if [[ $commits -eq 0 ]]; then flat=$((flat + 1)); else flat=0; fi
+  [[ $flat -lt 2 ]] || { echo "$(date -Iseconds) stopping: no commits for 2 rounds" >> "$log"; break; }
+done
