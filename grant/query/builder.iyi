@@ -1,7 +1,7 @@
 module grant/query/builder
 
 import grant/adapter/sqlite_connection::{Value}
-import grant/errors::{DatabaseError, RecordNotFound}
+import grant/errors::{DatabaseError, RecordNotFound, ErrorBase}
 import grant/locking::{LockMode}
 import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
@@ -58,6 +58,26 @@ pub class Builder(Model)
 
   def where(stmt : String, value : Value) : self
     chain_copy.where_in_place(stmt, value)
+  end
+
+  def where(field : Symbol | String, operator : Symbol, value : Value) : self | ErrorBase
+    chain_copy.where_in_place(field, operator, value)
+  end
+
+  def where_in_place(field : Symbol | String, operator : Symbol, value : Value) : self | ErrorBase
+    sql_operator = case operator
+                   when :eq then "="
+                   when :neq then "!="
+                   when :gt then ">"
+                   when :lt then "<"
+                   when :gteq then ">="
+                   when :lteq then "<="
+                   when :like then "LIKE"
+                   when :nlike then "NOT LIKE"
+                   else
+                     return ErrorBase.new("Unsupported comparison operator: #{operator}")
+                   end
+    where_in_place("\"#{field}\" #{sql_operator} ?", value)
   end
 
   def where_in_place(stmt : String) : self

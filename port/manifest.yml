@@ -249,6 +249,27 @@
   area: transactions
   examples: 14
   status: todo
+  children:
+  - target: grant_perf_w6_statement_count_create_find_test.iyi
+    status: done
+    examples:
+    - T-cdf8468d13
+    - T-4b660ab4dc
+    - T-f49167a435
+    - T-f97b209207
+    - T-4c6fdec284
+    - T-8e9d441cbb
+  - target: grant_perf_w6_statement_count_test.iyi
+    status: todo
+    examples:
+    - T-d54b657d37
+    - T-0705e1d3f8
+    - T-fd0241482a
+    - T-90a57151d3
+    - T-0ee23d48ef
+    - T-dd20c5822b
+    - T-c65a9545c8
+    - T-96bb595766
 - source: crystal-upstream/spec/grant/persistence/read_only_transaction_create_spec.cr
   target: grant_persistence_read_only_transaction_create_test.iyi
   area: transactions

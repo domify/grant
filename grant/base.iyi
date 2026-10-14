@@ -838,10 +838,7 @@ pub abstract class Base
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       return nil if id.nil?
-      rows = __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} WHERE #{::Grant::Base.quote_identifier(\{{ primary.name.stringify }})} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
-      return rows if rows.is_a?(::Grant::Errors::DatabaseError)
-      return nil if rows.empty?
-      from_row(rows[0])
+      where(primary_name, :eq, id).or_panic.first
       \{% end %}
     end
 
@@ -858,6 +855,10 @@ pub abstract class Base
 
     def self.where(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})
       ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt)
+    end
+
+    def self.where(field : Symbol | String, operator : Symbol, value : ::Grant::Adapter::Sqlite::Value) : ::Grant::Query::Builder::Builder({{ @type }}) | ::Grant::Error::ErrorBase
+      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(field, operator, value)
     end
 
     def self.where(stmt : String, values : Array(V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall V
