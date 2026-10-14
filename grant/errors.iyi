@@ -34,11 +34,21 @@ impl ::Error for RecordNotFound
 end
 
 pub class RecordNotSaved < ErrorBase
-  getter model : String
+  getter model : String | ValidationRecord
   getter cause : StatementInvalid?
 
   def initialize(@model : String, @cause : StatementInvalid? = nil)
     super("#{@model} was not saved")
+  end
+
+  def initialize(class_name : String, model : ValidationRecord, @cause : StatementInvalid? = nil)
+    @model = model
+    super("Could not process #{class_name}: #{RecordNotSaved.reason_for(model)}")
+  end
+
+  def self.reason_for(model : ValidationRecord) : String
+    first_error = model.errors.first?
+    first_error.nil? ? "the save was halted before the record was persisted" : first_error.message
   end
 
   def statement_error : StatementInvalid?

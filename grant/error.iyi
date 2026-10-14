@@ -1,5 +1,7 @@
 module grant/error
 
+import std/json
+
 pub class ErrorBase
   getter message : String
 
@@ -24,6 +26,20 @@ pub class Error
 
   def to_s : String
     @message
+  end
+
+  def to_json : String
+    builder = ::Std::Json::Builder.new
+    to_json(builder)
+    builder.to_s
+  end
+
+  def to_json(builder : ::Std::Json::Builder) : Nil
+    fields = {} of String => ::Std::Json::Any
+    fields["field"] = ::Std::Json::Any.new(@field.to_s)
+    fields["message"] = ::Std::Json::Any.new(message)
+    ::Std::Json::Any.new(fields).to_json(builder)
+    nil
   end
 end
 

@@ -1,0 +1,18 @@
+import transaction_crud_models::{Parent}
+import grant/errors::{RecordNotSaved}
+import spec_helper::{register_spec_connections}
+
+register_spec_connections
+Parent.migrator.drop_and_create.or_panic
+
+# it: should have a message
+parent = Parent.new
+parent.save
+assert RecordNotSaved.new("Parent", parent).message == "Could not process Parent: Name cannot be blank"
+
+# it: should have a model
+parent = Parent.new
+parent.save
+assert RecordNotSaved.new("Parent", parent).model.as(Parent).object_id == parent.object_id
+
+Parent.adapter.close.or_panic
