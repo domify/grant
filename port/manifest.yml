@@ -2469,7 +2469,7 @@
   target: grant_converters_json_test.iyi
   area: other
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/converters/pg_numeric_spec.cr
   target: grant_converters_pg_numeric_test.iyi
   area: other

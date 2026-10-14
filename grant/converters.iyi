@@ -4,6 +4,10 @@ pub import std/enum
 pub import std/slice
 pub import std/json
 
+pub def text_bytes(value : String) : ::Std::Slice::Bytes
+  ::Std::Slice::Bytes.new(value.bytesize) { |i| value.to_unsafe[i] }
+end
+
 pub def bytes_text(value : ::Std::Slice::Bytes) : String
   String.new(value.size) { |buffer| value.size.times { |i| buffer[i] = value[i] } }
 end
@@ -41,3 +45,34 @@ pub struct Enum(E, T)
   end
 end
 
+
+pub struct Json(M, T)
+  def self.to_db(value : M?) : String | ::Std::Slice::Bytes | Nil
+    return nil if value.nil?
+    {% if T == ::Std::Slice::Bytes %}
+      text_bytes(value.to_json)
+    {% else %}
+      value.to_json
+    {% end %}
+  end
+
+  def self.from_db(value : V) : M? forall V
+    case value
+    when String then M.from_json(value)
+    when ::Std::Slice::Bytes then M.from_json(bytes_text(value))
+    else nil
+    end
+  end
+
+  def self.from_rs(result : R) : M? forall R
+    value = result.read
+    return nil if value.nil?
+    {% if T == ::Std::Json::Any %}
+      M.from_json(value.as(::Std::Json::Any).to_json)
+    {% elsif T == ::Std::Slice::Bytes %}
+      M.from_json(bytes_text(value.as(::Std::Slice::Bytes)))
+    {% else %}
+      M.from_json(value.as(String))
+    {% end %}
+  end
+end
