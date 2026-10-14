@@ -2489,7 +2489,7 @@
   target: grant_error_error_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/exceptions/record_invalid_spec.cr
   target: grant_exceptions_record_invalid_test.iyi
   area: other
