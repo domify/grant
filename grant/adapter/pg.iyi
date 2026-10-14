@@ -7,6 +7,9 @@ import grant/adapter/driver::{Value, Mutation}
 import grant/locking::{LockMode}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/adapter/error_translator::{Kind}
+import grant/adapter/error_translator
+import grant/adapter/pg_connection::{PQError}
+import grant/error_taxonomy::{StatementInvalid}
 
 pub class Pg < Base
   QUOTING_CHAR = '"'
@@ -15,27 +18,24 @@ pub class Pg < Base
     true
   end
 
-  # Classifies a server error by SQLSTATE. `57014` covers both a user cancel and
-  # `statement_timeout`; the server's message is the only thing that tells them
-  # apart, so it is consulted for that one code.
+  # Classifies a server error by SQLSTATE, or returns nil for codes Grant
+  # does not translate.
   def self.error_kind(sqlstate : String?, message : String? = nil) : Kind?
-    return nil unless sqlstate
-    kind = case sqlstate
-           when "23505" then Kind::Unique
-           when "23503" then Kind::ForeignKey
-           when "23502" then Kind::NotNull
-           when "22001" then Kind::ValueTooLong
-           when "40P01" then Kind::Deadlock
-           when "40001" then Kind::SerializationFailure
-           when "55P03" then Kind::LockWaitTimeout
-           when "57014" then Kind::QueryCanceled
-           when "25006" then Kind::ReadOnly
-           when "3D000" then Kind::NoDatabase
-           end
-    if kind == Kind::QueryCanceled && !message.nil? && message.includes?("statement timeout")
-      return Kind::StatementTimeout
+    ::Grant::Adapter::ErrorTranslator.pg_error_kind(sqlstate, message)
+  end
+
+  # Maps a libpq failure to the matching taxonomy error. An error Grant does
+  # not recognize is returned unchanged.
+  def translate_exception(error : E, sql : String? = nil, binds : Array(Value)? = nil) : E | ErrorBase forall E
+    if error.is_a?(PQError)
+      described = binds.nil? ? [] of String : StatementInvalid.describe_binds(binds)
+      kind = Pg.error_kind(error.sqlstate, error.message)
+      return ::Grant::Adapter::ErrorTranslator.build(kind, error.message, sql, described, error) unless kind.nil?
+      translated = StatementInvalid.new(0, "execute", error.message, sql, error)
+      translated.binds = described
+      return translated
     end
-    kind
+    super(error, sql, binds)
   end
 
   def initialize(name : String, url : String)

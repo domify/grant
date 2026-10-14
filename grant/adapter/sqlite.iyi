@@ -14,34 +14,11 @@ import grant/locking::{LockMode}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{NoDatabaseError}
 import grant/adapter/error_translator::{Kind}
+import grant/adapter/error_translator
 
 pub class Sqlite < Base
   def self.error_kind(code : Int32?, message : String? = nil) : Kind?
-    return nil unless code
-
-    case code
-    when 2067, 1555 then return Kind::Unique
-    when 787        then return Kind::ForeignKey
-    when 1299       then return Kind::NotNull
-    end
-
-    case code & 0xFF
-    when 5, 6 then Kind::LockWaitTimeout
-    when 8    then Kind::ReadOnly
-    when 9    then Kind::QueryCanceled
-    when 14   then Kind::NoDatabase
-    when 18   then Kind::ValueTooLong
-    when 19
-      if message.nil?
-        nil
-      elsif message.starts_with?("UNIQUE constraint failed") || message.starts_with?("PRIMARY KEY must be unique")
-        Kind::Unique
-      elsif message.starts_with?("FOREIGN KEY constraint failed")
-        Kind::ForeignKey
-      elsif message.starts_with?("NOT NULL constraint failed")
-        Kind::NotNull
-      end
-    end
+    ::Grant::Adapter::ErrorTranslator.sqlite_error_kind(code, message)
   end
 
   def initialize(name : String, url : String)
@@ -91,13 +68,13 @@ pub class Sqlite < Base
     path.split('?').first
   end
 
-  protected def translate_exception(error : DatabaseError) : DatabaseError
+  def translate_exception(error : E, sql : String? = nil, binds : Array(Value)? = nil) : E | ErrorBase forall E
     # SQLITE_CANTOPEN: SQLite creates files, so an inaccessible database path
     # is its native equivalent of the upstream missing-directory translation.
-    if error.code == 14 && !Dir.exists?(File.dirname(database_path))
+    if error.is_a?(DatabaseError) && error.code == 14 && !Dir.exists?(File.dirname(database_path))
       NoDatabaseError.new(error.code, error.operation, error.detail, error.sql)
     else
-      error
+      super(error, sql, binds)
     end
   end
 

@@ -1,6 +1,7 @@
 module grant/adapter/test_helpers
 
 import grant/adapter/driver::{Connection}
+import grant/adapter/base::{Base}
 import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
 import grant/adapter/pg_test_helpers::{PgTestHelpers}
 import grant/transaction::{ConnectionTransactions}
@@ -53,5 +54,32 @@ impl AdapterTestHelpers for Connection
 
   def reset_pk_sequence_strict(table_name : String, primary_key : String = "id") : Nil | ::Grant::Errors::DatabaseError
     postgres? ? pg_reset_pk_sequence_strict(table_name, primary_key) : sqlite_reset_pk_sequence_strict(table_name, primary_key)
+  end
+end
+
+# Upstream defines the helpers on Grant::Adapter::Base. The adapter runs each
+# one on its pinned (transaction) connection, or a pooled one.
+impl AdapterTestHelpers for Base
+  def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
+    connection = checkout
+    return connection if connection.is_a?(::Grant::Errors::ErrorBase)
+    return ::Grant::Errors::ErrorBase.new("checkout cancelled") if connection.is_a?(Cancelled)
+    connection.disable_referential_integrity { yield }
+  end
+
+  def truncate_tables(*names : String) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+    truncate_tables(names.to_a)
+  end
+
+  def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+    connection = checkout
+    return connection if connection.is_a?(::Grant::Errors::ErrorBase)
+    return ::Grant::Errors::ErrorBase.new("checkout cancelled") if connection.is_a?(Cancelled)
+    connection.truncate_tables(names)
+  end
+
+  def reset_pk_sequence_strict(table_name : String, primary_key : String = "id") : Nil | ::Grant::Errors::DatabaseError
+    connection = checkout.or_panic
+    connection.reset_pk_sequence_strict(table_name, primary_key)
   end
 end

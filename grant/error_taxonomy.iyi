@@ -9,6 +9,9 @@ pub class StatementInvalid < ErrorBase
   REDACTED = "[FILTERED]"
 
   property binds : Array(String) = [] of String
+  # Set by a driver that classified this failure as a read-only violation;
+  # adapters surface it as ReadOnlyError, which is not a StatementInvalid.
+  property read_only : Bool = false
 
   def self.describe_binds(values : Array(T)) : Array(String) forall T
     described = [] of String
@@ -30,8 +33,10 @@ pub class StatementInvalid < ErrorBase
   property sql : String?
   getter cause : ErrorBase?
 
+  # Upstream keeps the driver's message as the error message; the operation
+  # and driver code stay reachable as fields.
   def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil, @cause : ErrorBase? = nil)
-    super("#{operation}: #{detail} (#{code})")
+    super(detail)
   end
 end
 
@@ -118,6 +123,78 @@ pub class NoDatabaseError < StatementInvalid
 end
 
 impl ::Error for NoDatabaseError
+  def message : String
+    @message
+  end
+end
+
+pub class ValueTooLong < StatementInvalid
+end
+
+impl ::Error for ValueTooLong
+  def message : String
+    @message
+  end
+end
+
+# The database rolled the transaction back; retrying it is the usual remedy.
+pub class TransactionRollbackError < StatementInvalid
+end
+
+impl ::Error for TransactionRollbackError
+  def message : String
+    @message
+  end
+end
+
+pub class SerializationFailure < TransactionRollbackError
+end
+
+impl ::Error for SerializationFailure
+  def message : String
+    @message
+  end
+end
+
+pub class Deadlocked < TransactionRollbackError
+end
+
+impl ::Error for Deadlocked
+  def message : String
+    @message
+  end
+end
+
+pub class StatementTimeout < StatementInvalid
+end
+
+impl ::Error for StatementTimeout
+  def message : String
+    @message
+  end
+end
+
+pub class QueryCanceled < StatementInvalid
+end
+
+impl ::Error for QueryCanceled
+  def message : String
+    @message
+  end
+end
+
+# Upstream Grant::Transaction::ReadOnlyError (aliased as Grant::ReadOnlyError).
+# It lives here so the adapter translator can build it without importing the
+# transaction module; grant/transaction re-exports it.
+pub class ReadOnlyError < ErrorBase
+  getter cause : ErrorBase?
+
+  def initialize(message : String = "Cannot modify data in read-only transaction", @cause : ErrorBase? = nil)
+    super(message)
+  end
+end
+
+impl ::Error for ReadOnlyError
   def message : String
     @message
   end

@@ -1,13 +1,14 @@
+import std/text
 import transaction_crud_models::{Parent}
-import grant/adapter/driver::{Connection}
+import grant/adapter/base::{Base}
 import grant/adapter/test_helpers::{AdapterTestHelpers}
 import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
 import grant/errors::{ErrorBase, Rollback}
 import grant/error_taxonomy::{InvalidForeignKey}
 import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
-def adapter : Connection
-  Parent.adapter.as(Connection)
+def adapter : Base
+  Parent.adapter
 end
 
 def serial_key : String
@@ -19,16 +20,16 @@ def serial_key : String
 end
 
 def run(statement : String)
-  adapter.execute(statement)
+  adapter.open { |db| db.exec(statement) }
 end
 
 def count(table : String) : Int64
-  adapter.query("SELECT COUNT(*) AS count FROM #{table}").or_panic[0]["count"].as(Int64)
+  adapter.open { |db| db.scalar("SELECT COUNT(*) FROM #{table}") }.or_panic.to_s.to_i64
 end
 
 def insert_author(name : String) : Int64
   run("INSERT INTO o01_authors (name) VALUES ('#{name}')").or_panic
-  adapter.query("SELECT MAX(id) AS id FROM o01_authors").or_panic[0]["id"].as(Int64)
+  adapter.open { |db| db.scalar("SELECT MAX(id) FROM o01_authors") }.or_panic.to_s.to_i64
 end
 
 register_spec_connections
@@ -51,9 +52,10 @@ assert insert_author("fresh") == 1
 # it: is a single TRUNCATE ... RESTART IDENTITY CASCADE on PostgreSQL
 adapter.truncate_tables("o01_books", "o01_authors").or_panic
 statements = [] of String
-adapter.query_observer = ->(sql : String) { statements << sql; nil }
+observed = adapter.checkout.or_panic
+observed.query_observer = ->(sql : String) { statements << sql; nil }
 adapter.truncate_tables("o01_books", "o01_authors").or_panic
-adapter.query_observer = nil
+observed.query_observer = nil
 
 if adapter.postgres?
   assert statements.size == 1

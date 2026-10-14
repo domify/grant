@@ -7,7 +7,8 @@ import grant/locking::{LockMode}
 import grant/adapter/pool_support::{ticks}
 import grant/adapter/placeholder_scanner::{PlaceholderScanner}
 import grant/errors::{DatabaseError}
-import grant/error_taxonomy::{InvalidForeignKey, RecordNotUnique, NotNullViolation, LockWaitTimeout, NoDatabaseError}
+import grant/error_taxonomy::{StatementInvalid, NoDatabaseError}
+import grant/adapter/error_translator
 import grant/error::{ErrorBase}
 pub import grant/adapter/driver
 
@@ -57,6 +58,12 @@ lib PQ
   fun finish = PQfinish(conn : Void*) : Nil
   fun transaction_status = PQtransactionStatus(conn : Void*) : Int32
   fun set_notice_processor = PQsetNoticeProcessor(conn : Void*, processor : Void*, arg : Void*) : Void*
+  fun send_query_params = PQsendQueryParams(conn : Void*, command : UInt8*, n : Int32, types : Void*, values : UInt8**, lengths : Int32*, formats : Int32*, result_format : Int32) : Int32
+  fun consume_input = PQconsumeInput(conn : Void*) : Int32
+  fun is_busy = PQisBusy(conn : Void*) : Int32
+  fun get_result = PQgetResult(conn : Void*) : Void*
+  fun socket = PQsocket(conn : Void*) : Int32
+  fun request_cancel = PQrequestCancel(conn : Void*) : Int32
 end
 
 PGRES_COMMAND_OK = 1
@@ -189,13 +196,14 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
       sqlstate = cstring(field) unless field.address == 0_u64
     end
     cause = PQError.new(sqlstate, detail)
-    case sqlstate
-    when "23505" then RecordNotUnique.new(0, operation, detail, sql, cause)
-    when "23503" then InvalidForeignKey.new(0, operation, detail, sql, cause)
-    when "23502" then NotNullViolation.new(0, operation, detail, sql, cause)
-    when "55P03" then LockWaitTimeout.new(0, operation, detail, sql, cause)
-    else              DatabaseError.new(0, operation, detail, sql, cause)
-    end
+    kind = ::Grant::Adapter::ErrorTranslator.pg_error_kind(sqlstate, detail)
+    return DatabaseError.new(0, operation, detail, sql, cause) if kind.nil?
+    translated = ::Grant::Adapter::ErrorTranslator.build(kind, detail, sql, [] of String, cause, 0, operation)
+    return translated if translated.is_a?(StatementInvalid)
+    # ReadOnlyError is not a statement error; the adapter surfaces it.
+    error = DatabaseError.new(0, operation, detail, sql, cause)
+    error.read_only = true
+    error
   end
 
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
@@ -305,7 +313,7 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
       end
     end
     pointers = texts.map { |text| text.nil? ? Pointer(UInt8).new(0_u64) : text.to_unsafe }
-    result = PQ.exec_params(@handle, statement, texts.size, Pointer(Void).new(0_u64), pointers.to_unsafe, Pointer(Int32).new(0_u64), Pointer(Int32).new(0_u64), 0)
+    result = exec_async(statement, texts.size, pointers)
     @grant_last_used_ticks = ticks
     if result.address == 0_u64
       return failure(result, operation, sql)
@@ -317,6 +325,43 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
       return error
     end
     result
+  end
+
+  # PQexecParams without blocking the scheduler: the statement is sent, then
+  # this fiber parks on the socket until libpq has the whole reply, so other
+  # fibers (another connection's lock holder, a canceller) keep running. Like
+  # PQexec it answers the last result, or the first failed one.
+  private def exec_async(statement : String, count : Int32, pointers : Array(Pointer(UInt8))) : Void*
+    sent = PQ.send_query_params(@handle, statement, count, Pointer(Void).new(0_u64), pointers.to_unsafe, Pointer(Int32).new(0_u64), Pointer(Int32).new(0_u64), 0)
+    return Pointer(Void).new(0_u64) if sent == 0
+    fd = PQ.socket(@handle)
+    kept = Pointer(Void).new(0_u64)
+    loop do
+      while PQ.is_busy(@handle) == 1
+        waited = IyiScheduler.wait_readable_current(fd)
+        # A cancelled fiber still drains the reply so the connection stays
+        # usable; the server is asked to stop the statement first.
+        PQ.request_cancel(@handle) if waited.is_a?(Cancelled)
+        if PQ.consume_input(@handle) == 0
+          PQ.clear(kept) unless kept.address == 0_u64
+          return Pointer(Void).new(0_u64)
+        end
+      end
+      result = PQ.get_result(@handle)
+      break if result.address == 0_u64
+      if kept.address == 0_u64
+        kept = result
+      else
+        status = PQ.result_status(kept)
+        if status == PGRES_COMMAND_OK || status == PGRES_TUPLES_OK
+          PQ.clear(kept)
+          kept = result
+        else
+          PQ.clear(result)
+        end
+      end
+    end
+    kept
   end
 
   def read_value(result : Void*, row : Int32, column : Int32) : Value | DatabaseError

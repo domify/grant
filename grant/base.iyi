@@ -839,18 +839,13 @@ pub abstract class Base
       \{% if declaration %}
         transaction_adapter
       \{% else %}
-        __connection
+        ::Grant::Connections::Connections[@@connection_name]
       \{% end %}
       \{% end %}
     end
 
     def self.__transaction_connection : ::Grant::Adapter::Driver::Connection
-      selected = transaction_adapter
-      if selected.is_a?(::Grant::Adapter::Base::Base)
-        selected.checkout.or_panic
-      else
-        selected
-      end
+      transaction_adapter.checkout.or_panic
     end
 
     def self.__connection : ::Grant::Adapter::Driver::Connection
@@ -875,12 +870,7 @@ pub abstract class Base
     end
 
     def self.with_connection(&block : ::Grant::Adapter::Driver::Connection -> T) forall T
-      selected = transaction_adapter
-      if selected.is_a?(::Grant::Adapter::Base::Base)
-        selected.with_connection { |raw| yield raw }
-      else
-        yield __connection
-      end
+      transaction_adapter.with_connection { |raw| yield raw }
     end
 
     def self.connection_pool(role : Symbol = ::Grant::Settings.settings.writing_role) : ::Grant::ConnectionPool::ConnectionPool
@@ -1529,6 +1519,7 @@ pub abstract class Base
       placeholders = names.map { "?" }.join(", ")
       result = __adapter.insert("INSERT INTO #{::Grant::Base.quote_identifier(__table_name)} (#{names.map { |name| ::Grant::Base.quote_identifier(name) }.join(", ")}) VALUES (#{placeholders})", values, __primary_auto? && __primary_value.nil? ? __primary_name : nil)
       if result.is_a?(DatabaseError)
+        return ::Grant::ErrorTaxonomy::ReadOnlyError.new(result.message, result) if result.read_only
         errors << ::Grant::Error::Error.new(:base, result.message)
         return RecordNotSaved.new(__table_name, result)
       end
@@ -1544,6 +1535,7 @@ pub abstract class Base
         changed_values << __primary_value
         result = __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", changed_values)
         if result.is_a?(DatabaseError)
+          return ::Grant::ErrorTaxonomy::ReadOnlyError.new(result.message, result) if result.read_only
           errors << ::Grant::Error::Error.new(:base, result.message)
           return RecordNotSaved.new(__table_name, result)
         end

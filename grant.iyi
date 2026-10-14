@@ -16,7 +16,7 @@ end
 
 pub def connection(name : String = "sqlite") : ::Grant::Connection::Connection
   selected = ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter?(name, :reading)
-  return ::Grant::Connection::Connection.new(::Grant::Connections::Connections[name]) if selected.nil?
+  return ::Grant::Connection::Connection.new(->(role : Symbol) { ::Grant::Connections::Connections[name] }) if selected.nil?
   ::Grant::Connection::Connection.new(->(role : Symbol) { ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter(name, role) })
 end
 

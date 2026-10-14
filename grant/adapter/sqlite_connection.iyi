@@ -4,7 +4,7 @@ import grant/cstring::{cstring}
 import grant/locking::{LockMode}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
-import grant/error_taxonomy::{InvalidForeignKey, RecordNotUnique, NotNullViolation, LockWaitTimeout}
+import grant/adapter/error_translator
 import grant/error::{ErrorBase}
 pub import grant/adapter/driver
 
@@ -166,13 +166,15 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
     detail = @closed ? "connection is closed" : cstring(SQLite.errmsg(@handle))
     cause = SQLiteError.new(code, detail)
     unless @closed
-      case SQLite.extended_errcode(@handle)
-      when 2067, 1555 then return RecordNotUnique.new(code, operation, detail, sql, cause)
-      when 787        then return InvalidForeignKey.new(code, operation, detail, sql, cause)
-      when 1299       then return NotNullViolation.new(code, operation, detail, sql, cause)
-      end
-      if code & 0xFF == 5 || code & 0xFF == 6
-        return LockWaitTimeout.new(code, operation, detail, sql, cause)
+      kind = ::Grant::Adapter::ErrorTranslator.sqlite_error_kind(SQLite.extended_errcode(@handle), detail)
+      # CANTOPEN is left to the adapter, which knows whether the path exists.
+      unless kind.nil? || kind == ::Grant::Adapter::ErrorTranslator::Kind::NoDatabase
+        translated = ::Grant::Adapter::ErrorTranslator.build(kind, detail, sql, [] of String, cause, code, operation)
+        return translated if translated.is_a?(DatabaseError)
+        # ReadOnlyError is not a statement error; the adapter surfaces it.
+        error = DatabaseError.new(code, operation, detail, sql, cause)
+        error.read_only = true
+        return error
       end
     end
     DatabaseError.new(code, operation, detail, sql, cause)

@@ -2,12 +2,12 @@ module grant/adapter/base
 
 import std/time::{Span}
 import grant/locking::{LockMode}
-import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost}
+import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost, PoolTimeout}
 import grant/pool_stat::{PoolStat}
 import grant/adapter/pool_support::{backoff, idempotent_read?, ticks}
 import grant/adapter/driver::{Connection, Value, Mutation}
 import grant/errors::{DatabaseError, ErrorBase}
-import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError, ConnectionTimeoutError}
+import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError, ConnectionTimeoutError, StatementInvalid, ReadOnlyError}
 
 pub abstract class Base
   abstract def insert(table_name : String, fields : Array(String), params : Array(Value), lastval : String?) : Int64 | ErrorBase | Cancelled
@@ -85,8 +85,21 @@ pub abstract class Base
     nil
   end
 
-  protected def translate_exception(error : DatabaseError) : DatabaseError
-    error
+  # Maps a driver failure to the matching taxonomy error and returns it. An
+  # error Grant does not recognize is returned unchanged; adapters override
+  # this to classify their driver's errors and call `super` for the rest.
+  def translate_exception(error : E, sql : String? = nil, binds : Array(Value)? = nil) : E | ErrorBase forall E
+    if error.is_a?(ConnectionRefused)
+      ConnectionFailed.new("Could not connect to #{name}: #{error.message}", error)
+    elsif error.is_a?(PoolTimeout)
+      ConnectionTimeoutError.new(error.message, error)
+    elsif error.is_a?(PoolResourceRefused)
+      ConnectionFailed.new("Could not connect to #{name}: #{error.message}", error)
+    elsif error.is_a?(StatementInvalid) && error.read_only
+      ReadOnlyError.new(error.message, error)
+    else
+      error
+    end
   end
 
   def verify_strict : Nil | ErrorBase
@@ -94,7 +107,7 @@ pub abstract class Base
     if result.is_a?(ConnectionRefused)
       ConnectionFailed.new("Could not reach #{name}: #{result.message}", result)
     elsif result.is_a?(DatabaseError)
-      translated = translate_exception(result)
+      translated = translate_exception(result.as(DatabaseError))
       return translated if translated.is_a?(NoDatabaseError)
       ConnectionFailed.new("Could not reach #{name}: #{result.message}", result)
     elsif result.is_a?(ErrorBase)
@@ -239,11 +252,18 @@ pub abstract class Base
     attempt = 0
     loop do
       connection = (pool_only ? checkout_connection : checkout)!
+      pinned = pinned_connection?
       # The upstream transaction route never enters its replaying pool route.
-      lost_retries = 0 if connection.in_transaction? || !pinned_connection?.nil?
+      lost_retries = 0 if connection.in_transaction? || !pinned.nil?
+      # A pooled checkout is exclusive while the block runs, as crystal-db's
+      # pool hands a connection to one fiber at a time.
+      owned = pinned.nil? || pinned.object_id != connection.object_id
+      pool = owned ? @_database : nil
+      pool.pool.reserve(connection) unless pool.nil?
       @in_use += 1
       result = yield connection
       @in_use -= 1
+      pool.pool.release(connection) unless pool.nil?
       connection.grant_last_used_ticks = ticks
       if result.is_a?(ConnectionLost)
         if lost_retries == 0
@@ -257,7 +277,7 @@ pub abstract class Base
         # without one retain the last statement executed on this connection.
         result.sql = sql || result.sql || connection.last_statement
         result.binds = DatabaseError.describe_binds(binds) unless binds.nil?
-        return result
+        return translate_exception(result)
       else
         return result
       end

@@ -1,22 +1,17 @@
 import grant/base::{Base}
 import grant/locking::{LockMode, LockWaitTimeoutError}
 import grant/error_taxonomy::{LockWaitTimeout}
-import grant/adapter/sqlite::{Sqlite}
-import grant/connection_registry::{ConnectionRegistry}
+import spec_helper::{register_spec_connections}
 
 class LockWaitSpecJob < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
-  connects_to database: "lock_wait_rows"
   table lock_wait_spec_jobs
 
   column id : Int64, primary: true
   column state : String
 end
 
-# The holder runs on a second pooled connection, so the rows live in a file
-# database that every connection of the pool shares.
-File.delete("lock_wait_spec.db") if File.exists?("lock_wait_spec.db")
-ConnectionRegistry.establish_connection(database: "lock_wait_rows", adapter: Sqlite, url: "sqlite3://./lock_wait_spec.db").or_panic
+register_spec_connections
 LockWaitSpecJob.migrator.drop_and_create.or_panic
 
 # Holds a row lock in a second task (so on a second connection) while the
@@ -80,7 +75,8 @@ if lock_wait_spec_real_locks?
 
   # it: is the same class the Locking namespace names
   LockWaitSpecJob.clear.or_panic
-  assert LockWaitTimeoutError == LockWaitTimeout
+  # iyi metaclass `==` is identity-blind, so the classes are compared by name.
+  assert LockWaitTimeoutError.to_s == LockWaitTimeout.to_s
 
   # it: raises LockWaitTimeout from with_lock and lock! in NOWAIT mode, leaving the record untouched
   LockWaitSpecJob.clear.or_panic
@@ -189,4 +185,3 @@ else
 end
 
 LockWaitSpecJob.adapter.close.or_panic
-File.delete("lock_wait_spec.db") if File.exists?("lock_wait_spec.db")

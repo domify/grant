@@ -215,7 +215,7 @@
   target: grant_errors_constraint_translation_test.iyi
   area: transactions
   examples: 29
-  status: todo
+  status: done
   children:
   - target: grant_errors_constraint_translation_classification_test.iyi
     status: done
@@ -236,7 +236,7 @@
     - T-34f7ced063
     - T-ac79958735
   - target: grant_errors_constraint_translation_test.iyi
-    status: todo
+    status: done
     examples:
     - T-fbb6a630b8
     - T-08bd27d3ca
@@ -249,7 +249,7 @@
     - T-1a819b94ff
     - T-6304cdbf37
   - target: grant_errors_constraint_translation_pg_test.iyi
-    status: todo
+    status: done
     examples:
     - T-02d27e7c5e
     - T-a8d0c2a187
@@ -359,7 +359,7 @@
   target: grant_persistence_read_only_transaction_create_test.iyi
   area: transactions
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/transaction_lifecycle_spec.cr
   target: grant_persistence_transaction_lifecycle_test.iyi
   area: transactions
