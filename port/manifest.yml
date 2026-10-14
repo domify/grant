@@ -228,7 +228,7 @@
   target: grant_locking_pessimistic_test.iyi
   area: transactions
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/locking/with_lock_spec.cr
   target: grant_locking_with_lock_test.iyi
   area: transactions

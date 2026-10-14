@@ -1,0 +1,84 @@
+import transaction_crud_models::{Parent}
+import grant/locking::{LockMode}
+import grant/adapter/sqlite::{Sqlite, Connection}
+import grant/connections::{Connections}
+import grant/error::{ErrorBase}
+
+Connections.register("sqlite", Connection.open(":memory:").or_panic)
+Parent.migrator.drop_and_create.or_panic
+
+# it: adds lock mode to query
+query = Parent.lock
+assert query.lock_mode == LockMode::Update
+
+# it: accepts specific lock mode
+query = Parent.lock(LockMode::Share)
+assert query.lock_mode == LockMode::Share
+
+# it: can be chained with where
+query = Parent.where(name: "Test").lock
+assert query.lock_mode == LockMode::Update
+assert query.where_fields.size == 1
+
+# it: locks a record within a transaction
+Parent.clear.or_panic
+parent = Parent.create_strict(name: "Test Parent").or_panic
+Parent.with_lock(parent.id) do |locked_parent|
+  assert locked_parent.id == parent.id
+  assert locked_parent.name == "Test Parent"
+  locked_parent.name = "Updated Parent"
+  locked_parent.save_strict.or_panic
+end.or_panic
+parent.reload.or_panic
+assert parent.name == "Updated Parent"
+
+# it: rolls back changes on exception
+Parent.clear.or_panic
+parent = Parent.create_strict(name: "Original Name").or_panic
+error = Parent.with_lock(parent.id) do |locked_parent|
+  locked_parent.name = "Should be rolled back"
+  locked_parent.save_strict.or_panic
+  ErrorBase.new("Test error")
+end
+assert error.is_a?(ErrorBase)
+assert error.as(ErrorBase).message == "Test error"
+parent.reload.or_panic
+assert parent.name == "Original Name"
+
+# it: locks instance within a transaction
+Parent.clear.or_panic
+parent = Parent.create_strict(name: "Test Parent").or_panic
+parent.with_lock do |locked_parent|
+  assert locked_parent.object_id == parent.object_id
+  locked_parent.name = "Updated via instance"
+  locked_parent.save_strict.or_panic
+end.or_panic
+parent.reload.or_panic
+assert parent.name == "Updated via instance"
+
+# it: reloads record with lock
+Parent.clear.or_panic
+parent = Parent.create_strict(name: "Original").or_panic
+Parent.transaction do
+  parent.reload_with_lock.or_panic
+  parent.name = "Updated"
+  parent.save_strict.or_panic
+end.or_panic
+assert Parent.find_strict(parent.id).or_panic.name == "Updated"
+
+# it: generates correct SQL for different adapters
+# Preserve the SQLite branch of this mixed-adapter example.
+sqlite_adapter = Sqlite.new("test_sqlite", "sqlite3::memory:")
+assert LockMode::Update.to_sql(sqlite_adapter) == ""
+
+# it: correctly reports lock mode support
+assert !Parent.adapter.supports_lock_mode?(LockMode::Update)
+
+# it: delegates LockMode#to_sql to the adapter's #lock_clause
+sqlite_adapter = Sqlite.new("test_sqlite", "sqlite3::memory:")
+assert LockMode::Update.to_sql(sqlite_adapter) == sqlite_adapter.lock_clause(LockMode::Update)
+
+# it: treats SQLite locking as a no-op (empty clause)
+sqlite = Sqlite.new("test_sqlite", "sqlite3::memory:")
+assert sqlite.lock_clause(LockMode::Update) == ""
+assert sqlite.lock_clause(LockMode::Share) == ""

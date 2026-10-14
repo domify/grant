@@ -13,7 +13,7 @@ import grant/query/grouping::{Grouping}
 pub class Builder(Model)
   getter lock_mode : LockMode? = nil
 
-  @where_fields = [] of String
+  getter where_fields = [] of String
   @where_values = [] of Value
   getter group_fields = [] of NamedTuple(field: String)
 
