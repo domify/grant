@@ -238,7 +238,7 @@
   target: grant_notifications_transaction_events_test.iyi
   area: transactions
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/perf/w6_primary_key_lookup_spec.cr
   target: grant_perf_w6_primary_key_lookup_test.iyi
   area: transactions

@@ -113,6 +113,7 @@ pub class Connection
   @closed : Bool
   @savepoint_sequence : UInt64
   getter last_statement : String?
+  property name : String = "sqlite"
   getter path : String
   property grant_last_used_ticks : Int64 = ticks
   property query_observer : Proc(String, Nil)? = nil

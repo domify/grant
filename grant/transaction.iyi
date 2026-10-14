@@ -11,37 +11,17 @@ import grant/adapter/base::{Base}
 import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError, NotOpenError, InvalidSavepointNameError}
 pub import grant/errors
 
-pub enum IsolationLevel
-  ReadUncommitted
-  ReadCommitted
-  RepeatableRead
-  Serializable
-
-  def to_sql : String | ErrorBase
-    case self
-    when ReadUncommitted then "READ UNCOMMITTED"
-    when ReadCommitted then "READ COMMITTED"
-    when RepeatableRead then "REPEATABLE READ"
-    when Serializable then "SERIALIZABLE"
-    else ErrorBase.new("Unknown isolation level: #{self}")
-    end
-  end
-end
-
-pub struct Options
-  getter isolation : IsolationLevel?
-  getter readonly : Bool
-  getter requires_new : Bool
-  getter joinable : Bool
-  getter independent : Bool
-  getter lazy_begin : Bool
-
-  def initialize(@isolation : IsolationLevel? = nil, @readonly : Bool = false, @requires_new : Bool = false, @joinable : Bool = true, @independent : Bool = false, @lazy_begin : Bool = false)
-  end
-end
+pub import grant/transaction_options
+pub alias IsolationLevel = ::Grant::TransactionOptions::IsolationLevel
+pub alias Options = ::Grant::TransactionOptions::Options
+import std/time::{Time}
+import grant/notifications
+import grant/events::{TransactionStart, TransactionOutcome}
+import grant/events
 
 # Connection state shared by every model, without an import cycle with Base.
 pub class TransactionState
+  getter started_at = Time.monotonic
   getter adapter : Connection
   getter connection : Connection
   getter options : Options
@@ -73,7 +53,7 @@ pub class TransactionState
   end
   @@statement_observer : Proc(String, Nil)? = nil
 
-  def initialize(@adapter : Connection, @connection : Connection, @options : Options, @enclosing : TransactionState? = nil)
+  def initialize(@adapter : Connection, @connection : Connection, @options : Options, @enclosing : TransactionState? = nil, @started_at = Time.monotonic)
   end
 
   def next_savepoint_name : String
@@ -137,10 +117,11 @@ pub class TransactionState
 end
 
 pub struct SavepointMarker
+  getter started_at = Time.monotonic
   getter name : String
   getter marks : NamedTuple(callbacks: Int32, records: Int32, after_all: Int32)
 
-  def initialize(@name : String, @marks : NamedTuple(callbacks: Int32, records: Int32, after_all: Int32))
+  def initialize(@name : String, @marks : NamedTuple(callbacks: Int32, records: Int32, after_all: Int32), @started_at = Time.monotonic)
   end
 end
 
@@ -251,6 +232,7 @@ end
 
 pub def run(adapter : Base, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ErrorBase forall T
   connection = adapter.pinned_connection? || adapter.database!.checkout!
+  connection.name = adapter.name
   run(connection, options, savepoint_name) { yield }
 end
 
@@ -269,19 +251,22 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
   connection = options.independent ? adapter.open_independent! : (enclosing.nil? ? adapter : enclosing.connection)
   outer = !connection.in_transaction?
   savepoint = outer || enclosing.nil? ? "" : (savepoint_name || enclosing.next_savepoint_name)
+  started_at = Time.monotonic
   begun = execute_control(connection, outer ? begin_statements(adapter, options)[0] : "SAVEPOINT #{savepoint}")
   if begun.is_a?(DatabaseError)
     connection.close if options.independent
     return begun
   end
-  state = TransactionState.new(adapter, connection, options, outer ? nil : enclosing)
+  state = TransactionState.new(adapter, connection, options, outer ? nil : enclosing, started_at)
   TransactionState.push(state)
+  publish_transaction_start(state, outer ? nil : savepoint)
   result = yield
   TransactionState.pop
   state.open = false
   if result.is_a?(::Error)
     execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
     execute_control(connection, "RELEASE SAVEPOINT #{savepoint}")! unless outer
+    publish_transaction_end(state, TransactionOutcome::Rollback, state.started_at, outer ? nil : savepoint)
     restore_records(state)
     state.pending_callbacks.each { |callback| callback[:on_rollback].call }
     connection.close! if options.independent
@@ -293,11 +278,13 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
   if committed.is_a?(DatabaseError)
     execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")
     execute_control(connection, "RELEASE SAVEPOINT #{savepoint}") unless outer
+    publish_transaction_end(state, TransactionOutcome::Rollback, state.started_at, outer ? nil : savepoint)
     restore_records(state)
     state.pending_callbacks.each { |callback| callback[:on_rollback].call }
     connection.close if options.independent
     return committed
   end
+  publish_transaction_end(state, TransactionOutcome::Commit, state.started_at, outer ? nil : savepoint)
   unless outer || enclosing.nil?
     state.record_callbacks.each do |record_id, callback|
       existing = enclosing.record_callbacks[record_id]?
@@ -388,16 +375,20 @@ pub def begin_manual(adapter : Connection, options : Options) : Handle | Databas
     return TransactionIsolationError.new if options.isolation
     name = state.next_savepoint_name
     marks = {callbacks: state.pending_callbacks.size, records: state.list_of_record_rollback_actions.size, after_all: state.after_all_commit_callbacks.size}
+    started_at = Time.monotonic
     execute_control(state.connection, "SAVEPOINT #{name}")!
-    handle = Handle.new(state, SavepointMarker.new(name, marks))
+    handle = Handle.new(state, SavepointMarker.new(name, marks, started_at))
     state.manual_savepoints << handle
+    publish_transaction_start(state, name)
     return handle
   end
 
+  started_at = Time.monotonic
   execute_control(adapter, begin_statements(adapter, options)[0])!
-  state = TransactionState.new(adapter, adapter, options)
+  state = TransactionState.new(adapter, adapter, options, nil, started_at)
   state.manual = true
   TransactionState.push(state)
+  publish_transaction_start(state, nil)
   state.handle
 end
 
@@ -407,6 +398,7 @@ pub def commit_manual(handle : Handle) : Nil | ::Grant::Error::ErrorBase | Datab
   marker = handle.savepoint?
   unless marker.nil?
     execute_control(state.connection, "RELEASE SAVEPOINT #{marker.name}")!
+    publish_transaction_end(state, TransactionOutcome::Commit, marker.started_at, marker.name)
     handle.settle
     state.manual_savepoints.delete(handle)
     return nil
@@ -419,6 +411,7 @@ pub def commit_manual(handle : Handle) : Nil | ::Grant::Error::ErrorBase | Datab
   end
   TransactionState.pop
   state.open = false
+  publish_transaction_end(state, TransactionOutcome::Commit)
   release_manual(state)
   state.pending_callbacks.each { |callback| callback[:on_commit].call! }
   finalize_after_all_commit(state)
@@ -431,6 +424,7 @@ pub def rollback_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
   marker = handle.savepoint?
   unless marker.nil?
     execute_control(state.connection, "ROLLBACK TO SAVEPOINT #{marker.name}")!
+    publish_transaction_end(state, TransactionOutcome::Rollback, marker.started_at, marker.name)
     while state.list_of_record_rollback_actions.size > marker.marks[:records]
       state.list_of_record_rollback_actions.pop.call
     end
@@ -455,6 +449,7 @@ pub def rollback_manual(handle : Handle) : Nil | DatabaseError | NotOpenError
   execute_control(state.connection, "ROLLBACK")!
   TransactionState.pop
   state.open = false
+  publish_transaction_end(state, TransactionOutcome::Rollback)
   restore_records(state)
   release_manual(state)
   state.pending_callbacks.each { |callback| callback[:on_rollback].call }
@@ -526,4 +521,16 @@ private def finalize_after_all_commit(state : TransactionState) : Nil
     state.after_all_commit_callbacks.each { |callback| parent.after_all_commit_callbacks << callback }
   end
   nil
+end
+
+private def publish_transaction_start(state : TransactionState, savepoint_name : String?) : Nil
+  ::Grant::Notifications.instrument(TransactionStart) do
+    TransactionStart.new(state.adapter.name, state.options, savepoint_name)
+  end
+end
+
+private def publish_transaction_end(state : TransactionState, outcome : TransactionOutcome, started_at = state.started_at, savepoint_name : String? = nil) : Nil
+  ::Grant::Notifications.instrument(::Grant::Events::Transaction) do
+    ::Grant::Events::Transaction.new(state.adapter.name, outcome, Time.monotonic - started_at, state.options, savepoint_name)
+  end
 end

@@ -22,6 +22,7 @@ pub class Connections
 
   def self.register(name : String, connection : Connection) : Nil
     @@adapters.delete(name)
+    connection.name = name
     @@registry[name] = connection
   end
 

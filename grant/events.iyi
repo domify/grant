@@ -1,0 +1,48 @@
+module grant/events
+
+import std/time::{Span}
+import grant/notifications
+import grant/transaction_options::{Options}
+
+pub enum TransactionOutcome
+  Commit
+  Rollback
+end
+
+pub struct TransactionStart
+  ::Grant::Notifications.publishable(::Grant::Events::TransactionStart)
+  getter connection : String
+  getter options : Options
+  getter savepoint_name : String?
+
+  def initialize(@connection : String, @options : Options, @savepoint_name : String? = nil)
+  end
+
+  def savepoint? : Bool
+    !@savepoint_name.nil?
+  end
+end
+
+pub struct Transaction
+  ::Grant::Notifications.publishable(::Grant::Events::Transaction)
+  getter connection : String
+  getter outcome : TransactionOutcome
+  getter duration : Span
+  getter options : Options
+  getter savepoint_name : String?
+
+  def initialize(@connection : String, @outcome : TransactionOutcome, @duration : Span, @options : Options, @savepoint_name : String? = nil)
+  end
+
+  def savepoint? : Bool
+    !@savepoint_name.nil?
+  end
+
+  def committed? : Bool
+    @outcome.commit?
+  end
+
+  def rolled_back? : Bool
+    @outcome.rollback?
+  end
+end

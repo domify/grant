@@ -200,6 +200,7 @@ pub abstract class Base
           return usable
         end
         if usable
+          connection.name = name
           @waiting_checkouts -= 1
           return connection
         end
