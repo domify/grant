@@ -1,11 +1,12 @@
+module test/grant_connection_management_test
 import grant/base::{Base}
 import grant/adapter/base
 import std/time
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 register_spec_connections
 
 # Model for testing connection management
-class ConnectionTestModel < Base
+pub class ConnectionTestModel < Base
   table connection_test
 
   column id : Int64, primary: true
@@ -16,7 +17,7 @@ class ConnectionTestModel < Base
 end
 
 # Model for testing sharded connections
-class ConnectionManagementShardedModel < Base
+pub class ConnectionManagementShardedModel < Base
   table sharded_models
 
   column id : Int64, primary: true
@@ -29,7 +30,7 @@ class ConnectionManagementShardedModel < Base
 end
 
 # Model without connection configuration for testing fallback
-class UnConfiguredModel < Base
+pub class UnConfiguredModel < Base
   table unconfigured
   column id : Int64, primary: true
 end

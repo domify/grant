@@ -1,5 +1,6 @@
-import pool_spec_support::{C02Support}
-import spec_helper::{CURRENT_ADAPTER}
+module test/grant_connection_pool_exhaustion_test
+import test/pool_spec_support::{C02Support}
+import test/spec_helper::{CURRENT_ADAPTER}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/adapter/sqlite::{Sqlite}
 import grant/error_taxonomy::{ConnectionTimeoutError}
