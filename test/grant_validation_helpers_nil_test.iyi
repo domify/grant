@@ -1,7 +1,8 @@
+module test/grant_validation_helpers_nil_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-class NilTest < Base
+pub class NilTest < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
 
   column id : Int64, primary: true
