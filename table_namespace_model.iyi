@@ -1,0 +1,9 @@
+module my_app/namespace
+
+pub import grant/base
+import grant/base::{Base}
+
+pub class Model < Base
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
+  column id : Int64, primary: true
+end

@@ -1513,7 +1513,7 @@
   target: grant_table_table_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/tasks/database_tasks_spec.cr
   target: grant_tasks_database_tasks_test.iyi
   area: query
