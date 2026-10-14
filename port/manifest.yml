@@ -157,7 +157,7 @@
   target: grant_convenience_create_block_array_test.iyi
   area: transactions
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/w6b_lazy_decrypt_spec.cr
   target: grant_encryption_w6b_lazy_decrypt_test.iyi
   area: transactions

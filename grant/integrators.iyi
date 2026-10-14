@@ -1,0 +1,77 @@
+module grant/integrators
+
+# Native class-method slice of Grant::Integrators, expanded into each model
+# because imported classes cannot be reopened in iyi.
+pub macro create_methods(model)
+  def self.create(**args, &block : {{ model }} -> R) : {{ model }} forall R
+    create(args) { |record| yield record }
+  end
+
+  def self.create(attributes : T, *, skip_timestamps : Bool = false, &block : {{ model }} -> R) : {{ model }} forall T, R
+    record = new
+    record.assign_attributes(attributes)
+    yield record
+    record.save(skip_timestamps: skip_timestamps)
+    record
+  end
+
+  def self.create_strict(**args, &block : {{ model }} -> R) forall R
+    create_strict(args) { |record| yield record }
+  end
+
+  def self.create_strict(attributes : T, *, skip_timestamps : Bool = false, &block : {{ model }} -> R) forall T, R
+    record = new
+    record.assign_attributes(attributes)
+    yield record
+    record.save_strict(skip_timestamps: skip_timestamps)!
+    record
+  end
+
+  def self.create(list : Array(T), *, skip_timestamps : Bool = false) : Array({{ model }}) forall T
+    created = [] of {{ model }}
+    transaction do
+      list.each { |attributes| created << create(attributes, skip_timestamps: skip_timestamps) }
+    end.or_panic
+    created
+  end
+
+  def self.create(list : Array(T), *, skip_timestamps : Bool = false, &block : {{ model }} -> R) : Array({{ model }}) forall T, R
+    created = [] of {{ model }}
+    transaction do
+      list.each { |attributes| created << create(attributes, skip_timestamps: skip_timestamps) { |record| yield record } }
+    end.or_panic
+    created
+  end
+
+  def self.create_strict(list : Array(T), *, skip_timestamps : Bool = false) forall T
+    created = [] of {{ model }}
+    transaction do
+      failure : ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase | Nil = nil
+      list.each do |attributes|
+        record = create_strict(attributes, skip_timestamps: skip_timestamps)
+        if record.is_a?(::Error)
+          failure = record
+          break
+        end
+        created << record
+      end
+      failure.nil? ? created : failure
+    end
+  end
+
+  def self.create_strict(list : Array(T), *, skip_timestamps : Bool = false, &block : {{ model }} -> R) forall T, R
+    created = [] of {{ model }}
+    transaction do
+      failure : ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase | Nil = nil
+      list.each do |attributes|
+        record = create_strict(attributes, skip_timestamps: skip_timestamps) { |record| yield record }
+        if record.is_a?(::Error)
+          failure = record
+          break
+        end
+        created << record
+      end
+      failure.nil? ? created : failure
+    end
+  end
+end

@@ -5,6 +5,7 @@ pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/callbacks
 pub import grant/transactions
+pub import grant/integrators
 
 pub import grant/adapter/sqlite
 pub import grant/adapter/base
@@ -56,6 +57,20 @@ pub abstract class Base
   def initialize(**args)
     assign_attributes(args)
     establish_initial_dirty_baseline
+    self.after_initialize.or_panic
+  end
+
+  def initialize(**args, &block : self -> T) forall T
+    assign_attributes(args)
+    establish_initial_dirty_baseline
+    yield self
+    self.after_initialize.or_panic
+  end
+
+  def initialize(attributes : Hash(K, V), &block : self -> T) forall K, V, T
+    assign_attributes(attributes)
+    establish_initial_dirty_baseline
+    yield self
     self.after_initialize.or_panic
   end
 
@@ -385,6 +400,7 @@ pub abstract class Base
   end
 
   macro __process_columns
+    ::Grant::Integrators.create_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
         @__persisted_\{{ v.name }} = @\{{ v.name }}
@@ -1105,6 +1121,23 @@ pub abstract class Base
       {% else %}
         self.{{ key.id }} = args[{{ key.symbolize }}]
       {% end %}
+    {% end %}
+  end
+
+  def assign_attributes(args : Hash(K, V)) forall K, V
+    {% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      args.each do |key, value|
+        if key.to_s == {{ column.name.stringify }}
+          {% type = column.annotation(::Grant::Base::Column)[:type] %}
+          {% if type.includes?("Int32") %}
+            self.{{ column.name }} = value.is_a?(Int) ? value.to_i32 : nil
+          {% elsif type.includes?("Int64") %}
+            self.{{ column.name }} = value.is_a?(Int) ? value.to_i64 : nil
+          {% else %}
+            self.{{ column.name }} = value.is_a?(String) ? value : nil
+          {% end %}
+        end
+      end
     {% end %}
   end
 
