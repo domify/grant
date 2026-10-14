@@ -1013,7 +1013,7 @@
   target: grant_query_having_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/implicit_order_spec.cr
   target: grant_query_implicit_order_test.iyi
   area: query

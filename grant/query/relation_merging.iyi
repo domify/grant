@@ -1,0 +1,39 @@
+module grant/query/relation_merging
+
+# Structural merge slice of upstream query/builder.cr. Clause equality uses
+# printed tuples because native NamedTuple equality currently returns false.
+pub trait RelationMerging(Model)
+  def merge(other : self) : self
+    chain_copy.merge_in_place(other)
+  end
+
+  def merge_in_place(other : self) : self
+    own_where_fields.concat(other.where_fields)
+    other.order_fields.each do |term|
+      own_order_fields << term unless order_fields.any? { |existing| existing.to_s == term.to_s }
+    end
+    other.group_fields.each do |field|
+      own_group_fields << field unless group_fields.any? { |existing| existing.to_s == field.to_s }
+    end
+    columns = other.select_columns
+    unless columns.nil?
+      current = select_columns
+      self.select_columns = current.nil? ? columns.dup : (current + columns).uniq
+    end
+    incoming_limit = other.limit
+    limit_in_place(incoming_limit) unless incoming_limit.nil?
+    incoming_offset = other.offset
+    offset_in_place(incoming_offset) unless incoming_offset.nil?
+    incoming_lock = other.lock_mode
+    lock_in_place(incoming_lock) unless incoming_lock.nil?
+    other.join_clauses.each do |clause|
+      own_join_clauses << clause unless join_clauses.any? { |existing| existing.to_s == clause.to_s }
+    end
+    distinct_in_place if other.distinct?
+    own_having_clauses.concat(other.having_clauses)
+    none_in_place if other.is_none?
+    readonly_in_place if other.readonly?
+    strict_loading_in_place if other.strict_loading?
+    self
+  end
+end
