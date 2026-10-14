@@ -577,6 +577,7 @@ pub abstract class Base
     ::Grant::Columns.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
+    ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
