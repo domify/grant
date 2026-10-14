@@ -1,13 +1,14 @@
+module test/grant_sanitization_test
 import grant/sanitization
 import grant/error::{ArgumentError}
-import spec_helper::{register_spec_connections, CURRENT_ADAPTER}
+import test/spec_helper::{register_spec_connections, CURRENT_ADAPTER}
 import grant/base::{Base}
 import std/env
 import grant/adapter/sqlite::{Sqlite}
 import std/time::{Time}
 import std/slice::{Bytes}
 
-class Chat < Base
+pub class Chat < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table chats
   column id : Int64, primary: true

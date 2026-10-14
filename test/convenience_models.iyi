@@ -1,7 +1,7 @@
-module convenience_models
+module test/convenience_models
 
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 import std/env
 import std/text
 
