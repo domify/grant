@@ -1,5 +1,7 @@
 # Port loop rules
 
+Do not pollute commit messages with co authored by Agents.
+
 Read `port/HINTS.md` first, then `port/TASK.md`, `doc/NAMING.md`, and `doc/PORTING.md`.
 
 Completion means a full `bin/port-check` exits 0. `--fast FILE...` validates only those tests and never establishes completion. Never end a port worker response with a list of remaining work. Never weaken, delete, skip, mark pending, or replace assertions just to pass a gate. Never edit `crystal-upstream/`.
