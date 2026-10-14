@@ -767,7 +767,7 @@
   target: grant_convenience_find_by_ids_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/relation_finders_spec.cr
   target: grant_convenience_relation_finders_test.iyi
   area: query

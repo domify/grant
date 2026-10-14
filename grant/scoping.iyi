@@ -58,3 +58,22 @@ private def push_entry(model_name : String, entry : ScopeEntry, &block : -> T) :
   @@scoping_stacks.delete(key) if stack.empty?
   result
 end
+
+# Class finder and delete delegations from upstream Grant::Scoping.
+pub macro model_methods(model)
+  def self.find(ids : Array(T)) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
+    current_scope.find(ids)
+  end
+
+  def self.find(first : A, second : B, *rest) : Array({{ model }}) | ::Grant::Error::ErrorBase forall A, B
+    current_scope.find(first, second, *rest)
+  end
+
+  def self.find_strict(ids : Array(T)) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
+    current_scope.find_strict(ids)
+  end
+
+  def self.find_strict(first : A, second : B, *rest) : Array({{ model }}) | ::Grant::Error::ErrorBase forall A, B
+    current_scope.find_strict(first, second, *rest)
+  end
+end
