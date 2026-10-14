@@ -2614,7 +2614,7 @@
   target: grant_validation_helpers_exclusion_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/inequality_spec.cr
   target: grant_validation_helpers_inequality_test.iyi
   area: other
