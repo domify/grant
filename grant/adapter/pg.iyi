@@ -2,6 +2,7 @@ module grant/adapter/pg
 
 pub import grant/adapter/pg_connection
 import grant/adapter/base::{Base}
+import grant/adapter/placeholder_scanner::{PlaceholderScanner}
 import std/time::{Span}
 import grant/adapter/driver::{Value, Mutation}
 import grant/locking::{LockMode}
@@ -13,6 +14,14 @@ import grant/error_taxonomy::{StatementInvalid}
 
 pub class Pg < Base
   QUOTING_CHAR = '"'
+
+  def ensure_clause_template(clause : String) : String
+    PlaceholderScanner.rewrite(clause)
+  end
+
+  def ensure_clause_template(clause : String, starting_index : Int32) : String
+    PlaceholderScanner.rewrite(clause, starting_index)
+  end
 
   def postgres? : Bool
     true

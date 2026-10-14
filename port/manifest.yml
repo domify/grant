@@ -2354,7 +2354,7 @@
   target: adapter_pg_placeholder_test.iyi
   area: other
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/adapter/pg_spec.cr
   target: adapter_pg_test.iyi
   area: other
