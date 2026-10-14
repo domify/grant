@@ -15,3 +15,4 @@
 /port/status.log
 /port/stage-b-*.log
 /port/feedback/
+/port/stage-b-*.out
