@@ -2394,7 +2394,7 @@
   target: grant_columns_primary_key_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/columns/read_attribute_spec.cr
   target: grant_columns_read_attribute_test.iyi
   area: other
