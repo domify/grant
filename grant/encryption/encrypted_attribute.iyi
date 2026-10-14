@@ -1,0 +1,38 @@
+module grant/encryption/encrypted_attribute
+
+pub import grant/encryption/key_provider
+import grant/encryption/key_provider::{KeyProvider, KeyError}
+import grant/encryption/cipher::{Cipher, DecryptionError, EncryptionError}
+import std/base64::{Base64}
+
+pub class EncryptedAttribute
+  getter model_name : String
+  getter attribute_name : String
+  getter deterministic : Bool
+  getter column_name : String
+
+  def initialize(@model_name : String, @attribute_name : String, @deterministic : Bool, @column_name : String, @downcase : Bool = false, @ignore_case : Bool = false)
+  end
+
+  def seal(plain : String) : String | KeyError | EncryptionError | DecryptionError
+    key = KeyProvider.derive_key(@model_name, @attribute_name, @deterministic)!
+    text = @downcase || @ignore_case ? plain.downcase : plain
+    Base64.encode(Cipher.encrypt(text, key, @deterministic)!)
+  end
+
+  def open(stored : String) : String | KeyError | EncryptionError | DecryptionError
+    bytes = KeyProvider.decode_encoded(stored)
+    return DecryptionError.new("Failed to decode Base64: #{bytes.message}") if bytes.is_a?(KeyError)
+    attempted = false
+    2.times do |round|
+      deterministic = Cipher.deterministic_payload?(bytes) ? round == 0 : round == 1
+      next if (deterministic ? KeyProvider.deterministic_key : KeyProvider.primary_key).nil?
+      attempted = true
+      key = KeyProvider.derive_key(@model_name, @attribute_name, deterministic)!
+      result = Cipher.decrypt?(bytes, key)!
+      return result unless result.nil?
+    end
+    return KeyError.new("Primary encryption key not configured. Set Grant::Encryption::KeyProvider.primary_key") unless attempted
+    DecryptionError.new("HMAC verification failed - data may have been tampered with")
+  end
+end

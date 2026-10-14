@@ -2,10 +2,11 @@ module grant/transactions
 
 import grant/adapter/sqlite::{Connection, Value}
 import grant/errors::{DatabaseError}
+import grant/error::{ErrorBase}
 
 # Structural slice of the upstream model-array import methods. Keep each
 # batch a single adapter insert; import does not validate or persist instances.
-pub def import_records(adapter : Connection, table_name : String, primary_name : String, model_array : Array(T), batch_size : Int32, update_on_duplicate : Bool, columns : Array(String), ignore_on_duplicate : Bool) : Nil | DatabaseError forall T
+pub def import_records(adapter : Connection, table_name : String, primary_name : String, model_array : Array(T), batch_size : Int32, update_on_duplicate : Bool, columns : Array(String), ignore_on_duplicate : Bool) : Nil | DatabaseError | ErrorBase forall T
   return nil if model_array.empty?
   return DatabaseError.new(21, "import", "batch_size must be positive") if batch_size <= 0
   fields = model_array[0].__column_names
@@ -19,7 +20,7 @@ pub def import_records(adapter : Connection, table_name : String, primary_name :
       model = model_array[index]
       model.before_save
       model.before_create
-      values = model.__column_values
+      values = model.__column_values!
       values << model.__primary_value
       rows << values
       index += 1

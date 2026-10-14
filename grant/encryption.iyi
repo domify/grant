@@ -1,0 +1,48 @@
+module grant/encryption
+
+pub import grant/encryption/sealed
+pub import grant/encryption/encrypted_attribute
+
+# Typed declaration slice of Encryption::Model. Converter method bodies are
+# deferred just like Base's column introspection. Persistence instantiates the
+# encrypted-attribute codec; it must never fall back to ordinary plaintext SQL.
+pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case, compress, compress_threshold, previous, support_unencrypted_data, lazy)
+  {% if !attribute.is_a?(TypeDeclaration) %}
+    {% raise "the symbol-form encryption declaration has not been ported" %}
+  {% end %}
+  {% attr = attribute.var.id %}
+  {% attr_name = attr.stringify %}
+  {% base = attribute.type %}
+  {% if ignore_case && !deterministic %}
+    {% raise "encrypts #{attr_name}: ignore_case: true requires deterministic: true" %}
+  {% end %}
+  {% if (downcase || ignore_case) && base.resolve != String %}
+    {% raise "encrypts #{attr_name}: downcase: and ignore_case: apply to String attributes only" %}
+  {% end %}
+  {% if lazy && base.resolve != String %}
+    {% raise "encrypts #{attr_name}: lazy: true applies to String attributes only; other types are decrypted when the row loads" %}
+  {% end %}
+
+  @@{{attr}}_encrypted_attribute : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute? = nil
+  def self.{{attr}}_encrypted_attribute : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute
+    @@{{attr}}_encrypted_attribute ||= ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}})
+  end
+
+  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", guarded: {{lazy == true}}
+
+  class {{attr_name.camelcase.id}}EncryptionConverter
+    def self.to_db(value : {{base}}?)
+      return nil if value.nil?
+      {% if lazy == true %}
+        return ::Grant::Encryption::Sealed.stored(value) if ::Grant::Encryption::Sealed.sealed?(value)
+      {% end %}
+      \{% begin %}
+      {{model}}.{{attr}}_encrypted_attribute.seal(value.to_s)
+      \{% end %}
+    end
+  end
+
+  {% if ignore_case %}
+    encrypts {{("original_" + attr_name).id}} : String, lazy: {{lazy}}
+  {% end %}
+end

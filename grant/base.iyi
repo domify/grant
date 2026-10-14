@@ -8,6 +8,7 @@ pub import grant/querying
 pub import grant/callbacks
 pub import grant/transactions
 pub import grant/integrators
+pub import grant/encryption
 pub import grant/locking/pessimistic
 
 pub import grant/adapter/sqlite
@@ -121,7 +122,7 @@ pub abstract class Base
   end
 
   macro column(decl, **options)
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, guarded: {{ options[:guarded] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
@@ -139,10 +140,18 @@ pub abstract class Base
       @{{decl.var}} != @__persisted_{{decl.var}}
     end
 
-    def {{decl.var}}=(value : {{decl.type}} | Nil) : Nil
+    def {{decl.var}}=(value : {{decl.type}} | Nil) : Nil {% if options[:guarded] %}| ::Grant::Encryption::Sealed::ArgumentError{% end %}
+      {% if options[:guarded] %}
+        ::Grant::Encryption::Sealed.guard_plaintext_strict({{ decl.var.stringify }}, value)!
+      {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
       @{{decl.var}} = value
+      nil
     end
+  end
+
+  macro encrypts(attribute, deterministic = false, downcase = false, ignore_case = false, compress = false, compress_threshold = nil, previous = nil, support_unencrypted_data = nil, lazy = nil)
+    ::Grant::Encryption.typed_attribute({{ @type }}, {{ attribute }}, {{ deterministic }}, {{ downcase }}, {{ ignore_case }}, {{ compress }}, {{ compress_threshold }}, {{ previous }}, {{ support_unencrypted_data }}, {{ lazy }})
   end
 
   macro timestamps(precision = nil, null = true)
@@ -758,7 +767,7 @@ pub abstract class Base
       ::Grant::Base::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
           \{% type = v.annotation(::Grant::Base::Column)[:type] %}
-          \{% sql = type.includes?("Int") ? "INTEGER" : (type.includes?("Bool") ? "BOOLEAN" : (type.includes?("Float") ? "REAL" : "TEXT")) %}
+          \{% sql = v.annotation(::Grant::Base::Column)[:column_type] || (type.includes?("Int") ? "INTEGER" : (type.includes?("Bool") ? "BOOLEAN" : (type.includes?("Float") ? "REAL" : "TEXT"))) %}
           \{% if v == primary %}
             "#{::Grant::Base.quote_identifier(\{{ v.name.stringify }})} \{{ sql.id }} PRIMARY KEY\{{ v.annotation(::Grant::Base::Column)[:auto] ? "".id : " NOT NULL".id }}",
           \{% else %}
@@ -977,7 +986,7 @@ pub abstract class Base
       __connection.query(sql, binds)!.map { |row| from_row(row) }
     end
 
-    def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError
+    def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       ::Grant::Transactions.import_records(__connection, table_name, primary_name, model_array, batch_size, update_on_duplicate, columns, ignore_on_duplicate)
     end
 
@@ -1042,7 +1051,7 @@ pub abstract class Base
       names
     end
 
-    def __column_values : Array(::Grant::Adapter::Sqlite::Value)
+    def __column_values : Array(::Grant::Adapter::Sqlite::Value) | ::Grant::Error::ErrorBase
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -1050,7 +1059,11 @@ pub abstract class Base
       \{% for v in columns %}
         \{% unless v == primary %}
           %value = self.\{{ v.name }}
-          values << ::Grant::Base.sqlite_value(%value)
+          \{% if v.annotation(::Grant::Base::Column)[:converter] %}
+            values << \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(%value)!
+          \{% else %}
+            values << ::Grant::Base.sqlite_value(%value)
+          \{% end %}
         \{% end %}
       \{% end %}
       values
@@ -1205,7 +1218,15 @@ pub abstract class Base
           self.{{ key.id }} = value
         end
       {% else %}
-        self.{{ key.id }} = args[{{ key.symbolize }}]
+        {% if column && column.annotation(::Grant::Base::Column)[:guarded] %}
+          result = (self.{{ key.id }} = args[{{ key.symbolize }}])
+          if result.is_a?(::Grant::Encryption::Sealed::ArgumentError)
+            errors.clear_conversion_error({{ key.symbolize }})
+            errors << ::Grant::Error::ConversionError.new({{ key.symbolize }}, result.message)
+          end
+        {% else %}
+          self.{{ key.id }} = args[{{ key.symbolize }}]
+        {% end %}
       {% end %}
     {% end %}
   end
@@ -1220,7 +1241,15 @@ pub abstract class Base
           {% elsif type.includes?("Int64") %}
             self.{{ column.name }} = value.is_a?(Int) ? value.to_i64 : nil
           {% else %}
-            self.{{ column.name }} = value.is_a?(String) ? value : nil
+            {% if column.annotation(::Grant::Base::Column)[:guarded] %}
+              result = (self.{{ column.name }} = value.is_a?(String) ? value : nil)
+              if result.is_a?(::Grant::Encryption::Sealed::ArgumentError)
+                errors.clear_conversion_error({{ column.name.symbolize }})
+                errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, result.message)
+              end
+            {% else %}
+              self.{{ column.name }} = value.is_a?(String) ? value : nil
+            {% end %}
           {% end %}
         end
       end
@@ -1233,7 +1262,7 @@ pub abstract class Base
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
   abstract def __changed_column_names : Array(String)
-  abstract def __column_values : Array(Value)
+  abstract def __column_values : Array(Value) | ::Grant::Error::ErrorBase
   abstract def __run_commit_callbacks(operation : Symbol) : Nil | ::Grant::Error::ErrorBase
   abstract def __run_rollback_callbacks(operation : Symbol) : Nil
   abstract def __transaction_adapter : Connection | ::Grant::Adapter::Base::Base
@@ -1315,7 +1344,7 @@ pub abstract class Base
     ::Grant::Callbacks::Abort.new(message)
   end
 
-  def __save(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | ::Grant::Callbacks::Abort
+  def __save(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
     return RecordNotSaved.new(__table_name) if @destroyed
     return RecordNotSaved.new(__table_name) if errors.conversion_errors?
     errors.clear
@@ -1334,7 +1363,7 @@ pub abstract class Base
     end
     set_timestamps(mode: @new_record ? :create : :update) if !skip_timestamps && (@new_record || !__changed_column_names.empty?)
     names = __column_names
-    values = __column_values
+    values = __column_values!
     if @new_record
       primary_value = __primary_value
       unless primary_value.nil?
