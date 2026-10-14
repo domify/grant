@@ -17,6 +17,14 @@ import grant/adapter/error_translator::{Kind}
 import grant/adapter/error_translator
 
 pub class Sqlite < Base
+  def self.memory_url?(url : String) : Bool
+    url.includes?(":memory:") || url.includes?("mode=memory")
+  end
+
+  def self.single_connection_url?(url : String) : Bool
+    memory_url?(url)
+  end
+
   def self.error_kind(code : Int32?, message : String? = nil) : Kind?
     ::Grant::Adapter::ErrorTranslator.sqlite_error_kind(code, message)
   end

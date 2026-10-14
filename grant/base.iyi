@@ -119,11 +119,36 @@ pub abstract class Base
     @@connection_name = {{ name.id.stringify }}
   end
 
-  macro connects_to(database)
-    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database }})]
+  macro connects_to(database = nil, config = nil, shards = nil)
+    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database || "primary" }}, config: {{ config }})]
     def __connection_declaration
       nil
     end
+    {% if database && !database.is_a?(NamedTupleLiteral) %}
+      @@connection_name = {{ database }}
+    {% end %}
+    {% if config %}
+      def self.connection_config : Hash(Symbol, String)
+        @@own_connection_config ||= {
+          {% for role, name in config %}
+            {{ role.symbolize }} => {{ name }},
+          {% end %}
+        } of Symbol => String
+      end
+    {% end %}
+    {% if shards %}
+      def self.shard_config : Hash(Symbol, Hash(Symbol, String))
+        {
+          {% for shard, roles in shards %}
+            {{ shard.symbolize }} => {
+              {% for role, name in roles %}
+                {{ role.symbolize }} => {{ name }},
+              {% end %}
+            } of Symbol => String,
+          {% end %}
+        } of Symbol => Hash(Symbol, String)
+      end
+    {% end %}
   end
 
   macro column(decl, **options)
@@ -861,7 +886,7 @@ pub abstract class Base
       \{% end %}
       configured_role = role == :primary ? ::Grant::Settings.settings.writing_role : role
       name = connection_config[configured_role]? || connection_config[role]? || name
-      ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter(name, ::Grant::ConnectionManagement.registry_role(role))
+      ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter?(name, ::Grant::ConnectionManagement.registry_role(role)) || ::Grant::Connections::Connections[name]
       \{% end %}
     end
 

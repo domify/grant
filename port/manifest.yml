@@ -737,12 +737,12 @@
   target: test/grant_connection_handling_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection_management_spec.cr
   target: test/grant_connection_management_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection_registry_spec.cr
   target: test/grant_connection_registry_test.iyi
   area: query
@@ -2429,7 +2429,7 @@
   target: test/grant_connection_pool_exhaustion_test.iyi
   area: other
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/routing_two_files_spec.cr
   target: test/grant_connection_routing_two_files_test.iyi
   area: other

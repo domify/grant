@@ -58,7 +58,15 @@ end
 pub macro model_methods(model)
   ::Grant::ConnectionContext.model_methods({{ model }})
   def self.connection_config : Hash(Symbol, String)
-    @@own_connection_config ||= {} of Symbol => String
+    {% declaration = model.resolve.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
+    {% config = declaration ? declaration.annotation(::Grant::ConnectionManagement::ConnectsTo)[:config] : nil %}
+    @@own_connection_config ||= {
+      {% if config %}
+        {% for role, name in config %}
+          {{ role.symbolize }} => {{ name }},
+        {% end %}
+      {% end %}
+    } of Symbol => String
   end
 
   def self.connection_config=(config : Hash(Symbol, String)) : Nil
@@ -73,6 +81,10 @@ pub macro model_methods(model)
   def self.connection_switch_wait_period=(value : Int32) : Nil
     ::Grant::Connections::Connections.connection_switch_wait_period = value
     nil
+  end
+
+  def self.last_write_time : ::Std::Time::Span
+    ::Grant::ConnectionManagement::ReplicaLagRegistry.for({{ model.stringify }}, @@connection_name).last_write_time
   end
 
   def self.mark_write_operation : Nil

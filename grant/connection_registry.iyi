@@ -38,7 +38,7 @@ pub class ConnectionRegistry
     previous = @@adapters[key]?
     instance = adapter.new(key, url)
     instance.verify_idle_after = verify_idle_after
-    instance.pool_size = pool_size
+    instance.pool_size = adapter.single_connection_url?(url) ? 1 : pool_size
     instance.checkout_timeout = checkout_timeout
     @@specifications[key] = ConnectionSpec.new(database, url, role, verify_idle_after)
     @@adapters[key] = instance
