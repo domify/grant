@@ -7,8 +7,10 @@ OWNER_RULES = [
   ["schema", %r{spec/grant/(schema|migrator|tasks)/}],
   ["associations", %r{spec/grant/(associations|eager_loading)/|nested_attributes|secure_password|serialization_multimodel|result_types|compile_target_}],
   ["connection", %r{spec/grant/(connection|sharding|scale|config|spec_support|notifications)/|spec/integration/|/(connection_[a-z_]*|sharding[a-z_]*|geo_sharding|range_sharding|prevent_writes|multi_database_unit|advanced_multi_database|fiber_connection_context|simple_connection|schema_tenant_reset_error|test_fixtures|public_api_return_types|parity_tracker|secure_features_integration|conventions_regressions)_spec\.cr$}],
+  ["records", %r{spec/grant/(callbacks|sti|composite|encryption)/|/(encryption[a-z_]*|composite_primary_key|secure_token|signed_id|token_for)_spec\.cr$}],
   ["state", %r{spec/grant/(dirty|locking|persistence|attributes|types|columns|converters|callbacks|sti|composite|encryption)/|/(value_objects|normalization|attribute_api|serialized_column|encryption[a-z_]*|enum_attributes|composite_primary_key|secure_token|signed_id|token_for)_spec\.cr$}],
-  ["query", %r{spec/grant/(query|querying|scoping|select)/}],
+  ["querying", %r{spec/grant/(querying|scoping|select)/}],
+  ["query", %r{spec/grant/query/}],
   ["query_api", %r{.}],
 ]
 
@@ -16,8 +18,8 @@ entries = Manifest.load.reject { |e| %w[done excluded].include?(e["status"]) }
 owners = Hash.new { |h, k| h[k] = [] }
 entries.each do |entry|
   owner = OWNER_RULES.find { |_, re| entry["source"] =~ re }[0]
-  owner = "state" if owner == "query" && entry["area"] == "dirty_state"
-  owner = "associations" if owner == "query" && entry["area"] == "associations"
+  owner = "state" if %w[query querying].include?(owner) && entry["area"] == "dirty_state"
+  owner = "associations" if %w[query querying].include?(owner) && entry["area"] == "associations"
   owners[owner] << entry
 end
 Dir.mkdir(File.join(CoverageGen::ROOT, "port/owners")) unless Dir.exist?(File.join(CoverageGen::ROOT, "port/owners"))

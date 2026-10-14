@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Runs one Stage B Codex worker in its own worktree until it stops committing.
 #   bin/stage-b-codex <owner> [max_rounds]
+# CODEX_MODEL and CODEX_EFFORT choose the model (default gpt-6.1-sol, low). Each round
+# first merges the integration branch, and the reviewer's notes in port/feedback/ reach
+# the worker through its prompt.
 set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 owner=${1:?owner}
@@ -9,18 +12,32 @@ directory="$root/port/worktrees/$owner"
 branch="stage-b/$owner"
 cd "$root"
 [[ -f "port/owners/$owner.txt" ]] || { echo "no port/owners/$owner.txt" >&2; exit 1; }
+base=${STAGE_B_BASE:-native-iyi-fast-port}
+model=${CODEX_MODEL:-gpt-6.1-sol}
+effort=${CODEX_EFFORT:-low}
 if [[ ! -d $directory ]]; then
-  git worktree add -b "$branch" "$directory" HEAD || exit 1
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$directory" "$branch" || exit 1
+  else
+    git worktree add -b "$branch" "$directory" "$base" || exit 1
+  fi
 fi
 log="$root/port/stage-b-$owner.log"
 prompt="Your owner name is $owner. Read port/STAGE_B.md and follow it exactly, together with AGENTS.md, port/HINTS.md and doc/NAMING.md. Continue porting the spec files listed in port/owners/$owner.txt whose manifest entries are not done yet. Make several committed spec files of progress in this iteration; commit after each spec file. Never end with a list of remaining work."
+feedback="Reviewer feedback lives in $root/port/feedback/all.md and $root/port/feedback/$owner.md. Read both first when they exist and follow them; fix what they flag in your earlier commits before porting new files."
 flat=0
 for ((round = 1; round <= max_rounds; round++)); do
+  if [[ -z $(git -C "$directory" status --porcelain --untracked-files=no) ]]; then
+    if ! git -C "$directory" merge --no-edit "$base" > /dev/null 2>&1; then
+      git -C "$directory" merge --abort
+      echo "$(date -Iseconds) round=$round merge of $base conflicts; continuing unmerged" >> "$log"
+    fi
+  fi
   before=$(git -C "$directory" rev-parse HEAD)
   waits=0
   while :; do
-    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec -p port -C "$directory" \
-      --output-last-message "$root/port/last-$owner.txt" "$prompt" < /dev/null > "$root/port/codex-$owner.log" 2>&1)
+    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec -p port -m "$model" -c "model_reasoning_effort=\"$effort\"" -C "$directory" \
+      --output-last-message "$root/port/last-$owner.txt" "$prompt $feedback" < /dev/null > "$root/port/codex-$owner.log" 2>&1)
     status=$?
     if grep -q 'hit your usage limit' "$root/port/codex-$owner.log" && [[ $waits -lt 72 ]]; then
       waits=$((waits + 1))
