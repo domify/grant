@@ -1043,7 +1043,7 @@
   target: grant_query_joins_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/lazy_all_spec.cr
   target: grant_query_lazy_all_test.iyi
   area: query
