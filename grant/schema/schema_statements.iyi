@@ -1,0 +1,95 @@
+module grant/schema/schema_statements
+import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
+import grant/schema/column_info::{ColumnInfo}
+import grant/schema/table_definition::{TableDefinition}
+import grant/schema/alter_table
+import grant/adapter/base::{Base}
+import grant/errors::{ErrorBase}
+
+pub macro methods
+  ::Grant::Schema::AlterTable.methods
+  def create_table_statements(table : String | Symbol, id : Bool = true, force : Bool = false, comment : String? = nil, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
+    definition = TableDefinition.new(table.to_s, dialect, comment)
+    result = yield definition
+    return result if result.is_a?(ErrorBase)
+    columns = [] of String
+    if id
+      type = dialect == Dialect::Pg ? "BIGSERIAL PRIMARY KEY" : (dialect == Dialect::Mysql ? "BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY" : "INTEGER PRIMARY KEY AUTOINCREMENT")
+      columns << "#{dialect.quote("id")} #{type}"
+    end
+    definition.columns.each { |column| columns << column.to_sql(dialect)! }
+    sql = "CREATE TABLE #{dialect.quote(table)} (\n  #{columns.join(",\n  ")}\n)"
+    statements = force ? ["DROP TABLE IF EXISTS #{dialect.quote(table)}", sql] : [sql]
+    if dialect == Dialect::Pg
+      statements.concat(change_table_comment_statements(table, comment)) if comment
+      definition.columns.each do |column|
+        statements.concat(change_column_comment_statements(table, column.name, column.comment)!) if column.comment
+      end
+    end
+    statements
+  end
+  def create_table(table : String | Symbol, id : Bool = true, force : Bool = false, comment : String? = nil, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
+    execute_batch(create_table_statements(table, id, force, comment) { |t| yield t }!)
+  end
+  def drop_table(table : String | Symbol, if_exists : Bool = false) : Nil | ErrorBase | Cancelled
+    execute_batch(["DROP TABLE #{if_exists ? "IF EXISTS " : ""}#{dialect.quote(table)}"])
+  end
+  def add_column(table : String | Symbol, name : String | Symbol, type : Symbol, comment : String? = nil) : Nil | ErrorBase | Cancelled
+    definition = TableDefinition.new(table.to_s, dialect)
+    case type
+    when :integer then definition.integer(name, comment: comment)
+    when :string then definition.string(name, comment: comment)
+    else return UnsupportedOperation.new("Unknown column type #{type}")
+    end
+    execute_batch(["ALTER TABLE #{dialect.quote(table)} ADD COLUMN #{definition.columns.first.to_sql(dialect)!}"])!
+    change_column_comment(table, name, comment)! if comment
+    nil
+  end
+  def change_table(table : String | Symbol, &block : AlterTableDefinition(self) -> T) : Nil | ErrorBase | Cancelled forall T
+    definition = AlterTableDefinition.new(table.to_s, self)
+    result = yield definition
+    return result if result.is_a?(ErrorBase) || result.is_a?(Cancelled)
+    nil
+  end
+end
+pub class AlterTableDefinition(S)
+  def initialize(@table : String, @source : S)
+  end
+  def comment(text : String?) : Nil | ErrorBase | Cancelled
+    @source.change_table_comment(@table, text)
+  end
+end
+pub class RecordingStatements
+  getter dialect : Dialect
+  getter statements = [] of String
+  getter known_columns = {} of String => Array(ColumnInfo)
+  def initialize(@dialect : Dialect)
+  end
+  def lookup_column(table : String, column : String) : ColumnInfo?
+    columns = @known_columns[table]?
+    columns.nil? ? nil : columns.find { |info| info.name == column }
+  end
+  def execute_batch(statements : Array(String)) : Nil
+    @statements.concat(statements)
+    nil
+  end
+  ::Grant::Schema::SchemaStatements.methods
+end
+pub class AdapterStatements
+  getter adapter : Base
+  getter dialect : Dialect
+  def initialize(@adapter : Base)
+    @dialect = Dialect.for(adapter)
+  end
+  def lookup_column(table : String, column : String) : ColumnInfo?
+    nil
+  end
+  def execute_batch(statements : Array(String)) : Nil | ErrorBase | Cancelled
+    return nil if statements.empty?
+    @adapter.open(statements.first) do |db|
+      statements.each { |sql| db.exec(sql)! }
+      nil
+    end
+  end
+  ::Grant::Schema::SchemaStatements.methods
+end

@@ -1,0 +1,63 @@
+module grant/schema/alter_table
+import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
+import grant/schema/column_info::{ColumnInfo}
+import grant/errors::{ErrorBase}
+import std/text
+
+pub macro methods
+  def change_table_comment_statements(table : String | Symbol, text : String?) : Array(String)
+    case dialect
+    when Dialect::Pg then ["COMMENT ON TABLE #{dialect.quote(table)} IS #{dialect.quote_literal(text)}"]
+    when Dialect::Mysql then ["ALTER TABLE #{dialect.quote(table)} COMMENT = #{dialect.quote_literal(text || "")}"]
+    else [] of String
+    end
+  end
+  def change_column_comment_statements(table : String | Symbol, column : String | Symbol, text : String?) : Array(String) | ErrorBase
+    case dialect
+    when Dialect::Pg then ["COMMENT ON COLUMN #{dialect.quote(table)}.#{dialect.quote(column)} IS #{dialect.quote_literal(text)}"]
+    when Dialect::Mysql
+      info = lookup_column(table.to_s, column.to_s)
+      return UnsupportedOperation.new("Changing the comment needs a database connection to read the column") if info.nil?
+      default = info.default
+      ["ALTER TABLE #{dialect.quote(table)} MODIFY COLUMN #{dialect.quote(column)} #{info.sql_type}#{info.null? ? "" : " NOT NULL"}#{default.nil? ? "" : " DEFAULT #{default}"} COMMENT #{dialect.quote_literal(text || "")}"]
+    else [] of String
+    end
+  end
+  def create_enum_statements(name : String | Symbol, values : Array(T), if_not_exists : Bool = false) : Array(String) | ErrorBase forall T
+    return UnsupportedOperation.new("create_enum requires PostgreSQL") unless dialect == Dialect::Pg
+    return InvalidDefinition.new("Enum needs at least one value") if values.empty?
+    create = "CREATE TYPE #{dialect.quote(name)} AS ENUM (#{values.map { |v| dialect.quote_literal(v.to_s) }.join(", ")})"
+    if_not_exists ? ["DO $grant$ BEGIN #{create}; EXCEPTION WHEN duplicate_object THEN NULL; END $grant$"] : [create]
+  end
+  def drop_enum_statements(name : String | Symbol, if_exists : Bool = false, cascade : Bool = false) : Array(String) | ErrorBase
+    return UnsupportedOperation.new("drop_enum requires PostgreSQL") unless dialect == Dialect::Pg
+    ["DROP TYPE #{if_exists ? "IF EXISTS " : ""}#{dialect.quote(name)}#{cascade ? " CASCADE" : ""}"]
+  end
+  def rename_enum_statements(name : String | Symbol, to : String | Symbol) : Array(String) | ErrorBase
+    return UnsupportedOperation.new("rename_enum requires PostgreSQL") unless dialect == Dialect::Pg
+    ["ALTER TYPE #{dialect.quote(name)} RENAME TO #{dialect.quote(to)}"]
+  end
+  def add_enum_value_statements(name : String | Symbol, value : String | Symbol, before : String | Symbol? = nil, after : String | Symbol? = nil, if_not_exists : Bool = false) : Array(String) | ErrorBase
+    return UnsupportedOperation.new("add_enum_value requires PostgreSQL") unless dialect == Dialect::Pg
+    return InvalidDefinition.new("Give before: or after:, not both") if before && after
+    sql = "ALTER TYPE #{dialect.quote(name)} ADD VALUE #{if_not_exists ? "IF NOT EXISTS " : ""}#{dialect.quote_literal(value.to_s)}"
+    sql += " BEFORE #{dialect.quote_literal(before.to_s)}" if before
+    sql += " AFTER #{dialect.quote_literal(after.to_s)}" if after
+    [sql]
+  end
+  def rename_enum_value_statements(name : String | Symbol, from : String | Symbol, to : String | Symbol) : Array(String) | ErrorBase
+    return UnsupportedOperation.new("rename_enum_value requires PostgreSQL") unless dialect == Dialect::Pg
+    ["ALTER TYPE #{dialect.quote(name)} RENAME VALUE #{dialect.quote_literal(from.to_s)} TO #{dialect.quote_literal(to.to_s)}"]
+  end
+  def enable_extension_statements(name : String | Symbol) : Array(String)
+    dialect == Dialect::Pg ? ["CREATE EXTENSION IF NOT EXISTS #{dialect.quote(name)}"] : [] of String
+  end
+  def disable_extension_statements(name : String | Symbol, cascade : Bool = true) : Array(String)
+    dialect == Dialect::Pg ? ["DROP EXTENSION IF EXISTS #{dialect.quote(name)}#{cascade ? " CASCADE" : ""}"] : [] of String
+  end
+  {% for name in ["change_table_comment", "change_column_comment", "create_enum", "drop_enum", "rename_enum", "add_enum_value", "rename_enum_value", "enable_extension", "disable_extension"] %}
+    def {{name.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      execute_batch({{name.id}}_statements(*args, **options){% unless ["change_table_comment", "enable_extension", "disable_extension"].includes?(name) %}!{% end %})
+    end
+  {% end %}
+end

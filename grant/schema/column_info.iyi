@@ -1,0 +1,20 @@
+module grant/schema/column_info
+pub struct ColumnInfo
+  getter table_name : String
+  getter name : String
+  getter sql_type : String
+  getter null : Bool
+  getter default : String?
+  getter primary_key_position : Int32
+  getter auto_increment : Bool
+  getter position : Int32
+  getter comment : String?
+  def initialize(@table_name : String, @name : String, @sql_type : String, @null : Bool, @default : String? = nil, @primary_key_position : Int32 = 0, @auto_increment : Bool = false, @position : Int32 = 0, @comment : String? = nil)
+  end
+  def null? : Bool
+    @null
+  end
+  def primary_key? : Bool
+    @primary_key_position > 0
+  end
+end
