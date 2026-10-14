@@ -1,7 +1,8 @@
+module test/grant_callbacks_run_callbacks_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-  class RunCallbacksModel < Base
+  pub class RunCallbacksModel < Base
     connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
     table run_callbacks_models
 

@@ -1,7 +1,8 @@
+module test/grant_callbacks_around_callbacks_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-class AroundCallbackModel < Base
+pub class AroundCallbackModel < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table around_callback_models
 
@@ -36,7 +37,7 @@ class AroundCallbackModel < Base
 end
 
 # Model that can conditionally halt around callbacks
-class HaltingAroundModel < Base
+pub class HaltingAroundModel < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table halting_around_models
 
@@ -81,7 +82,7 @@ class HaltingAroundModel < Base
 end
 
 # Model with multiple around_save callbacks to test nesting
-class MultiAroundModel < Base
+pub class MultiAroundModel < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table multi_around_models
 
@@ -106,7 +107,7 @@ class MultiAroundModel < Base
 end
 
 # Model with method-based around callback
-class MethodAroundModel < Base
+pub class MethodAroundModel < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table method_around_models
 

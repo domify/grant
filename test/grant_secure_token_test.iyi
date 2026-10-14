@@ -1,8 +1,9 @@
+module test/grant_secure_token_test
 import std/regex::{Regex}
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-  class SecureTokenTestModel < Base
+  pub class SecureTokenTestModel < Base
     connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
     table secure_token_test_models
 
