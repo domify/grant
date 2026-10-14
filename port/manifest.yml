@@ -642,7 +642,7 @@
   target: grant_columns_primary_key_auto_default_test.iyi
   area: query
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/columns/w6b_bigdecimal_column_spec.cr
   target: grant_columns_w6b_bigdecimal_column_test.iyi
   area: query
@@ -2394,7 +2394,7 @@
   target: grant_columns_primary_key_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/columns/read_attribute_spec.cr
   target: grant_columns_read_attribute_test.iyi
   area: other
@@ -2539,7 +2539,7 @@
   target: grant_persistence_primary_key_mass_assignment_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/environment_protection_spec.cr
   target: grant_schema_environment_protection_test.iyi
   area: other
