@@ -1,0 +1,24 @@
+module grant/dirty
+
+# Upstream's marker distinguishes an omitted filter from an explicit nil.
+pub struct Unfiltered
+end
+pub UNFILTERED = Unfiltered.new
+
+# Scalar pre-save predicates share the column baselines already captured by
+# Base on construction, hydration, successful persistence and rollback.
+pub macro model_methods(model)
+  def will_save_change_to_attribute?(name : String | Symbol, *, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    \{% begin %}
+      case name.to_s
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      when \{{ v.name.stringify }}
+        will_save_change_to_\{{ v.name }}?(from: from, to: to)
+      \{% end %}
+      else
+        false
+      end
+    \{% end %}
+  end
+
+end

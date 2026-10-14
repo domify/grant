@@ -2293,7 +2293,7 @@
   target: test/grant_persistence_dirty_tracking_api_test.iyi
   area: dirty_state
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/dup_clone_spec.cr
   target: test/grant_persistence_dup_clone_test.iyi
   area: dirty_state
@@ -2464,12 +2464,12 @@
   target: test/grant_converters_enum_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/converters/json_spec.cr
   target: test/grant_converters_json_test.iyi
   area: other
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/converters/pg_numeric_spec.cr
   target: test/grant_converters_pg_numeric_test.iyi
   area: other
