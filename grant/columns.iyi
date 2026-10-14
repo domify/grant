@@ -90,3 +90,12 @@ pub macro model_methods(model)
     \{% end %}
   end
 end
+
+# Per-column delegators from upstream Columns' pre-save dirty API.
+pub macro dirty_column_methods(decl)
+  def will_save_change_to_{{ decl.var }}?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    return false unless {{ decl.var }}_changed?
+    (from.is_a?(::Grant::Dirty::Unfiltered) || @__persisted_{{ decl.var }} == from) &&
+      (to.is_a?(::Grant::Dirty::Unfiltered) || @{{ decl.var }} == to)
+  end
+end

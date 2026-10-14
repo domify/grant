@@ -8,6 +8,7 @@ pub import grant/querying
 pub import grant/columns
 pub import grant/columns_helpers
 pub import grant/attributes
+pub import grant/dirty
 pub import grant/record_copy
 pub import grant/callbacks
 pub import grant/transactions
@@ -191,6 +192,7 @@ pub abstract class Base
   end
 
   macro column(decl, **options)
+    ::Grant::Columns.dirty_column_methods({{ decl }})
     @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
@@ -577,6 +579,7 @@ pub abstract class Base
     ::Grant::Columns.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
+    ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}

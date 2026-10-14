@@ -2293,7 +2293,7 @@
   target: grant_persistence_dirty_tracking_api_test.iyi
   area: dirty_state
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/dup_clone_spec.cr
   target: grant_persistence_dup_clone_test.iyi
   area: dirty_state
