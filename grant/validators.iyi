@@ -1,0 +1,12 @@
+module grant/validators
+
+pub macro model_methods(model)
+  macro validates_presence_of(field)
+    def __validate_presence_\{{ field.id }} : Nil
+      value = \{{ field.id }}
+      errors << ::Grant::Error::Error.new(\{{ field }}, "can't be blank") if value.nil? || value.to_s.strip.empty?
+      nil
+    end
+  end
+
+end
