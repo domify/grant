@@ -5,6 +5,7 @@ import grant/encryption/key_provider::{KeyProvider, KeyError}
 import grant/encryption/cipher::{Cipher, DecryptionError, EncryptionError}
 import std/base64::{Base64}
 import grant/encryption/config::{Config}
+pub import grant/encryption/context
 
 pub class EncryptedAttribute
   getter model_name : String
@@ -16,6 +17,7 @@ pub class EncryptedAttribute
   end
 
   def seal(plain : String) : String | KeyError | EncryptionError | DecryptionError
+    return plain if ::Grant::Encryption::Context.current_context.encryption_disabled?
     key = KeyProvider.derive_key(@model_name, @attribute_name, @deterministic)!
     text = @downcase || @ignore_case ? plain.downcase : plain
     encrypted = Base64.encode(Cipher.encrypt(text, key, @deterministic)!)
@@ -24,6 +26,12 @@ pub class EncryptedAttribute
   end
 
   def open(stored : String) : String | KeyError | EncryptionError | DecryptionError
+    return stored if ::Grant::Encryption::Context.current_context.encryption_disabled?
+    open_with_index(stored)![0]
+  end
+
+  def open_with_index(stored : String) : Tuple(String, Int32) | KeyError | EncryptionError | DecryptionError
+    return {"", 0} if stored.empty?
     bytes = KeyProvider.decode_encoded(stored)
     return DecryptionError.new("Failed to decode Base64: #{bytes.message}") if bytes.is_a?(KeyError)
     attempted = false
@@ -35,7 +43,7 @@ pub class EncryptedAttribute
       result = Cipher.decrypt?(bytes, key)!
       unless result.nil?
         Config.log_operation("decrypt", @model_name, @attribute_name, bytes.bytesize, result.bytesize)
-        return result
+        return {result, 0}
       end
     end
     return KeyError.new("Primary encryption key not configured. Set Grant::Encryption::KeyProvider.primary_key") unless attempted

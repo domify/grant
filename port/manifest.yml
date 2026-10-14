@@ -181,7 +181,6 @@
     - T-5f392d9b90
     - T-b14edc42d6
     - T-246a479be1
-    - T-4df1da3cd8
   - target: grant_encryption_w6b_lazy_decrypt_eager_test.iyi
     status: done
     examples:
@@ -191,6 +190,10 @@
     examples:
     - T-b81ad7feaa
     - T-8402353931
+  - target: grant_encryption_w6b_lazy_decrypt_context_test.iyi
+    status: done
+    examples:
+    - T-4df1da3cd8
 - source: crystal-upstream/spec/grant/errors/constraint_translation_spec.cr
   target: grant_errors_constraint_translation_test.iyi
   area: transactions

@@ -1,9 +1,26 @@
 module grant/encryption
 
 pub import grant/encryption/config
+pub import grant/encryption/context
 pub import grant/encryption/sealed
 pub import grant/encryption/encrypted_attribute
 pub import grant/encryption/serializer
+
+pub def current_context : ::Grant::Encryption::Context::Context
+  ::Grant::Encryption::Context.current_context
+end
+
+pub def encryption_enabled? : Bool
+  ::Grant::Encryption::Context.encryption_enabled?
+end
+
+pub def without_encryption(&block : -> T) : T forall T
+  ::Grant::Encryption::Context.without_encryption { yield }
+end
+
+pub def protecting_encrypted_data(&block : -> T) : T forall T
+  ::Grant::Encryption::Context.protecting_encrypted_data { yield }
+end
 
 # Typed declaration slice of Encryption::Model. Converter method bodies are
 # deferred just like Base's column introspection. Persistence instantiates the
@@ -46,6 +63,11 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
     # Native rows carry SQLite values rather than a DB::ResultSet cursor.
     def self.from_db(stored : String?) : {{base}}? | ::Grant::Error::ErrorBase
       return nil if stored.nil?
+      {% if base.resolve != String %}
+        if ::Grant::Encryption::Context.current_context.encryption_disabled?
+          return ::Grant::Encryption::Context::UnsupportedTypeError.new({{model.stringify}} + "." + {{attr_name}} + " is a " + {{base.stringify}} + " and cannot be read raw inside without_encryption")
+        end
+      {% end %}
       \{% begin %}
       plain = {{model}}.{{attr}}_encrypted_attribute.open(stored)!
       ::Grant::Encryption::Serializer.load(plain, {{base}})

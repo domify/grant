@@ -131,7 +131,7 @@ pub abstract class Base
       def __unseal_{{decl.var}} : String? | ::Grant::Error::ErrorBase
         current = @{{decl.var}}
         return current unless current && ::Grant::Encryption::Sealed.sealed?(current)
-        @{{decl.var}} = self.class.{{decl.var}}_encrypted_attribute.open(::Grant::Encryption::Sealed.stored(current))!
+        @{{decl.var}} = self.class.{{decl.var}}_encrypted_attribute.open_with_index(::Grant::Encryption::Sealed.stored(current))![0]
       end
 
       def {{decl.var}} : String? | ::Grant::Error::ErrorBase
@@ -149,7 +149,7 @@ pub abstract class Base
 
       # Hydration assigns the internal marker without treating it as plaintext.
       def __load_{{decl.var}}(stored : String?) : Nil
-        @{{decl.var}} = stored.nil? ? nil : ::Grant::Encryption::Sealed.wrap(stored)
+        @{{decl.var}} = stored.nil? || ::Grant::Encryption::Context.current_context.encryption_disabled? ? stored : ::Grant::Encryption::Sealed.wrap(stored)
         nil
       end
     {% elsif decl.value %}
