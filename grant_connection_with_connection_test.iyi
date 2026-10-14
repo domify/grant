@@ -1,0 +1,123 @@
+import std/file::{File}
+import grant/base::{Base}
+import grant/adapter/sqlite::{Sqlite}
+import grant/adapter/base
+import grant/connection_registry::{ConnectionRegistry}
+import grant/error::{ErrorBase}
+import grant::{connection, settings}
+
+class C02PinnedItem < Base
+  table c02_pinned_items
+  column id : Int64, primary: true
+  column name : String?
+  connects_to database: "c02_pin"
+end
+
+class C02RoleModel < Base
+  table c02_role_models
+  column id : Int64, primary: true
+  connects_to database: {master: "c02_roles", replica: "c02_roles"}
+end
+
+private def establish(path : String, database : String = "c02_pin", role : Symbol = :writing) : ::Grant::Adapter::Base::Base
+  ConnectionRegistry.establish_connection(database: database, adapter: Sqlite, url: "sqlite3:#{path}", role: role, pool_size: 3, initial_pool_size: 1, max_idle_pool_size: 3).or_panic
+  ConnectionRegistry.get_adapter(database, role)
+end
+
+private def setup : String
+  path = File.tempfile("c02_pin", ".sqlite3")
+  adapter = establish(path)
+  adapter.open do |raw|
+    raw.exec("DROP TABLE IF EXISTS c02_pinned_items").or_panic
+    raw.exec("CREATE TABLE c02_pinned_items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
+  end.or_panic
+  path
+end
+
+private def cleanup(path : String)
+  ConnectionRegistry.get_adapter("c02_pin", :writing).open { |raw| raw.exec("DROP TABLE IF EXISTS c02_pinned_items") }.or_panic
+  ConnectionRegistry.remove_connection("c02_pin", :writing).or_panic
+  File.delete(path)
+end
+
+# it: runs a transaction opened inside the block on the pinned connection
+path = setup
+adapter = ConnectionRegistry.get_adapter("c02_pin", :writing)
+adapter.with_connection do |raw|
+  seen : Bool? = nil
+  C02PinnedItem.transaction do
+    C02PinnedItem.create_strict(name: "kept").or_panic
+    seen = C02PinnedItem.adapter.open { |connection| connection.object_id == raw.object_id }.or_panic
+  end.or_panic
+  assert seen == true
+  error = C02PinnedItem.transaction do
+    C02PinnedItem.create_strict(name: "discarded").or_panic
+    ErrorBase.new("rolled back")
+  end
+  assert error.is_a?(ErrorBase)
+  assert error.as(ErrorBase).message == "rolled back"
+  assert !adapter.pinned_connection?.nil?
+end.or_panic
+assert C02PinnedItem.all.or_panic.map { |record| record.name } == ["kept"]
+cleanup(path)
+
+# it: routes Grant operations through the pinned connection with Model.with_connection
+path = setup
+C02PinnedItem.with_connection do |raw|
+  raw.exec("CREATE TEMPORARY TABLE c02_model_scratch (id INTEGER)").or_panic
+  C02PinnedItem.connection.execute("INSERT INTO c02_model_scratch VALUES (1)").or_panic
+  C02PinnedItem.connection.execute("INSERT INTO c02_model_scratch VALUES (2)").or_panic
+  assert C02PinnedItem.connection.select_value("SELECT COUNT(*) FROM c02_model_scratch").or_panic == 2
+  assert !C02PinnedItem.create_strict(name: "inside").or_panic.id.nil?
+end.or_panic
+assert C02PinnedItem.count.or_panic == 1
+assert C02PinnedItem.adapter.pool_stat.busy == 0
+cleanup(path)
+
+# it: is available on the raw connection facade and the pool handle
+path = setup
+connection("c02_pin").with_connection do |raw|
+  raw.exec("CREATE TEMPORARY TABLE c02_facade_scratch (id INTEGER)").or_panic
+  connection("c02_pin").execute("INSERT INTO c02_facade_scratch VALUES (1)").or_panic
+  assert connection("c02_pin").select_value("SELECT COUNT(*) FROM c02_facade_scratch").or_panic == 1
+end.or_panic
+assert C02PinnedItem.connection_pool.with_connection { |raw| raw.scalar("SELECT 1") }.or_panic == 1
+cleanup(path)
+
+# it: resolves the raw connection facade and model transactions through Grant.settings roles
+settings.reading_role = :replica
+settings.writing_role = :master
+writer_path = File.tempfile("c02_roles_writer", ".sqlite3")
+reader_path = File.tempfile("c02_roles_reader", ".sqlite3")
+writer = establish(writer_path, "c02_roles", :writing)
+reader = establish(reader_path, "c02_roles", :reading)
+facade = connection("c02_roles")
+assert facade.adapter(:master).object_id == writer.object_id
+assert facade.adapter(:replica).object_id == reader.object_id
+assert facade.adapter.object_id == reader.object_id
+facade.execute("SELECT 1").or_panic
+assert facade.select_value("SELECT 1").or_panic == 1
+assert facade.transaction { facade.select_value("SELECT 1") }.or_panic == 1
+handle = facade.begin_transaction.or_panic
+handle.rollback.or_panic
+assert C02RoleModel.transaction_adapter.object_id == writer.object_id
+# Native routing checks distinguish the writer from its separate reader.
+writer.open { |raw| raw.exec("CREATE TABLE role_probe (value TEXT)") }.or_panic
+reader.open { |raw| raw.exec("CREATE TABLE role_probe (value TEXT)") }.or_panic
+writer.open { |raw| raw.exec("INSERT INTO role_probe VALUES ('writer')") }.or_panic
+reader.open { |raw| raw.exec("INSERT INTO role_probe VALUES ('reader')") }.or_panic
+assert facade.select_value("SELECT value FROM role_probe").or_panic == "reader"
+facade.transaction do
+  assert facade.select_value("SELECT value FROM role_probe").or_panic == "writer"
+end.or_panic
+facade.with_connection do |raw|
+  assert facade.select_value("SELECT value FROM role_probe").or_panic == "writer"
+  assert facade.adapter(:master).pinned_connection?.as(::Grant::Adapter::Sqlite::Connection).object_id == raw.object_id
+end.or_panic
+assert facade.select_value("SELECT value FROM role_probe").or_panic == "reader"
+settings.reading_role = :reading
+settings.writing_role = :writing
+ConnectionRegistry.remove_connection("c02_roles", :writing).or_panic
+ConnectionRegistry.remove_connection("c02_roles", :reading).or_panic
+File.delete(writer_path)
+File.delete(reader_path)

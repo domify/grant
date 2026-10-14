@@ -1,0 +1,12 @@
+module grant/connection_management
+
+pub import grant/connection_registry
+pub import grant/settings
+
+pub annotation ConnectsTo
+end
+
+pub def registry_role(role : Symbol) : Symbol
+  role = ::Grant::Settings.settings.writing_role if role == :primary
+  ::Grant::ConnectionRegistry::ConnectionRegistry.normalize_role(role)
+end

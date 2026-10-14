@@ -136,7 +136,7 @@
   target: grant_connection_with_connection_test.iyi
   area: transactions
   examples: 9
-  status: todo
+  status: done
   children:
   - target: grant_connection_with_connection_pool_test.iyi
     status: done
@@ -147,7 +147,7 @@
     - T-56e7ebd604
     - T-f916fd7816
   - target: grant_connection_with_connection_test.iyi
-    status: todo
+    status: done
     examples:
     - T-48896a6161
     - T-b968ea348b

@@ -181,6 +181,9 @@ pub class Connection
   private def execute_statement(sql : String, parameters : Array(Value)) : Mutation | DatabaseError
     statement = prepare(sql, parameters)!
     code = SQLite.step(statement)
+    while code == 100
+      code = SQLite.step(statement)
+    end
     if code != 101
       error = failure(code, "execute", sql)
       SQLite.finalize(statement)

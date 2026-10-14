@@ -2,6 +2,7 @@ module grant/connection_registry
 
 import std/time::{Span}
 import grant/adapter/base::{Base}
+import grant/settings
 import grant/connections::{Connections}
 import grant/errors::{ErrorBase}
 
@@ -20,12 +21,19 @@ pub class ConnectionRegistry
   @@specifications = {} of String => ConnectionSpec
   @@adapters = {} of String => Base
 
+  def self.normalize_role(role : Symbol) : Symbol
+    return :writing if role == ::Grant::Settings.settings.writing_role
+    return :reading if role == ::Grant::Settings.settings.reading_role
+    role
+  end
+
   def self.key_for(database : String, role : Symbol, shard : Symbol? = nil, replica_index : Int32 = 0) : String
     key = replica_index > 0 ? "#{database}:#{role}##{replica_index}" : "#{database}:#{role}"
     shard.nil? ? key : "#{key}:#{shard}"
   end
 
   def self.establish_connection(database : String, adapter : T.class, url : String, role : Symbol = :primary, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, max_idle_pool_size : Int32 = 25, checkout_timeout : Span = Span.seconds(5_i64), verify_idle_after : Span? = Span.seconds(30_i64)) : Nil | ErrorBase forall T
+    role = normalize_role(role)
     key = key_for(database, role)
     previous = @@adapters[key]?
     instance = adapter.new(key, url)
@@ -40,6 +48,7 @@ pub class ConnectionRegistry
   end
 
   def self.get_adapter?(database : String, role : Symbol = :primary) : Base?
+    role = normalize_role(role)
     requested = @@adapters[key_for(database, role)]?
     return requested unless requested.nil?
     if role == :reading
@@ -58,6 +67,7 @@ pub class ConnectionRegistry
   end
 
   def self.remove_connection(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : Bool | ErrorBase
+    role = normalize_role(role)
     key = key_for(database, role, shard, replica_index)
     spec = @@specifications.delete(key)
     removed = @@adapters.delete(key)

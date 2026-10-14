@@ -7,7 +7,11 @@ pub import grant/callbacks
 pub import grant/transactions
 
 pub import grant/adapter/sqlite
+pub import grant/adapter/base
 import grant/adapter/sqlite::{Connection, Value, Row}
+pub import grant/connection_management
+pub import grant/connection_pool
+pub import grant/connection
 pub import grant/connections
 import grant/connections::{Connections}
 pub import grant/transaction
@@ -70,6 +74,13 @@ pub abstract class Base
 
   macro connection(name)
     @@connection_name = {{ name.id.stringify }}
+  end
+
+  macro connects_to(database)
+    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database }})]
+    def __connection_declaration
+      nil
+    end
   end
 
   macro column(decl, **options)
@@ -576,20 +587,86 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.transaction_adapter : ::Grant::Adapter::Sqlite::Connection
+    def self.transaction_adapter
       \{% begin %}
-    \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-    \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      ::Grant::Connections::Connections[@@connection_name]
+      \{% declaration = @type.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
+      \{% if declaration %}
+        resolve_adapter_for_role(::Grant::Settings.settings.writing_role)
+      \{% else %}
+        ::Grant::Connections::Connections[@@connection_name]
+      \{% end %}
       \{% end %}
     end
 
-    def self.adapter : ::Grant::Adapter::Sqlite::Connection
-      ::Grant::Base::Base.current_transaction_connection(transaction_adapter) || transaction_adapter
+    def self.resolve_adapter_for_role(role : Symbol) : ::Grant::Adapter::Base::Base
+      \{% begin %}
+      \{% declaration = @type.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
+      \{% if declaration %}
+        \{% database = declaration.annotation(::Grant::ConnectionManagement::ConnectsTo)[:database] %}
+        \{% if database.is_a?(NamedTupleLiteral) %}
+          name = case role
+          \{% for key, value in database %}
+          when \{{ key.symbolize }} then \{{ value }}
+          \{% end %}
+          else \{{ database.values.first }}
+          end
+        \{% else %}
+          name = \{{ database }}
+        \{% end %}
+      \{% else %}
+        name = @@connection_name
+      \{% end %}
+      ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter(name, ::Grant::ConnectionManagement.registry_role(role))
+      \{% end %}
     end
 
-    def self.connection : ::Grant::Adapter::Sqlite::Connection
-      adapter
+    def self.adapter
+      \{% begin %}
+      \{% declaration = @type.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
+      \{% if declaration %}
+        transaction_adapter
+      \{% else %}
+        __connection
+      \{% end %}
+      \{% end %}
+    end
+
+    def self.__transaction_connection : ::Grant::Adapter::Sqlite::Connection
+      selected = transaction_adapter
+      if selected.is_a?(::Grant::Adapter::Base::Base)
+        selected.checkout.or_panic
+      else
+        selected
+      end
+    end
+
+    def self.__connection : ::Grant::Adapter::Sqlite::Connection
+      original = __transaction_connection
+      ::Grant::Base::Base.current_transaction_connection(original) || original
+    end
+
+    def self.connection
+      \{% begin %}
+      \{% declaration = @type.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
+      \{% if declaration %}
+        ::Grant::Connection::Connection.new(->(role : Symbol) { resolve_adapter_for_role(role) })
+      \{% else %}
+        __connection
+      \{% end %}
+      \{% end %}
+    end
+
+    def self.with_connection(&block : ::Grant::Adapter::Sqlite::Connection -> T) forall T
+      selected = transaction_adapter
+      if selected.is_a?(::Grant::Adapter::Base::Base)
+        selected.with_connection { |raw| yield raw }
+      else
+        yield __connection
+      end
+    end
+
+    def self.connection_pool(role : Symbol = ::Grant::Settings.settings.writing_role) : ::Grant::ConnectionPool::ConnectionPool
+      ::Grant::ConnectionPool::ConnectionPool.new(resolve_adapter_for_role(role))
     end
 
     def self.fields : Array(String)
@@ -618,7 +695,7 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      ::Grant::Base::Migrator.new(adapter, table_name, [
+      ::Grant::Base::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
           \{% type = v.annotation(::Grant::Base::Column)[:type] %}
           \{% sql = type.includes?("Int") ? "INTEGER" : (type.includes?("Bool") ? "BOOLEAN" : (type.includes?("Float") ? "REAL" : "TEXT")) %}
@@ -636,7 +713,7 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      adapter.execute("DELETE FROM #{::Grant::Base.quote_identifier(table_name)}")!
+      __connection.execute("DELETE FROM #{::Grant::Base.quote_identifier(table_name)}")!
       nil
       \{% end %}
     end
@@ -721,7 +798,7 @@ pub abstract class Base
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       return nil if id.nil?
-      rows = adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} WHERE #{::Grant::Base.quote_identifier(\{{ primary.name.stringify }})} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
+      rows = __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} WHERE #{::Grant::Base.quote_identifier(\{{ primary.name.stringify }})} = ? LIMIT 1", [id] of ::Grant::Adapter::Sqlite::Value)
       return rows if rows.is_a?(::Grant::Errors::DatabaseError)
       return nil if rows.empty?
       from_row(rows[0])
@@ -780,16 +857,16 @@ pub abstract class Base
     end
 
     def self.current_transaction : ::Grant::Transaction::Handle
-      ::Grant::Transaction.current_transaction(transaction_adapter)
+      ::Grant::Transaction.current_transaction(__transaction_connection)
     end
 
     def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError
-      adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)}")!.map { |row| from_row(row) }
+      __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)}")!.map { |row| from_row(row) }
     end
 
     def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError forall V
       params = values.map { |value| ::Grant::Base.sqlite_value(value) }
-      adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} #{clause}", params)!.map { |row| from_row(row) }
+      __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} #{clause}", params)!.map { |row| from_row(row) }
     end
 
     def self.first(clause : String, values : Array(V)) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError forall V
@@ -797,15 +874,15 @@ pub abstract class Base
     end
 
     def self.find_by_sql(sql : String, binds : Array(::Grant::Adapter::Sqlite::Value) = [] of ::Grant::Adapter::Sqlite::Value) : Array({{ @type }}) | ::Grant::Errors::DatabaseError
-      adapter.query(sql, binds)!.map { |row| from_row(row) }
+      __connection.query(sql, binds)!.map { |row| from_row(row) }
     end
 
     def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError
-      ::Grant::Transactions.import_records(adapter, table_name, primary_name, model_array, batch_size, update_on_duplicate, columns, ignore_on_duplicate)
+      ::Grant::Transactions.import_records(__connection, table_name, primary_name, model_array, batch_size, update_on_duplicate, columns, ignore_on_duplicate)
     end
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
-      rows = adapter.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
+      rows = __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
       row = rows.empty? ? nil : rows[0]
       row.nil? ? nil : from_row(row)
     end
@@ -817,7 +894,7 @@ pub abstract class Base
     end
 
     def self.count : Int64 | ::Grant::Errors::DatabaseError
-      adapter.query("SELECT COUNT(*) AS count FROM #{::Grant::Base.quote_identifier(table_name)}")![0]["count"].as(Int64)
+      __connection.query("SELECT COUNT(*) AS count FROM #{::Grant::Base.quote_identifier(table_name)}")![0]["count"].as(Int64)
     end
 
     def __primary_name : String
@@ -984,7 +1061,7 @@ pub abstract class Base
       nil
     end
 
-    def __transaction_adapter : ::Grant::Adapter::Sqlite::Connection
+    def __transaction_adapter : ::Grant::Adapter::Sqlite::Connection | ::Grant::Adapter::Base::Base
       self.class.transaction_adapter
     end
 
@@ -992,7 +1069,7 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      \{{ @type }}.adapter
+      \{{ @type }}.__connection
       \{% end %}
     end
 
@@ -1040,11 +1117,11 @@ pub abstract class Base
   abstract def __column_values : Array(Value)
   abstract def __run_commit_callbacks(operation : Symbol) : Nil | ::Grant::Error::ErrorBase
   abstract def __run_rollback_callbacks(operation : Symbol) : Nil
-  abstract def __transaction_adapter : Connection
+  abstract def __transaction_adapter : Connection | ::Grant::Adapter::Base::Base
   abstract def __adapter : Connection
   abstract def __table_name : String
 
-  def self.run_transaction(adapter : Connection, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase forall T
+  def self.run_transaction(adapter : Connection | ::Grant::Adapter::Base::Base, options : Options = Options.new, &block : -> T) : T | Nil | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase forall T
     ::Grant::Transaction.run(adapter, options) { yield }
   end
 

@@ -60,7 +60,7 @@ pub trait Aggregations(Model)
       fields << "#{field[:field]} AS \"grant_group_#{index}\""
     end
     fields << "#{function}(#{column}) AS \"grant_aggregate\""
-    rows = Model.adapter.query(projection_sql(fields.join(", ")), batch_values)!
+    rows = Model.__connection.query(projection_sql(fields.join(", ")), batch_values)!
     rows.map do |row|
       key = [] of Value
       group_fields.each_with_index { |field, index| key << row["grant_group_#{index}"] }

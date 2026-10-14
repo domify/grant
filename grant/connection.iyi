@@ -7,7 +7,7 @@ alias RawConnection = ::Grant::Adapter::SqliteConnection::Connection
 import grant/result::{Result}
 import grant/settings
 import grant/error::{ErrorBase}
-import grant/transaction::{Options, run}
+import grant/transaction::{Options, Handle, run, begin_manual}
 
 # Structural Grant::Connection facade. Direct-driver registration remains
 # supported by the spike while named registrations resolve their adapter anew.
@@ -32,6 +32,13 @@ pub class Connection
   private def open(sql : String, role : Symbol = ::Grant::Settings.settings.reading_role, &block : RawConnection -> T) : T | ErrorBase | Cancelled forall T
     raw = @raw
     return yield raw unless raw.nil?
+    writer = adapter(::Grant::Settings.settings.writing_role)
+    pinned = writer.pinned_connection?
+    return yield pinned unless pinned.nil?
+    if ::Grant::Transaction.in_explicit_transaction?
+      current = ::Grant::Transaction.current_connection?(writer.checkout.or_panic)
+      return yield current unless current.nil?
+    end
     adapter(role).open(sql) { |database| yield database }
   end
 
@@ -79,6 +86,12 @@ pub class Connection
     raw = @raw
     return run(raw, options) { yield } unless raw.nil?
     run(adapter(::Grant::Settings.settings.writing_role), options) { yield }
+  end
+
+  def begin_transaction(options : Options = Options.new) : Handle | ErrorBase
+    raw = @raw
+    return begin_manual(raw, options) unless raw.nil?
+    begin_manual(adapter(::Grant::Settings.settings.writing_role).checkout.or_panic, options)
   end
 
   # Compatibility for direct-driver registrations used by earlier port slices.

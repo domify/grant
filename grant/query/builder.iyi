@@ -98,13 +98,13 @@ pub class Builder(Model)
   end
 
   protected def delete_all_single : Int64 | DatabaseError
-    Model.adapter.execute("DELETE FROM \"#{Model.table_name}\"#{where_sql}", @where_values)!.changes
+    Model.__connection.execute("DELETE FROM \"#{Model.table_name}\"#{where_sql}", @where_values)!.changes
   end
 
   protected def next_batch_rows(last_value : Value, batch_size : Int32)
     relation = chain_copy
     relation.where_in_place("\"#{Model.primary_name}\" > ?", last_value) unless last_value.nil?
-    Model.adapter.query("#{relation.to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT #{batch_size}", relation.batch_values)
+    Model.__connection.query("#{relation.to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT #{batch_size}", relation.batch_values)
   end
 
   protected def batch_values : Array(Value)
@@ -117,12 +117,12 @@ pub class Builder(Model)
   end
 
   protected def count_single : Int64 | DatabaseError
-    rows = Model.adapter.query(projection_sql("COUNT(*)"), @where_values)!
+    rows = Model.__connection.query(projection_sql("COUNT(*)"), @where_values)!
     rows.first.values.first.as(Int64)
   end
 
   def exists? : Bool | DatabaseError
-    rows = Model.adapter.query("#{projection_sql("1")} LIMIT 1", @where_values)!
+    rows = Model.__connection.query("#{projection_sql("1")} LIMIT 1", @where_values)!
     !rows.empty?
   end
 
@@ -144,7 +144,7 @@ pub class Builder(Model)
     end
     sql = projection_sql(projections.join(", "))
     sql += " LIMIT 1" if first_only
-    rows = Model.adapter.query(sql, @where_values)!
+    rows = Model.__connection.query(sql, @where_values)!
     rows.map do |row|
       values = [] of Value
       field_names.each_with_index { |field, index| values << row["grant_pluck_#{index}"] }
@@ -165,17 +165,17 @@ pub class Builder(Model)
   end
 
   def select : Array(Model) | DatabaseError
-    Model.adapter.query(to_sql, @where_values)!.map { |row| Model.from_row(row) }
+    Model.__connection.query(to_sql, @where_values)!.map { |row| Model.from_row(row) }
   end
 
   def first : Model | Nil | DatabaseError
-    rows = Model.adapter.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT 1", @where_values)!
+    rows = Model.__connection.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT 1", @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
   end
 
   def last : Model | Nil | DatabaseError
-    rows = Model.adapter.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" DESC LIMIT 1", @where_values)!
+    rows = Model.__connection.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" DESC LIMIT 1", @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
   end
