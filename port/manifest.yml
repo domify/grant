@@ -1378,7 +1378,7 @@
   target: grant_schema_pg_enum_extension_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/references_join_table_spec.cr
   target: grant_schema_references_join_table_test.iyi
   area: query
