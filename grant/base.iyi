@@ -101,12 +101,18 @@ pub abstract class Base
 
   macro column(decl, **options)
     @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }})]
-    @{{decl.var}} : {{decl.type}} | Nil = nil
+    @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
-    def {{decl.var}} : {{decl.type}} | Nil
-      @{{decl.var}}
-    end
+    {% if decl.value %}
+      def {{decl.var}} : {{decl.type}}
+        @{{decl.var}}.as({{decl.type}})
+      end
+    {% else %}
+      def {{decl.var}} : {{decl.type}} | Nil
+        @{{decl.var}}
+      end
+    {% end %}
 
     def {{decl.var}}_changed? : Bool
       @{{decl.var}} != @__persisted_{{decl.var}}

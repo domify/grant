@@ -233,7 +233,7 @@
   target: grant_locking_with_lock_test.iyi
   area: transactions
   examples: 18
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/notifications/transaction_events_spec.cr
   target: grant_notifications_transaction_events_test.iyi
   area: transactions

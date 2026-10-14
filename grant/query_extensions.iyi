@@ -7,7 +7,16 @@ import grant/errors::{DatabaseError}
 pub trait QueryExtensions(Model)
   def update_all(**assignments) : Int64 | DatabaseError
     pairs = [] of Tuple(String, Value)
-    assignments.each { |key, value| pairs << {key.to_s, value.as(Value)} }
+    assignments.each do |key, value|
+      converted = if value.is_a?(Int32)
+                    value.to_i64
+                  elsif value.is_a?(Float32)
+                    value.to_f64
+                  else
+                    value.as(Value)
+                  end
+      pairs << {key.to_s, converted}
+    end
     update_all(pairs)
   end
 
