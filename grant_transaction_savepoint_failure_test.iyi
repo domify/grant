@@ -28,6 +28,23 @@ Parent.transaction do
 end.or_panic
 assert Parent.all.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
 
+# it: recovers an aborted PostgreSQL transaction via ROLLBACK TO SAVEPOINT
+Parent.clear.or_panic
+statements = record do
+  Parent.transaction do
+    Parent.create_strict(name: "Kept").or_panic
+    Parent.transaction(requires_new: true) do
+      # A failing statement aborts a PostgreSQL transaction until the
+      # savepoint is rolled back.
+      Parent.connection.execute("INSERT INTO no_such_table_for_savepoint_spec (x) VALUES (1)")
+    end
+    Parent.create_strict(name: "After").or_panic
+  end.or_panic
+end
+assert Parent.all.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
+assert statements.any? { |statement| statement.starts_with?("ROLLBACK TO SAVEPOINT") }
+assert statements.last == "COMMIT"
+
 # it: prunes callbacks registered inside a rolled-back savepoint
 events = [] of Symbol
 Parent.transaction do

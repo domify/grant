@@ -447,7 +447,7 @@
   target: grant_transaction_error_translation_test.iyi
   area: transactions
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/handle_spec.cr
   target: grant_transaction_handle_test.iyi
   area: transactions
@@ -477,7 +477,7 @@
   target: grant_transaction_savepoint_failure_test.iyi
   area: transactions
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction_atomicity_spec.cr
   target: grant_transaction_atomicity_test.iyi
   area: transactions

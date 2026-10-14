@@ -7,7 +7,7 @@ alias RawConnection = ::Grant::Adapter::Driver::Connection
 import grant/result::{Result}
 import grant/settings
 import grant/error::{ErrorBase}
-import grant/transaction::{Options, Handle, run, begin_manual}
+import grant/transaction::{Options, Handle, run, begin_manual, ConnectionTransactions}
 
 # Structural Grant::Connection facade. Direct-driver registration remains
 # supported by the spike while named registrations resolve their adapter anew.
@@ -33,11 +33,16 @@ pub class Connection
     raw = @raw
     return yield raw unless raw.nil?
     writer = adapter(::Grant::Settings.settings.writing_role)
-    pinned = writer.pinned_connection?
-    return yield pinned unless pinned.nil?
-    if ::Grant::Transaction.in_explicit_transaction?
-      current = ::Grant::Transaction.current_connection?(writer.checkout.or_panic)
-      return yield current unless current.nil?
+    owned = writer.pinned_connection?
+    if owned.nil? && ::Grant::Transaction.in_explicit_transaction?
+      owned = ::Grant::Transaction.current_connection?(writer.checkout.or_panic)
+    end
+    unless owned.nil?
+      # The adapter's open path translates driver failures; a statement run
+      # on the transaction's own connection is translated the same way.
+      result = yield owned
+      return writer.translate_exception(result) if result.is_a?(ErrorBase)
+      return result
     end
     adapter(role).open(sql) { |database| yield database }
   end
@@ -92,6 +97,27 @@ pub class Connection
     raw = @raw
     return begin_manual(raw, options) unless raw.nil?
     begin_manual(adapter(::Grant::Settings.settings.writing_role).checkout.or_panic, options)
+  end
+
+  # Commits the innermost manually opened transaction (or savepoint).
+  def commit : Nil | ErrorBase
+    writer_connection.commit
+  end
+
+  # Rolls back the innermost manually opened transaction (or savepoint).
+  def rollback : Nil | ErrorBase
+    writer_connection.rollback
+  end
+
+  # Runs *block* inside a savepoint of the open transaction.
+  def savepoint(name : String? = nil, &block : -> T) : T | Nil | ErrorBase forall T
+    writer_connection.savepoint(name) { yield }
+  end
+
+  private def writer_connection : RawConnection
+    raw = @raw
+    return raw unless raw.nil?
+    adapter(::Grant::Settings.settings.writing_role).checkout.or_panic
   end
 
   # Compatibility for direct-driver registrations used by earlier port slices.

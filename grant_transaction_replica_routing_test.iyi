@@ -81,7 +81,7 @@ assert TransactionReplicaParent.__connection.object_id == writer.checkout.or_pan
 with_immediate_replica_reads do
   TransactionReplicaParent.stick_to_primary
   assert TransactionReplicaParent.adapter.object_id == writer.object_id
-  assert TransactionReplicaParent.connection.scalar("SELECT COUNT(*) FROM parents").or_panic == 1
+  assert TransactionReplicaParent.connection.select_value("SELECT COUNT(*) FROM parents").or_panic == 1
 end
 
 ConnectionRegistry.remove_connection(CURRENT_ADAPTER, :primary).or_panic

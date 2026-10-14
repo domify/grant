@@ -15,6 +15,7 @@ pub import grant/transaction_options
 pub alias IsolationLevel = ::Grant::TransactionOptions::IsolationLevel
 pub alias Options = ::Grant::TransactionOptions::Options
 pub alias ReadOnlyError = ::Grant::ErrorTaxonomy::ReadOnlyError
+pub alias SerializationError = ::Grant::ErrorTaxonomy::SerializationFailure
 import std/time::{Time}
 import grant/notifications
 import grant/events::{TransactionStart, TransactionOutcome}

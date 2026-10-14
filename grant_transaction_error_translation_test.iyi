@@ -1,6 +1,7 @@
 import grant/base::{Base}
-import grant/error_taxonomy::{StatementInvalid, InvalidForeignKey}
-import grant/transaction::{TransactionState}
+import grant/error_taxonomy::{StatementInvalid, InvalidForeignKey, SerializationFailure}
+import grant/transaction::{TransactionState, ReadOnlyError, IsolationLevel}
+import grant/errors::{ErrorBase}
 import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Parent < Base
@@ -38,4 +39,47 @@ assert error.as(InvalidForeignKey).sql == "COMMIT"
 assert TransactionState.current_state?.nil?
 Parent.connection.execute("DROP TABLE IF EXISTS deferred_translation_children").or_panic
 Parent.connection.execute("DROP TABLE IF EXISTS deferred_translation_owners").or_panic
+
+if Parent.adapter.postgres?
+  # it: raises Transaction::ReadOnlyError for a write inside a read-only transaction
+  Parent.clear.or_panic
+  error = Parent.transaction(readonly: true) do
+    Parent.connection.execute("INSERT INTO parents (name) VALUES ('Rejected')")
+  end
+  assert error.is_a?(ReadOnlyError)
+  assert Parent.count.or_panic == 0
+
+  # it: raises SerializationFailure when a serializable transaction loses a write-skew race
+  Parent.clear.or_panic
+  second_read = Channel(Nil).new(1)
+  first_committed = Channel(Nil).new
+  results = [] of ErrorBase?
+  serializable = IsolationLevel::Serializable
+  group do |tasks|
+    tasks.spawn do
+      outcome = Parent.transaction(isolation: serializable) do
+        Parent.where(name: "skew").count.or_panic
+        second_read.receive.or_panic
+        Parent.connection.execute("INSERT INTO parents (name) VALUES ('first')")
+      end
+      first_committed.send(nil).or_panic
+      results << (outcome.is_a?(ErrorBase) ? outcome : nil)
+    end
+
+    tasks.spawn do
+      outcome = Parent.transaction(isolation: serializable) do
+        Parent.where(name: "first").count.or_panic
+        second_read.send(nil).or_panic
+        first_committed.receive.or_panic
+        Parent.connection.execute("INSERT INTO parents (name) VALUES ('skew')")
+      end
+      results << (outcome.is_a?(ErrorBase) ? outcome : nil)
+    end
+  end
+  failure = results.compact.first?
+  assert failure.is_a?(SerializationFailure)
+  # Grant::Transaction::SerializationError is an alias of SerializationFailure.
+  assert failure.is_a?(::Grant::Transaction::SerializationError)
+  assert results.compact.size == 1
+end
 Parent.adapter.close.or_panic

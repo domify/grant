@@ -864,7 +864,7 @@ pub abstract class Base
       \{% if declaration %}
         ::Grant::Connection::Connection.new(->(role : Symbol) { resolve_adapter_for_role(role) })
       \{% else %}
-        __connection
+        ::Grant::Connection::Connection.new(->(role : Symbol) { adapter }, -> { mark_write_operation; nil })
       \{% end %}
       \{% end %}
     end
