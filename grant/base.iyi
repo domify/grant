@@ -122,11 +122,36 @@ pub abstract class Base
   end
 
   macro column(decl, **options)
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, guarded: {{ options[:guarded] || false }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
-    {% if decl.value %}
+    {% if options[:lazy] %}
+      def __unseal_{{decl.var}} : String? | ::Grant::Error::ErrorBase
+        current = @{{decl.var}}
+        return current unless current && ::Grant::Encryption::Sealed.sealed?(current)
+        @{{decl.var}} = self.class.{{decl.var}}_encrypted_attribute.open(::Grant::Encryption::Sealed.stored(current))!
+      end
+
+      def {{decl.var}} : String? | ::Grant::Error::ErrorBase
+        __unseal_{{decl.var}}
+      end
+
+      def {{decl.var}}? : String? | ::Grant::Error::ErrorBase
+        __unseal_{{decl.var}}
+      end
+
+      def {{decl.var}}_strict : String | ::Grant::Error::ErrorBase
+        value = __unseal_{{decl.var}}!
+        value.nil? ? ::Grant::Encryption::Sealed::NilAssertionError.new({{ @type.stringify }} + "#" + {{ decl.var.stringify }} + " cannot be nil") : value
+      end
+
+      # Hydration assigns the internal marker without treating it as plaintext.
+      def __load_{{decl.var}}(stored : String?) : Nil
+        @{{decl.var}} = stored.nil? ? nil : ::Grant::Encryption::Sealed.wrap(stored)
+        nil
+      end
+    {% elsif decl.value %}
       def {{decl.var}} : {{decl.type}}
         @{{decl.var}}.as({{decl.type}})
       end
@@ -795,7 +820,9 @@ pub abstract class Base
       \{% for v in columns %}
         \{% type = v.annotation(::Grant::Base::Column)[:type] %}
         %raw = row[\{{ v.name.stringify }}]?
-        \{% if type.includes?("Int32") %}
+        \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
+          record.__load_\{{ v.name }}(%raw.is_a?(String) ? %raw : nil)
+        \{% elsif type.includes?("Int32") %}
           record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw.to_i32 : nil
         \{% elsif type.includes?("Int64") %}
           record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw : nil
@@ -941,6 +968,10 @@ pub abstract class Base
       current_scope.where_in_place(**args)
     end
 
+    def self.order(field : Symbol) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.order_in_place(field)
+    end
+
     def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
       where(**args).first
     end
@@ -1058,7 +1089,11 @@ pub abstract class Base
       values = [] of ::Grant::Adapter::Sqlite::Value
       \{% for v in columns %}
         \{% unless v == primary %}
-          %value = self.\{{ v.name }}
+          \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
+            %value = self.\{{ v.name }}!
+          \{% else %}
+            %value = self.\{{ v.name }}
+          \{% end %}
           \{% if v.annotation(::Grant::Base::Column)[:converter] %}
             values << \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(%value)!
           \{% else %}

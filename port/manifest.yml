@@ -168,13 +168,16 @@
     status: done
     examples:
     - T-9782eef184
-  - target: grant_encryption_w6b_lazy_decrypt_test.iyi
-    status: todo
+  - target: grant_encryption_w6b_lazy_decrypt_reads_test.iyi
+    status: done
     examples:
     - T-8e6390e954
     - T-50807c781d
-    - T-b81ad7feaa
     - T-6ff7496016
+  - target: grant_encryption_w6b_lazy_decrypt_test.iyi
+    status: todo
+    examples:
+    - T-b81ad7feaa
     - T-ca25d5293c
     - T-5f392d9b90
     - T-8402353931

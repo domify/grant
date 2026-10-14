@@ -11,6 +11,32 @@ import grant/query/grouping::{Grouping}
 # Structural slice of Grant::Query::Builder(Model): lazy clauses and terminal
 # reads. The model remains responsible for its connection and row hydration.
 pub class Builder(Model)
+  pub enum Sort
+    Ascending
+    Descending
+    AscendingNullsFirst
+    AscendingNullsLast
+    DescendingNullsFirst
+    DescendingNullsLast
+    Raw
+  end
+
+  getter order_fields = [] of NamedTuple(field: String, direction: Sort)
+
+  def order_in_place(field : Symbol) : self
+    @order_fields << {field: field.to_s, direction: Sort::Ascending}
+    self
+  end
+
+  def order(field : Symbol) : self
+    chain_copy.order_in_place(field)
+  end
+
+  protected def copy_orders(fields : Array(NamedTuple(field: String, direction: Sort))) : Nil
+    @order_fields = fields.dup
+    nil
+  end
+
   getter lock_mode : LockMode? = nil
 
   getter where_fields = [] of String
@@ -24,6 +50,7 @@ pub class Builder(Model)
     copied = Builder(Model).new
     copied.copy_conditions(@where_fields, @where_values)
     copied.copy_groups(@group_fields)
+    copied.copy_orders(@order_fields)
     copied.lock_in_place(@lock_mode)
     copied
   end
@@ -119,15 +146,30 @@ pub class Builder(Model)
     projection_sql(Model.select_fields_sql)
   end
 
-  private def projection_sql(fields : String) : String
+  private def projection_sql(fields : String, reverse_order : Bool = false) : String
     sql = "SELECT #{fields} FROM \"#{Model.table_name}\""
     sql += where_sql
     sql += " GROUP BY #{@group_fields.map { |field| field[:field] }.join(", ")}" unless @group_fields.empty?
+    sql += " ORDER BY #{@order_fields.map { |term| render_order_term(term, reverse_order) }.join(", ")}" unless @order_fields.empty?
     mode = @lock_mode
     unless mode.nil?
       clause = mode.to_sql(Model.adapter)
       sql += " #{clause}" unless clause.empty?
     end
+    sql
+  end
+
+  private def render_order_term(term : NamedTuple(field: String, direction: Sort), reverse_order : Bool) : String
+    direction = term[:direction]
+    descending = direction == Sort::Descending || direction == Sort::DescendingNullsFirst || direction == Sort::DescendingNullsLast
+    descending = !descending if reverse_order
+    nulls = case direction
+            when Sort::AscendingNullsFirst, Sort::DescendingNullsFirst then reverse_order ? " LAST" : " FIRST"
+            when Sort::AscendingNullsLast, Sort::DescendingNullsLast then reverse_order ? " FIRST" : " LAST"
+            else ""
+            end
+    sql = "\"#{term[:field]}\" #{descending ? "DESC" : "ASC"}"
+    sql += " NULLS#{nulls}" unless nulls.empty?
     sql
   end
 
@@ -211,7 +253,9 @@ pub class Builder(Model)
   end
 
   def first : Model | Nil | DatabaseError
-    rows = Model.__connection.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT 1", @where_values)!
+    sql = to_sql
+    sql += " ORDER BY \"#{Model.primary_name}\" ASC" if @order_fields.empty?
+    rows = Model.__connection.query("#{sql} LIMIT 1", @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
   end
@@ -223,7 +267,9 @@ pub class Builder(Model)
   end
 
   def last : Model | Nil | DatabaseError
-    rows = Model.__connection.query("#{to_sql} ORDER BY \"#{Model.primary_name}\" DESC LIMIT 1", @where_values)!
+    sql = projection_sql(Model.select_fields_sql, true)
+    sql += " ORDER BY \"#{Model.primary_name}\" DESC" if @order_fields.empty?
+    rows = Model.__connection.query("#{sql} LIMIT 1", @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
   end

@@ -1,0 +1,45 @@
+module grant/encryption/config
+
+pub import grant/encryption/key_provider
+import grant/encryption/key_provider::{KeyProvider}
+
+pub class Config
+  @@verbose_logging : Bool = false
+  @@operation_observer : Proc(String, Nil)? = nil
+
+  def self.verbose_logging : Bool
+    @@verbose_logging
+  end
+
+  def self.verbose_logging=(enabled : Bool) : Bool
+    @@verbose_logging = enabled
+  end
+
+  def self.primary_key=(key : String)
+    KeyProvider.primary_key = key
+  end
+
+  def self.deterministic_key=(key : String)
+    KeyProvider.deterministic_key = key
+  end
+
+  def self.key_derivation_salt=(salt : String)
+    KeyProvider.key_derivation_salt = salt
+  end
+
+  # Native log backend at the same codec operation boundary as upstream Log.
+  def self.with_operation_observer(observer : Proc(String, Nil), &block : -> T) : T forall T
+    previous = @@operation_observer
+    @@operation_observer = observer
+    result = yield
+    @@operation_observer = previous
+    result
+  end
+
+  def self.log_operation(operation : String, model : String, attribute : String, input_size : Int32, output_size : Int32) : Nil
+    return nil unless @@verbose_logging
+    observer = @@operation_observer
+    observer.call("#{operation} #{model}.#{attribute}: #{input_size} bytes -> #{output_size} bytes") unless observer.nil?
+    nil
+  end
+end

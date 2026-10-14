@@ -11,3 +11,5 @@ Crystal names that are iyi keywords receive documented aliases: `import` becomes
 `raise` becomes a returned error union member; `rescue` becomes a union check. Transactions roll back if the block returns an error. Crystal `Grant::Transaction::Rollback` is currently exported as `Rollback` from `grant/errors`.
 
 The native prelude has no `same?`; preserve identity assertions by comparing `object_id`.
+
+Typed lazy encryption strict readers follow the same raising-variant rule: `email!` becomes `email_strict`, returning `String | ErrorBase` (including `NilAssertionError` for an absent value); ordinary and question-mark readers also return codec errors when decryption fails.

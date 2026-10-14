@@ -4,6 +4,7 @@ pub import grant/encryption/key_provider
 import grant/encryption/key_provider::{KeyProvider, KeyError}
 import grant/encryption/cipher::{Cipher, DecryptionError, EncryptionError}
 import std/base64::{Base64}
+import grant/encryption/config::{Config}
 
 pub class EncryptedAttribute
   getter model_name : String
@@ -17,7 +18,9 @@ pub class EncryptedAttribute
   def seal(plain : String) : String | KeyError | EncryptionError | DecryptionError
     key = KeyProvider.derive_key(@model_name, @attribute_name, @deterministic)!
     text = @downcase || @ignore_case ? plain.downcase : plain
-    Base64.encode(Cipher.encrypt(text, key, @deterministic)!)
+    encrypted = Base64.encode(Cipher.encrypt(text, key, @deterministic)!)
+    Config.log_operation("encrypt", @model_name, @attribute_name, plain.bytesize, encrypted.bytesize)
+    encrypted
   end
 
   def open(stored : String) : String | KeyError | EncryptionError | DecryptionError
@@ -30,7 +33,10 @@ pub class EncryptedAttribute
       attempted = true
       key = KeyProvider.derive_key(@model_name, @attribute_name, deterministic)!
       result = Cipher.decrypt?(bytes, key)!
-      return result unless result.nil?
+      unless result.nil?
+        Config.log_operation("decrypt", @model_name, @attribute_name, bytes.bytesize, result.bytesize)
+        return result
+      end
     end
     return KeyError.new("Primary encryption key not configured. Set Grant::Encryption::KeyProvider.primary_key") unless attempted
     DecryptionError.new("HMAC verification failed - data may have been tampered with")

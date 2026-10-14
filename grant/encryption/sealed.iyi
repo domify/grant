@@ -14,6 +14,14 @@ impl ::Error for ArgumentError
   end
 end
 
+pub class NilAssertionError < ErrorBase
+end
+impl ::Error for NilAssertionError
+  def message : String
+    @message
+  end
+end
+
 pub PREFIX = "\u0000grant-sealed:"
 
 pub def wrap(stored : String) : String
