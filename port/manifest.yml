@@ -2444,12 +2444,12 @@
   target: grant_connection_database_context_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection_management_simple_spec.cr
   target: grant_connection_management_simple_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/conventions_regressions_spec.cr
   target: grant_conventions_regressions_test.iyi
   area: other
@@ -2504,7 +2504,7 @@
   target: grant_fiber_connection_context_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/migrator/defaults_spec.cr
   target: grant_migrator_defaults_test.iyi
   area: other
@@ -2594,7 +2594,7 @@
   target: grant_simple_connection_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/sti/sti_validation_callback_inheritance_spec.cr
   target: grant_sti_sti_validation_callback_inheritance_test.iyi
   area: other

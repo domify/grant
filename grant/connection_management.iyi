@@ -2,6 +2,7 @@ module grant/connection_management
 
 pub import grant/connection_registry
 pub import grant/settings
+pub import grant/connection_context
 
 pub annotation ConnectsTo
 end
@@ -55,6 +56,7 @@ end
 
 # Native expansion of the upstream ConnectionManagement::ClassMethods slice.
 pub macro model_methods(model)
+  ::Grant::ConnectionContext.model_methods({{ model }})
   def self.connection_config : Hash(Symbol, String)
     @@own_connection_config ||= {} of Symbol => String
   end

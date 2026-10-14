@@ -81,4 +81,16 @@ pub class ConnectionRegistry
     removed.disconnect_strict! unless removed.nil?
     true
   end
+
+  def self.clear_all : Nil | ErrorBase
+    retired = @@adapters.values
+    @@specifications.values.each { |spec| Connections.unregister(spec.database) }
+    @@adapters = {} of String => Base
+    @@specifications = {} of String => ConnectionSpec
+    retired.each do |adapter|
+      adapter.disconnect_strict!
+    end
+    nil
+  end
+
 end
