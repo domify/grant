@@ -833,6 +833,10 @@ pub abstract class Base
       record
     end
 
+    def self.find(id : Int32) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
+      find(::Grant::Base.sqlite_value(id))
+    end
+
     def self.find(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
@@ -843,6 +847,10 @@ pub abstract class Base
     end
 
     # Crystal `find!`.
+    def self.find_strict(id : Int32) : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError
+      find_strict(::Grant::Base.sqlite_value(id))
+    end
+
     def self.find_strict(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
