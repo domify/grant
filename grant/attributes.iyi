@@ -1,0 +1,45 @@
+module grant/attributes
+
+pub import grant/columns
+
+# Reflective reader and encrypted-inspection slice of upstream Attributes.
+# Deferred column introspection expands in each concrete Base subclass.
+pub macro model_methods(model)
+  def attributes : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    result = {} of String => ::Grant::Columns::Type
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% if v.annotation(::Grant::Base::Column)[:converter] %}
+        result[\{{ v.name.stringify }}] = \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})!
+      \{% else %}
+        result[\{{ v.name.stringify }}] = @\{{ v.name }}
+      \{% end %}
+    \{% end %}
+    result
+  end
+
+  def inspect : String
+    fields = [] of String
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      value = @\{{ v.name }}
+      text = if value.nil?
+        "nil"
+      \{% if v.annotation(::Grant::Base::Column)[:encrypted] %}
+      else
+        "[FILTERED]"
+      \{% else %}
+      elsif value.is_a?(String) && value.size > 50
+        value[0, 50].inspect.chop + "...\""
+      else
+        value.inspect
+      \{% end %}
+      end
+      fields << \{{ v.name.stringify }} + ": " + text
+    \{% end %}
+    "#<" + {{ model.stringify }} + " " + fields.join(", ") + ">"
+  end
+
+  def inspect(io : T) : Nil forall T
+    io << inspect
+    nil
+  end
+end

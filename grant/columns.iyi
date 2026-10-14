@@ -1,0 +1,26 @@
+module grant/columns
+
+pub import grant/error
+pub import std/time
+
+# Scalar column values retain their model types at the reflective boundary.
+pub alias Type = Nil | String | Int32 | Int64 | Float32 | Float64 | Bool | ::Std::Time::Time
+
+pub macro model_methods(model)
+  def read_attribute(attribute_name : Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    \{% begin %}
+      case attribute_name.to_s
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      when \{{ v.name.stringify }}
+        \{% if v.annotation(::Grant::Base::Column)[:converter] %}
+          \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})!
+        \{% else %}
+          @\{{ v.name }}
+        \{% end %}
+      \{% end %}
+      else
+        ::Grant::Error::ErrorBase.new("Cannot read attribute #{attribute_name}, invalid attribute")
+      end
+    \{% end %}
+  end
+end

@@ -1,0 +1,24 @@
+module grant/columns_helpers
+
+pub import grant/columns
+
+# The upstream String overload reads the attribute's own value; the Symbol
+# overload in Columns converts to its database representation.
+pub macro model_methods(model)
+  def read_attribute(name : String) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    \{% begin %}
+      case name
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      when \{{ v.name.stringify }}
+        \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
+          self.\{{ v.name }}!
+        \{% else %}
+          @\{{ v.name }}
+        \{% end %}
+      \{% end %}
+      else
+        ::Grant::Error::ErrorBase.new("Unknown attribute: #{name}")
+      end
+    \{% end %}
+  end
+end

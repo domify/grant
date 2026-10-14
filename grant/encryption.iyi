@@ -47,7 +47,7 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
     @@{{attr}}_encrypted_attribute ||= ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}})
   end
 
-  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", guarded: {{lazy == true}}, lazy: {{lazy == true}}
+  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", encrypted: true, guarded: {{lazy == true}}, lazy: {{lazy == true}}
 
   class {{attr_name.camelcase.id}}EncryptionConverter
     def self.to_db(value : {{base}}?)
