@@ -2514,7 +2514,7 @@
   target: grant_migrator_migrator_test.iyi
   area: other
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/parity_tracker_spec.cr
   target: grant_parity_tracker_test.iyi
   area: other
