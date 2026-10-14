@@ -2539,7 +2539,7 @@
   target: grant_persistence_primary_key_mass_assignment_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/environment_protection_spec.cr
   target: grant_schema_environment_protection_test.iyi
   area: other
