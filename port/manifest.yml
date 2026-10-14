@@ -1283,7 +1283,7 @@
   target: grant_querying_relation_calculations_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/reload_spec.cr
   target: grant_querying_reload_test.iyi
   area: query
