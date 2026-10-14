@@ -28,6 +28,7 @@ import grant/transaction::{Options}
 import grant/errors::{TransactionIsolationError}
 pub import grant/errors
 import grant/errors::{DatabaseError, RecordNotFound, RecordNotSaved, Rollback}
+import grant/database
 
 pub annotation Column
 end
@@ -1520,6 +1521,7 @@ pub abstract class Base
       result = __adapter.insert("INSERT INTO #{::Grant::Base.quote_identifier(__table_name)} (#{names.map { |name| ::Grant::Base.quote_identifier(name) }.join(", ")}) VALUES (#{placeholders})", values, __primary_auto? && __primary_value.nil? ? __primary_name : nil)
       if result.is_a?(DatabaseError)
         return ::Grant::ErrorTaxonomy::ReadOnlyError.new(result.message, result) if result.read_only
+        return ::Grant::ErrorTaxonomy::ConnectionFailed.new("Connection was lost: #{result.message}", ::Grant::Database::ConnectionLost.new(__adapter)) if result.connection_lost
         errors << ::Grant::Error::Error.new(:base, result.message)
         return RecordNotSaved.new(__table_name, result)
       end
@@ -1536,6 +1538,7 @@ pub abstract class Base
         result = __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", changed_values)
         if result.is_a?(DatabaseError)
           return ::Grant::ErrorTaxonomy::ReadOnlyError.new(result.message, result) if result.read_only
+          return ::Grant::ErrorTaxonomy::ConnectionFailed.new("Connection was lost: #{result.message}", ::Grant::Database::ConnectionLost.new(__adapter)) if result.connection_lost
           errors << ::Grant::Error::Error.new(:base, result.message)
           return RecordNotSaved.new(__table_name, result)
         end

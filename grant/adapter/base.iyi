@@ -265,6 +265,12 @@ pub abstract class Base
       @in_use -= 1
       pool.pool.release(connection) unless pool.nil?
       connection.grant_last_used_ticks = ticks
+      # A driver that found its server gone reports the statement error with
+      # `connection_lost`; the pool drops that connection as crystal-db does.
+      if result.is_a?(DatabaseError) && result.connection_lost
+        @_database.as(Database).pool.discard(connection, database_path)!
+        result = ConnectionLost.new(connection)
+      end
       if result.is_a?(ConnectionLost)
         if lost_retries == 0
           return ConnectionFailed.new("Connection to #{name} was lost: #{result.message}", result)

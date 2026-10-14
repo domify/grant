@@ -1,4 +1,4 @@
-import std/file::{File}
+import pool_spec_support::{C02Support}
 import std/time::{Span}
 import grant/adapter/sqlite::{Sqlite}
 import grant/database::{Database, ConnectionRefused}
@@ -20,19 +20,16 @@ class C02RefusingAdapter < Sqlite
 end
 
 # it: retries a refused connection up to retry_attempts and then succeeds
-path = File.tempfile("c02_refusing", ".sqlite3")
-adapter = C02RefusingAdapter.new("c02_refusing", "sqlite3:#{path}")
+adapter = C02RefusingAdapter.new("c02_refusing", C02Support.url("c02_refusing"))
 adapter.retry_attempts = 2
 adapter.retry_delay = Span.milliseconds(1_i64)
 adapter.refusals = 2
 assert adapter.open("INSERT INTO t VALUES (1)") { |connection| connection.scalar("SELECT 1") }.or_panic == 1
 assert adapter.attempts == 3
 adapter.disconnect_strict.or_panic
-File.delete(path)
 
 # it: raises Grant::ConnectionFailed when the database stays down
-path = File.tempfile("c02_refusing", ".sqlite3")
-adapter = C02RefusingAdapter.new("c02_refusing", "sqlite3:#{path}")
+adapter = C02RefusingAdapter.new("c02_refusing", C02Support.url("c02_refusing"))
 adapter.retry_attempts = 2
 adapter.retry_delay = Span.milliseconds(1_i64)
 adapter.refusals = 10
@@ -41,11 +38,9 @@ assert error.is_a?(ConnectionFailed)
 assert error.as(ConnectionFailed).cause.is_a?(ConnectionRefused)
 assert adapter.attempts == 3
 adapter.disconnect_strict.or_panic
-File.delete(path)
 
 # it: counts a fiber backing off between attempts as waiting
-path = File.tempfile("c02_refusing", ".sqlite3")
-adapter = C02RefusingAdapter.new("c02_refusing", "sqlite3:#{path}")
+adapter = C02RefusingAdapter.new("c02_refusing", C02Support.url("c02_refusing"))
 adapter.retry_attempts = 3
 adapter.retry_delay = Span.milliseconds(30_i64)
 adapter.refusals = 2
@@ -61,4 +56,4 @@ group do |tasks|
   assert adapter.pool_stat.waiting == 0
 end
 adapter.disconnect_strict.or_panic
-File.delete(path)
+C02Support.cleanup

@@ -196,6 +196,17 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
       sqlstate = cstring(field) unless field.address == 0_u64
     end
     cause = PQError.new(sqlstate, detail)
+    # 57P01-57P03 (server shutdown, termination) and class 08 (connection
+    # exception) mean the backend is gone even before libpq marks it bad.
+    server_gone = !sqlstate.nil? && (sqlstate.starts_with?("57P") || sqlstate.starts_with?("08"))
+    if !@closed && (server_gone || PQ.status(@handle) != CONNECTION_OK)
+      lost = DatabaseError.new(0, operation, detail, sql, cause)
+      lost.connection_lost = true
+      # The server is gone: the handle can never answer again.
+      @lost = true
+      close
+      return lost
+    end
     kind = ::Grant::Adapter::ErrorTranslator.pg_error_kind(sqlstate, detail)
     return DatabaseError.new(0, operation, detail, sql, cause) if kind.nil?
     translated = ::Grant::Adapter::ErrorTranslator.build(kind, detail, sql, [] of String, cause, 0, operation)

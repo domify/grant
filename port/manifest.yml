@@ -39,7 +39,7 @@
   target: grant_connection_reconnect_test.iyi
   area: transactions
   examples: 14
-  status: todo
+  status: done
   children:
   - target: grant_connection_reconnect_policy_test.iyi
     status: done
@@ -67,14 +67,14 @@
     - T-f5457cca4c
     - T-f67ffead40
   - target: grant_connection_reconnect_pg_test.iyi
-    status: todo
+    status: done
     examples:
     - T-c42e685dfd
 - source: crystal-upstream/spec/grant/connection/w6_reconnect_idle_spec.cr
   target: grant_connection_w6_reconnect_idle_test.iyi
   area: transactions
   examples: 10
-  status: todo
+  status: done
   children:
   - target: grant_connection_w6_reconnect_idle_policy_test.iyi
     status: done
@@ -92,7 +92,7 @@
     - T-ad3d9196ef
     - T-b555f2332b
   - target: grant_connection_w6_reconnect_idle_pg_test.iyi
-    status: todo
+    status: done
     examples:
     - T-9f4ef19b45
 - source: crystal-upstream/spec/grant/connection/w6_statement_invalid_sql_spec.cr

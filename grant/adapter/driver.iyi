@@ -35,6 +35,8 @@ pub abstract class Connection
   property grant_last_used_ticks : Int64 = ticks
   property transaction_materializer : Proc(Nil | DatabaseError)? = nil
   property query_observer : Proc(String, Nil)? = nil
+  # Set when the server dropped this connection; the pool forgets it.
+  property lost : Bool = false
 
   abstract def path : String
   abstract def last_statement : String?

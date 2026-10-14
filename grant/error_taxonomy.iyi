@@ -12,6 +12,8 @@ pub class StatementInvalid < ErrorBase
   # Set by a driver that classified this failure as a read-only violation;
   # adapters surface it as ReadOnlyError, which is not a StatementInvalid.
   property read_only : Bool = false
+  # Set by a driver whose server dropped the connection under the statement.
+  property connection_lost : Bool = false
 
   def self.describe_binds(values : Array(T)) : Array(String) forall T
     described = [] of String

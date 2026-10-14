@@ -79,6 +79,8 @@ pub class Pool
   end
 
   def checkout : Connection | ErrorBase
+    # A connection whose server dropped it is closed; the pool forgets it.
+    @connections = @connections.reject { |connection| connection.lost && !@reserved.includes?(connection) }
     @connections.each do |connection|
       return connection unless @reserved.includes?(connection)
     end

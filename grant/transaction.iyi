@@ -20,6 +20,8 @@ import std/time::{Time}
 import grant/notifications
 import grant/events::{TransactionStart, TransactionOutcome}
 import grant/events
+import grant/database
+import grant/error_taxonomy::{ConnectionFailed}
 
 # Connection state shared by every model, without an import cycle with Base.
 pub class TransactionState
@@ -244,7 +246,11 @@ pub def run(adapter : Base, options : Options, savepoint_name : String? = nil, &
   # As upstream, the transaction pins its connection to the running fiber, so
   # another fiber's checkout never joins it.
   pool = adapter.database!.pool
-  connection = pool.checkout!
+  # The adapter's checkout verifies a connection that sat idle, as upstream's
+  # pool checkout does before a transaction starts on it.
+  checked = adapter.checkout
+  return ErrorBase.new("Transaction checkout was cancelled") if checked.is_a?(Cancelled)
+  connection = checked!
   connection.name = adapter.name
   pool.reserve(connection)
   adapter.pin_connection(connection)
@@ -289,9 +295,13 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
   TransactionState.pop
   state.open = false
   begin_error = state.begin_error
-  result = begin_error unless begin_error.nil?
+  unless begin_error.nil?
+    # A BEGIN the server dropped the connection under is a connection failure.
+    result = begin_error.connection_lost ? ConnectionFailed.new("Connection was lost: #{begin_error.message}", ::Grant::Database::ConnectionLost.new(connection)) : begin_error
+  end
   if result.is_a?(::Error)
-    if state.begun
+    # A connection the server dropped took its transaction with it.
+    if state.begun && !connection.closed?
       execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
       execute_control(connection, "RELEASE SAVEPOINT #{savepoint}")! unless outer
       publish_transaction_end(state, TransactionOutcome::Rollback, state.started_at, outer ? nil : savepoint)

@@ -1,30 +1,32 @@
-import std/file::{File}
 import std/time::{Span}
 import grant/adapter/base::{Base}
 import grant/adapter/sqlite::{Sqlite}
+import grant/adapter/pg::{Pg}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/database::{ConnectionLost}
 import grant/error_taxonomy::{ConnectionFailed}
+import w6_c04_support::{W6C04}
 
-private def w6_idle_adapter(url : String, verify_idle_after : Span?) : Base
-  ConnectionRegistry.establish_connection(database: "w6_idle", adapter: Sqlite, url: url,
-    role: :primary, pool_size: 3, initial_pool_size: 1, verify_idle_after: verify_idle_after).or_panic
-  ConnectionRegistry.get_adapter("w6_idle", :primary)
+private def w6_idle_adapter(verify_idle_after : Span?) : Base
+  W6C04.establish("w6_idle", "w6_idle", :primary, verify_idle_after: verify_idle_after)
 end
 
-path = File.tempfile("w6_idle", ".sqlite3")
-url = "sqlite3:#{path}"
+W6C04.provision("w6_idle", ["CREATE TABLE w6_idle_things (#{W6C04.id_column}, label TEXT)"])
 
 # it: verifies a connection after 30 seconds idle unless told otherwise, and can be turned off
-ConnectionRegistry.establish_connection(database: "w6_idle", adapter: Sqlite, url: url, role: :primary).or_panic
+if W6C04.pg?
+  ConnectionRegistry.establish_connection(database: "w6_idle", adapter: Pg, url: W6C04.url("w6_idle"), role: :primary).or_panic
+else
+  ConnectionRegistry.establish_connection(database: "w6_idle", adapter: Sqlite, url: W6C04.url("w6_idle"), role: :primary).or_panic
+end
 assert ConnectionRegistry.get_adapter("w6_idle", :primary).verify_idle_after == Span.seconds(30_i64)
 assert ConnectionRegistry.connection_spec("w6_idle", :primary).as(ConnectionRegistry::ConnectionSpec).verify_idle_after == Span.seconds(30_i64)
-ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
-assert w6_idle_adapter(url, nil).verify_idle_after.nil?
-ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
+W6C04.remove("w6_idle", :primary)
+assert w6_idle_adapter(nil).verify_idle_after.nil?
+W6C04.remove("w6_idle", :primary)
 
 # it: does not retry a write whose connection drops mid-statement
-adapter = w6_idle_adapter(url, nil)
+adapter = w6_idle_adapter(nil)
 attempts = 0
 error = adapter.open("INSERT INTO w6_idle_things (label) VALUES ('lost')") do |_|
   attempts += 1
@@ -32,5 +34,5 @@ error = adapter.open("INSERT INTO w6_idle_things (label) VALUES ('lost')") do |_
 end
 assert error.is_a?(ConnectionFailed)
 assert attempts == 1
-ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
-File.delete(path)
+W6C04.remove("w6_idle", :primary)
+W6C04.cleanup
