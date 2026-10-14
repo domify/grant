@@ -617,7 +617,7 @@
   target: test/grant_callbacks_around_callbacks_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/around_validation_spec.cr
   target: test/grant_callbacks_around_validation_test.iyi
   area: query
@@ -1423,7 +1423,7 @@
   target: test/grant_secure_token_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/select/select_spec.cr
   target: test/grant_select_select_test.iyi
   area: query
@@ -1948,7 +1948,7 @@
   target: test/grant_callbacks_run_callbacks_test.iyi
   area: associations
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/compile_target_adapters_spec.cr
   target: test/grant_compile_target_adapters_test.iyi
   area: associations

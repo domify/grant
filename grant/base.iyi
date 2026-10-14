@@ -15,6 +15,7 @@ pub import grant/validation_helpers/nil
 pub import grant/validation_helpers/blank
 pub import grant/validators
 pub import grant/callbacks
+pub import grant/secure_token
 pub import grant/transactions
 pub import grant/integrators
 pub import grant/encryption
@@ -388,8 +389,54 @@ pub abstract class Base
     end
   end
 
+  macro has_secure_token(name, length = 24, alphabet = :base58, on = :create)
+    ::Grant::SecureToken.has_secure_token({{ name }}, {{ length }}, {{ alphabet }}, {{ on }})
+  end
+
   macro around_validation(method = nil, &block)
     def __callback_around_validation_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      {% if block %}
+        {{ block.args[0] }} = continuation
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}(continuation)
+      {% end %}
+      nil
+    end
+  end
+
+  macro around_create(method = nil, **options, &block)
+    @[::Grant::Callbacks::Callback(prepend: {{ options[:prepend] || false }})]
+    def __callback_around_create_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, continuation)
+      {% if block %}
+        {{ block.args[0] }} = continuation
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}(continuation)
+      {% end %}
+      nil
+    end
+  end
+
+  macro around_update(method = nil, **options, &block)
+    @[::Grant::Callbacks::Callback(prepend: {{ options[:prepend] || false }})]
+    def __callback_around_update_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, continuation)
+      {% if block %}
+        {{ block.args[0] }} = continuation
+        {{ block.body }}
+      {% else %}
+        {{ method.id }}(continuation)
+      {% end %}
+      nil
+    end
+  end
+
+  macro around_destroy(method = nil, **options, &block)
+    @[::Grant::Callbacks::Callback(prepend: {{ options[:prepend] || false }})]
+    def __callback_around_destroy_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, continuation)
       {% if block %}
         {{ block.args[0] }} = continuation
         {{ block.body }}
@@ -528,6 +575,7 @@ pub abstract class Base
   end
 
   macro __process_columns
+    ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
@@ -1576,6 +1624,15 @@ pub abstract class Base
     __remember_transaction_state
     operation = @new_record ? :create : :update
     self.before_save!
+    saved = __persist_with_around(skip_timestamps: skip_timestamps)
+    return saved if saved.is_a?(::Error)
+    self.after_save!
+    queue_commit_callbacks(operation)!
+    true
+  end
+
+  def __persist(*, skip_timestamps : Bool) : Bool | RecordNotSaved | DatabaseError | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    operation = @new_record ? :create : :update
     if @new_record
       self.before_create!
     else
@@ -1623,8 +1680,6 @@ pub abstract class Base
     else
       self.after_update!
     end
-    self.after_save!
-    queue_commit_callbacks(operation)!
     true
   end
 
@@ -1643,7 +1698,7 @@ pub abstract class Base
   end
 
   def destroy : Bool
-    result = __destroy_with_callbacks
+    result = __destroy_with_around
     if result.is_a?(::Error)
       errors << ::Grant::Error::Error.new(:base, result.message)
       __run_rollback_callbacks(:destroy)
