@@ -5,6 +5,7 @@ pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
+pub import grant/associations
 pub import grant/columns
 pub import grant/columns_helpers
 pub import grant/attributes
@@ -570,7 +571,12 @@ pub abstract class Base
     end
   end
 
+  macro has_many(model, scope = nil, **options)
+    ::Grant::Associations.has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  end
+
   macro __process_columns
+    ::Grant::Associations.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})

@@ -1,0 +1,89 @@
+module grant/association_collection
+
+import grant/query/builder::{Builder}
+import grant/error::{ErrorBase}
+import grant/associations/through::{OwnerNotSaved}
+
+# The direct association slice of upstream AssociationCollection(Owner, Target).
+pub class AssociationCollection(Owner, Target)
+  @loaded_records : Array(Target)?
+
+  def initialize(@owner : Owner, @foreign_key : Symbol | String,
+                 @through : Symbol | String | Nil = nil,
+                 @primary_key : Symbol | String | Nil = nil,
+                 @inverse_of : Symbol | String | Nil = nil,
+                 @scope : Proc(Builder(Target), Builder(Target))? = nil,
+                 @association_name : String? = nil,
+                 @loaded_records : Array(Target)? = nil)
+  end
+
+  def loaded? : Bool
+    !@loaded_records.nil?
+  end
+
+  def association_relation : Builder(Target)
+    relation = Target.current_scope
+    association_scope = @scope
+    relation = association_scope.call(relation) unless association_scope.nil?
+    relation.where(@foreign_key.to_s, :eq, owner_key)
+  end
+
+  private def owner_key : ::Grant::Columns::Type
+    @owner.read_attribute((@primary_key || Owner.primary_name).to_s).or_panic
+  end
+
+  def all : Array(Target) | ErrorBase
+    records = @loaded_records
+    return records unless records.nil?
+    records = association_relation.select!
+    @loaded_records = records.dup
+    association_name = @association_name
+    @owner.set_loaded_association(association_name, records) unless association_name.nil?
+    records
+  end
+
+  def to_a : Array(Target) | ErrorBase
+    all
+  end
+
+  def map(&block : Target -> T) : Array(T) | ErrorBase forall T
+    all!.map { |record| yield record }
+  end
+
+  def count : Int64 | ErrorBase
+    result = association_relation.count!
+    result.is_a?(Int64) ? result : result.values.sum
+  end
+
+  def size : Int64 | ErrorBase
+    records = @loaded_records
+    records.nil? ? count : records.size.to_i64
+  end
+
+  def length : Int32 | ErrorBase
+    all!.size
+  end
+
+  def empty? : Bool | ErrorBase
+    records = @loaded_records
+    records.nil? ? !association_relation.exists?! : records.empty?
+  end
+
+  def any? : Bool | ErrorBase
+    !empty?!
+  end
+
+  def none? : Bool | ErrorBase
+    !any?!
+  end
+
+  def create_strict(**attrs) : Target | ErrorBase
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create!") unless @owner.persisted?
+    record = Target.new(**attrs)
+    record.assign_attributes({@foreign_key.to_s => owner_key})
+    record.save_strict!
+    records = @loaded_records
+    records << record unless records.nil?
+    record
+  end
+end

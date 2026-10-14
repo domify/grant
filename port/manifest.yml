@@ -1758,7 +1758,7 @@
   target: grant_associations_has_many_foreign_key_forms_test.iyi
   area: associations
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/has_many_spec.cr
   target: grant_associations_has_many_test.iyi
   area: associations
