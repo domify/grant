@@ -1948,7 +1948,7 @@
   target: grant_callbacks_run_callbacks_test.iyi
   area: associations
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/compile_target_adapters_spec.cr
   target: grant_compile_target_adapters_test.iyi
   area: associations

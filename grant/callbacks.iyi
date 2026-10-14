@@ -65,7 +65,69 @@ pub macro guard(condition, unless_condition, continuation)
   {% end %}
 end
 
+pub class UnknownEventError < ::Grant::Error::ErrorBase
+  def initialize(event : Symbol)
+    super("Unknown callback event :#{event}; use one of initialize, find, validation, save, create, update, destroy, touch")
+  end
+end
+impl ::Error for UnknownEventError
+  def message : String
+    @message
+  end
+end
+
 pub macro model_methods(model)
+  @_around_halted : Bool = false
+
+  def around_halted? : Bool
+    @_around_halted
+  end
+
+  def run_callbacks(event : Symbol) : Bool | ::Grant::Error::ErrorBase
+    result = run_callbacks(event) { true }
+    return result if result.is_a?(::Error)
+    !result.nil?
+  end
+
+  def run_callbacks(event : Symbol, &action : -> T) : T | Nil | ::Grant::Error::ErrorBase forall T
+    inner_action = action
+    result = nil.as(T | Nil | ::Grant::Error::ErrorBase)
+    ran = false
+    \{% begin %}
+    case event
+    \{% for ev in ["initialize", "find", "validation", "save", "create", "update", "destroy", "touch"] %}
+    when :\{{ ev.id }}
+      operation = -> {
+        ran = true
+        result = __callback_body_\{{ ev.id }} { inner_action.call }
+        nil
+      }
+      \{% if ["validation", "save", "create", "update", "destroy"].includes?(ev) %}
+        __run_around_\{{ ev.id }} { operation.call }
+      \{% else %}
+        operation.call
+      \{% end %}
+    \{% end %}
+    else
+      return ::Grant::Callbacks::UnknownEventError.new(event)
+    end
+    \{% end %}
+    @_around_halted = !ran
+    result
+  end
+
+  \{% for ev in ["initialize", "find", "validation", "save", "create", "update", "destroy", "touch"] %}
+  def __callback_body_\{{ ev.id }}(&action : -> T) : T | ::Grant::Error::ErrorBase forall T
+    \{% if ["validation", "save", "create", "update", "destroy"].includes?(ev) %}
+      self.before_\{{ ev.id }}!
+    \{% end %}
+    result = action.call
+    return result if result.is_a?(::Error)
+    self.after_\{{ ev.id }}!
+    result
+  end
+  \{% end %}
+
     def __persist_with_around(*, skip_timestamps : Bool) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       if new_record?
         __run_around_create { __persist(skip_timestamps: skip_timestamps) }
