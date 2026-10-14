@@ -1,6 +1,7 @@
-import transaction_crud_models::{Parent}
-import spec_helper::{register_spec_connections}
-import query_relation_sql_capture::{capture_sql, seed_parents}
+module test/grant_query_existence_predicates_test
+import test/transaction_crud_models::{Parent}
+import test/spec_helper::{register_spec_connections}
+import test/query_relation_sql_capture::{capture_sql, seed_parents}
 import grant/querying::{NotFound, NotUnique}
 import std/text
 

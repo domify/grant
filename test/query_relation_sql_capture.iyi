@@ -1,6 +1,6 @@
-module query_relation_sql_capture
+module test/query_relation_sql_capture
 
-import transaction_crud_models::{Parent}
+import test/transaction_crud_models::{Parent}
 
 # Native statement observer corresponding to support/relation_sql_capture.cr.
 pub def capture_sql(&block : -> T) : Array(String) forall T

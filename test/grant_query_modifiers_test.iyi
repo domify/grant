@@ -1,4 +1,5 @@
-import query_spec_helper::{builder, with_legacy_implicit_order, same_entries?}
+module test/grant_query_modifiers_test
+import test/query_spec_helper::{builder, with_legacy_implicit_order, same_entries?}
 import grant/query/builder::{Builder}
 
 with_legacy_implicit_order do
