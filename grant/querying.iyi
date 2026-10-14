@@ -22,4 +22,26 @@ pub macro model_methods(model)
     return ::Grant::Querying::NotFound.new("No " + {{ model.stringify }} + " found with first(#{clause})") if record.nil?
     record
   end
+
+  def self.find_by(criteria : Hash(K, V)) : {{ model }} | Nil | ::Grant::Error::ErrorBase forall K, V
+    current_scope.where(criteria).first
+  end
+
+  def self.find_by_strict(**criteria) : {{ model }} | ::Grant::Error::ErrorBase
+    find_by_strict(criteria.to_h)
+  end
+
+  def self.find_by_strict(criteria : Hash(K, V)) : {{ model }} | ::Grant::Error::ErrorBase forall K, V
+    record = find_by(criteria)!
+    if record.nil?
+      parts = [] of String
+      criteria.each do |key, value|
+        parts << (value.nil? ? "#{key} is NULL" : "#{key} = #{value}")
+      end
+      description = parts.join(" and ")
+      return ::Grant::Querying::NotFound.new("No " + {{ model.stringify }} + " found where #{description}")
+    end
+    record
+  end
+
 end

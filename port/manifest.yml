@@ -1243,7 +1243,7 @@
   target: grant_querying_find_by_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/find_each_spec.cr
   target: grant_querying_find_each_test.iyi
   area: query
