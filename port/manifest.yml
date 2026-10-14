@@ -1368,7 +1368,7 @@
   target: grant_schema_migrator_options_test.iyi
   area: query
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/pending_check_spec.cr
   target: grant_schema_pending_check_test.iyi
   area: query
