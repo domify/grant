@@ -1338,7 +1338,7 @@
   target: grant_schema_comments_test.iyi
   area: query
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/composite_pk_create_spec.cr
   target: grant_schema_composite_pk_create_test.iyi
   area: query

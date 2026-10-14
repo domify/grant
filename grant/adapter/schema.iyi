@@ -1,0 +1,38 @@
+module grant/adapter/schema
+import std/text
+import grant/errors::{ErrorBase}
+import grant/adapter/base::{Base}
+pub class UnsupportedOperation < ErrorBase
+end
+impl ::Error for UnsupportedOperation
+  def message : String
+    @message
+  end
+end
+pub class InvalidDefinition < ErrorBase
+end
+impl ::Error for InvalidDefinition
+  def message : String
+    @message
+  end
+end
+pub enum Dialect
+  Sqlite
+  Pg
+  Mysql
+  def self.for(adapter : Base) : Dialect
+    adapter.postgres? ? Pg : (adapter.mysql? ? Mysql : Sqlite)
+  end
+  def quote(name : String | Symbol) : String
+    char = self == Mysql ? "`" : "\""
+    name.to_s.split('.').map { |part| "#{char}#{part.gsub(char, char + char)}#{char}" }.join(".")
+  end
+  def quote_literal(value : T) : String forall T
+    case value
+    when Nil then "NULL"
+    when Bool then value ? "TRUE" : "FALSE"
+    when String then "'#{value.gsub("'", "''")}'"
+    else value.to_s
+    end
+  end
+end

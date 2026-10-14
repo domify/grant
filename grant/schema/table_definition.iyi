@@ -1,0 +1,44 @@
+module grant/schema/table_definition
+import grant/adapter/schema::{Dialect, UnsupportedOperation}
+import std/text
+pub class ColumnDefinition
+  getter name : String
+  getter type : String
+  getter null : Bool
+  getter comment : String?
+  getter default_clause : String
+  getter pg_only : Bool
+  def initialize(@name : String, @type : String, @null : Bool = true, @comment : String? = nil, @default_clause : String = "", @pg_only : Bool = false)
+  end
+  def to_sql(dialect : Dialect) : String | UnsupportedOperation
+    return UnsupportedOperation.new("The #{@type} type is only supported on PostgreSQL") if @pg_only && dialect != Dialect::Pg
+    "#{dialect.quote(@name)} #{@type}#{@null ? "" : " NOT NULL"}#{@default_clause}"
+  end
+end
+pub class TableDefinition
+  getter columns = [] of ColumnDefinition
+  getter table : String
+  getter comment : String?
+  getter dialect : Dialect
+  def initialize(@table : String, @dialect : Dialect, @comment : String? = nil)
+  end
+  def string(name : String | Symbol, null : Bool = true, comment : String? = nil) : Nil
+    @columns << ColumnDefinition.new(name.to_s, @dialect == Dialect::Pg ? "VARCHAR" : "VARCHAR(255)", null, comment)
+    nil
+  end
+  def integer(name : String | Symbol, null : Bool = true, comment : String? = nil) : Nil
+    @columns << ColumnDefinition.new(name.to_s, @dialect == Dialect::Mysql ? "INT" : "INTEGER", null, comment)
+    nil
+  end
+  {% for kind in ["hstore", "citext", "inet", "cidr", "macaddr", "ltree", "money", "jsonb"] %}
+    def {{kind.id}}(name : String | Symbol, null : Bool = true) : Nil
+      @columns << ColumnDefinition.new(name.to_s, {{kind == "jsonb" ? "JSONB" : kind}}, null, pg_only: true)
+      nil
+    end
+  {% end %}
+  def enum(name : String | Symbol, enum_type : String | Symbol, null : Bool = true, default : String? = nil) : Nil
+    clause = default.nil? ? "" : " DEFAULT #{@dialect.quote_literal(default)}"
+    @columns << ColumnDefinition.new(name.to_s, enum_type.to_s, null, default_clause: clause, pg_only: true)
+    nil
+  end
+end
