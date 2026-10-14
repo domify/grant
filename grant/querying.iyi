@@ -10,3 +10,16 @@ impl ::Error for NotFound
     @message
   end
 end
+
+# ClassMethods raw-clause overloads from upstream querying.cr.
+pub macro model_methods(model)
+  def self.first(clause : String) : {{ model }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+    first(clause, [] of ::Grant::Adapter::Driver::Value)
+  end
+
+  def self.first_strict(clause : String) : {{ model }} | ::Grant::Error::ErrorBase
+    record = first(clause)!
+    return ::Grant::Querying::NotFound.new("No " + {{ model.stringify }} + " found with first(#{clause})") if record.nil?
+    record
+  end
+end

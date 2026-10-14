@@ -1218,7 +1218,7 @@
   target: grant_querying_all_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/count_spec.cr
   target: grant_querying_count_test.iyi
   area: query
@@ -1258,12 +1258,12 @@
   target: grant_querying_find_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/first_spec.cr
   target: grant_querying_first_test.iyi
   area: query
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/from_rs_spec.cr
   target: grant_querying_from_rs_test.iyi
   area: query
