@@ -1258,7 +1258,7 @@
   target: grant_querying_find_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/first_spec.cr
   target: grant_querying_first_test.iyi
   area: query
