@@ -73,7 +73,7 @@ pub abstract class Base
   end
 
   macro inherited
-    @@table_name : String = {{ @type.name.split("::").last.underscore.stringify }} + "s"
+    @@table_name : String = {{ @type.name.split("::").last.underscore }}
     @@connection_name : String = "sqlite"
     @@own_connection_config : Hash(Symbol, String)? = nil
 
