@@ -642,7 +642,7 @@
   target: grant_columns_primary_key_auto_default_test.iyi
   area: query
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/columns/w6b_bigdecimal_column_spec.cr
   target: grant_columns_w6b_bigdecimal_column_test.iyi
   area: query
