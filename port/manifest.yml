@@ -2499,7 +2499,7 @@
   target: grant_exceptions_record_not_destroyed_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/fiber_connection_context_spec.cr
   target: grant_fiber_connection_context_test.iyi
   area: other
