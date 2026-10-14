@@ -15,7 +15,7 @@ private def pooled_adapter(retry_attempts : Int32 = 1) : Base
 end
 
 private def drop_connection(adapter : Base) : ConnectionLost | ErrorBase
-  other = adapter.database!.checkout
+  other = adapter.database!.checkout!
   ConnectionLost.new(other)
 end
 

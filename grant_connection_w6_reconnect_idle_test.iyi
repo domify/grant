@@ -86,7 +86,7 @@ ConnectionRegistry.remove_connection("w6_idle", :primary).or_panic
 # it: never probes connections that are in use
 adapter = w6_idle_adapter(url, Span.seconds(10_i64))
 statements = [] of String
-adapter.database.or_panic.checkout.query_observer = ->(sql : String) { statements << sql; nil }
+adapter.database.or_panic.checkout.or_panic.query_observer = ->(sql : String) { statements << sql; nil }
 200.times { W6IdleThing.count.or_panic }
 assert w6_probes(adapter) == 0
 assert statements.select { |sql| sql.strip.upcase.starts_with?("SELECT 1") }.size == 0
@@ -97,7 +97,7 @@ adapter = w6_idle_adapter(url, Span.milliseconds(30_i64))
 W6IdleThing.count.or_panic
 sleep(60).or_panic
 statements = [] of String
-adapter.database.or_panic.checkout.query_observer = ->(sql : String) { statements << sql; nil }
+adapter.database.or_panic.checkout.or_panic.query_observer = ->(sql : String) { statements << sql; nil }
 50.times { W6IdleThing.count.or_panic }
 probes = statements.select { |sql| sql.strip.upcase.starts_with?("SELECT 1") }.size
 assert w6_probes(adapter) == 1

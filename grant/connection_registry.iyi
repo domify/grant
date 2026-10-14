@@ -25,11 +25,13 @@ pub class ConnectionRegistry
     shard.nil? ? key : "#{key}:#{shard}"
   end
 
-  def self.establish_connection(database : String, adapter : T.class, url : String, role : Symbol = :primary, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, verify_idle_after : Span? = Span.seconds(30_i64)) : Nil | ErrorBase forall T
+  def self.establish_connection(database : String, adapter : T.class, url : String, role : Symbol = :primary, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, max_idle_pool_size : Int32 = 25, checkout_timeout : Span = Span.seconds(5_i64), verify_idle_after : Span? = Span.seconds(30_i64)) : Nil | ErrorBase forall T
     key = key_for(database, role)
     previous = @@adapters[key]?
     instance = adapter.new(key, url)
     instance.verify_idle_after = verify_idle_after
+    instance.pool_size = pool_size
+    instance.checkout_timeout = checkout_timeout
     @@specifications[key] = ConnectionSpec.new(database, url, role, verify_idle_after)
     @@adapters[key] = instance
     Connections.register(database, instance) if role == :primary

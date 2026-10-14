@@ -28,7 +28,7 @@ adapter = w6_idle_adapter(url, nil)
 attempts = 0
 error = adapter.open("INSERT INTO w6_idle_things (label) VALUES ('lost')") do |_|
   attempts += 1
-  ConnectionLost.new(adapter.database.or_panic.checkout)
+  ConnectionLost.new(adapter.database.or_panic.checkout.or_panic)
 end
 assert error.is_a?(ConnectionFailed)
 assert attempts == 1

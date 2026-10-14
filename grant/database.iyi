@@ -3,6 +3,7 @@ module grant/database
 import grant/adapter/sqlite_connection::{Connection}
 import grant/errors::{DatabaseError}
 import grant/error::{ErrorBase}
+import grant/error_taxonomy::{ConnectionTimeoutError}
 
 pub class PoolResourceRefused < ErrorBase
   def initialize
@@ -52,24 +53,44 @@ end
 
 pub class Pool
   @connections = [] of Connection
+  @reserved = [] of Connection
+  @path : String
+  @max_connections : Int32
 
-  def initialize(connection : Connection)
+  def initialize(connection : Connection, @path : String, @max_connections : Int32 = 1)
     @connections << connection
   end
 
   def stats : PoolStats
     count = 0
     @connections.each { |connection| count += 1 unless connection.closed? }
-    PoolStats.new(1, count, count)
+    PoolStats.new(@max_connections, count, count - @reserved.size)
   end
 
-  def checkout : Connection
-    @connections.first
+  def checkout : Connection | ErrorBase
+    @connections.each do |connection|
+      return connection unless @reserved.includes?(connection)
+    end
+    return ConnectionTimeoutError.new("Connection pool exhausted") if @connections.size >= @max_connections
+    connection = Connection.open(@path)!
+    @connections << connection
+    connection
+  end
+
+  def reserve(connection : Connection) : Nil
+    @reserved << connection unless @reserved.includes?(connection)
+    nil
+  end
+
+  def release(connection : Connection) : Nil
+    @reserved.delete(connection)
+    nil
   end
 
   def discard(connection : Connection, path : String) : Nil | DatabaseError
     connection.close!
     @connections.delete(connection)
+    @reserved.delete(connection)
     replacement = Connection.open(path)!
     replacement.query_observer = connection.query_observer
     @connections << replacement
@@ -85,16 +106,16 @@ end
 pub class Database
   getter pool : Pool
 
-  def initialize(connection : Connection)
-    @pool = Pool.new(connection)
+  def initialize(connection : Connection, path : String, pool_size : Int32 = 1)
+    @pool = Pool.new(connection, path, pool_size)
   end
 
-  def self.open(path : String) : Database | DatabaseError
+  def self.open(path : String, pool_size : Int32 = 1) : Database | DatabaseError
     connection = Connection.open(path)!
-    new(connection)
+    new(connection, path, pool_size)
   end
 
-  def checkout : Connection
+  def checkout : Connection | ErrorBase
     @pool.checkout
   end
 

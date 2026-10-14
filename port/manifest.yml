@@ -137,6 +137,22 @@
   area: transactions
   examples: 9
   status: todo
+  children:
+  - target: grant_connection_with_connection_pool_test.iyi
+    status: done
+    examples:
+    - T-851b569c15
+    - T-6b17362815
+    - T-8cae50dfdf
+    - T-56e7ebd604
+    - T-f916fd7816
+  - target: grant_connection_with_connection_test.iyi
+    status: todo
+    examples:
+    - T-48896a6161
+    - T-b968ea348b
+    - T-d20020c833
+    - T-341faea9ff
 - source: crystal-upstream/spec/grant/convenience/create_block_array_spec.cr
   target: grant_convenience_create_block_array_test.iyi
   area: transactions

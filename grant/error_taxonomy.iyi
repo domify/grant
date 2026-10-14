@@ -53,6 +53,15 @@ end
 pub class ConnectionNotEstablished < ErrorBase
 end
 
+pub class ConnectionTimeoutError < ErrorBase
+end
+
+impl ::Error for ConnectionTimeoutError
+  def message : String
+    @message
+  end
+end
+
 impl ::Error for ConnectionNotEstablished
   def message : String
     @message

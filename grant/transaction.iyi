@@ -246,7 +246,7 @@ pub def queue_record_callbacks(connection : Connection, record_id : UInt64, oper
 end
 
 pub def run(adapter : Base, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ErrorBase forall T
-  connection = adapter.database!.checkout
+  connection = adapter.pinned_connection? || adapter.database!.checkout!
   run(connection, options, savepoint_name) { yield }
 end
 
