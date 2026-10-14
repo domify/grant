@@ -1308,7 +1308,7 @@
   target: grant_sanitization_test.iyi
   area: query
   examples: 26
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/scale/large_table_toolkit_spec.cr
   target: grant_scale_large_table_toolkit_test.iyi
   area: query
