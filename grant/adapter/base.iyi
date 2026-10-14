@@ -1,5 +1,7 @@
 module grant/adapter/base
 
+import grant/adapter/placeholder_scanner
+
 import std/time::{Span}
 import grant/locking::{LockMode}
 import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost, PoolTimeout}
@@ -30,7 +32,7 @@ pub abstract class Base
   end
 
   def ensure_clause_template(clause : String) : String
-    clause
+    ::Grant::Adapter::PlaceholderScanner::PlaceholderScanner.rewrite(clause, numbered: false)
   end
 
   getter name : String
