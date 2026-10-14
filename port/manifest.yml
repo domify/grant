@@ -752,7 +752,7 @@
   target: grant_convenience_class_destroy_update_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/create_or_find_by_spec.cr
   target: grant_convenience_create_or_find_by_test.iyi
   area: query

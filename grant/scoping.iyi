@@ -61,6 +61,15 @@ end
 
 # Class finder and delete delegations from upstream Grant::Scoping.
 pub macro model_methods(model)
+  def self.delete(id : T) : Int64 | ::Grant::Error::ErrorBase forall T
+    delete([id])
+  end
+
+  def self.delete(ids : Array(T)) : Int64 | ::Grant::Error::ErrorBase forall T
+    return 0_i64 if ids.empty?
+    current_scope.where({primary_name => ids}).delete_all
+  end
+
   def self.find(ids : Array(T)) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
     current_scope.find(ids)
   end
