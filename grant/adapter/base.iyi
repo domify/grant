@@ -44,6 +44,10 @@ pub abstract class Base
   property checkout_timeout : Span = Span.seconds(5_i64)
   @waiting_checkouts : Int32 = 0
 
+  def self.single_connection_url?(url : String) : Bool
+    false
+  end
+
   def initialize(@name : String, @url : String)
   end
 

@@ -2429,7 +2429,7 @@
   target: grant_connection_pool_exhaustion_test.iyi
   area: other
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/routing_two_files_spec.cr
   target: grant_connection_routing_two_files_test.iyi
   area: other
