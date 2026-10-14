@@ -968,7 +968,7 @@
   target: grant_query_distinct_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/excluding_invert_spec.cr
   target: grant_query_excluding_invert_test.iyi
   area: query
@@ -978,7 +978,7 @@
   target: grant_query_executor_test.iyi
   area: query
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/existence_predicates_spec.cr
   target: grant_query_existence_predicates_test.iyi
   area: query
@@ -1013,7 +1013,7 @@
   target: grant_query_having_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/implicit_order_spec.cr
   target: grant_query_implicit_order_test.iyi
   area: query
@@ -1043,7 +1043,7 @@
   target: grant_query_joins_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/lazy_all_spec.cr
   target: grant_query_lazy_all_test.iyi
   area: query
