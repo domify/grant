@@ -2444,7 +2444,7 @@
   target: grant_connection_database_context_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection_management_simple_spec.cr
   target: grant_connection_management_simple_test.iyi
   area: other

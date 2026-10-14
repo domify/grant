@@ -1,0 +1,124 @@
+module grant/connection_context
+
+pub struct ConnectionContext
+  property database : String?
+  property role : Symbol
+  property shard : Symbol?
+  property prevent_writes : Bool
+  property owner : String?
+
+  def initialize(@database : String?, @role : Symbol = :primary, @shard : Symbol? = nil,
+                 @prevent_writes : Bool = false, @owner : String? = nil)
+  end
+end
+
+# The native scheduler identity supplies the upstream fiber-local state slot.
+pub class ConnectionState
+  getter contexts = [] of ConnectionContext
+  property block_floor : Int32 = 0
+  @@states = {} of UInt64 => ConnectionState
+
+  def self.current? : ConnectionState?
+    @@states[IyiScheduler.current.object_id]?
+  end
+
+  def self.current : ConnectionState
+    @@states[IyiScheduler.current.object_id] ||= new
+  end
+
+  def self.release_if_empty : Nil
+    state = current?
+    @@states.delete(IyiScheduler.current.object_id) if !state.nil? && state.contexts.empty?
+    nil
+  end
+end
+
+pub macro model_methods(model)
+  def self.default_database_name : String
+    @@connection_name
+  end
+
+  def self.default_database_name=(database : String) : String
+    @@connection_name = database
+  end
+
+  def self.connection_context : ::Grant::ConnectionContext::ConnectionContext?
+    state = ::Grant::ConnectionContext::ConnectionState.current?
+    return nil if state.nil?
+    state.contexts.reverse_each do |context|
+      return context if context.owner.nil? || context.owner == {{ model.stringify }}
+    end
+    nil
+  end
+
+  def self.connection_context_database : String?
+    state = ::Grant::ConnectionContext::ConnectionState.current?
+    return nil if state.nil?
+    state.contexts.reverse_each do |context|
+      if context.owner.nil? || context.owner == {{ model.stringify }}
+        return context.database unless context.database.nil?
+      end
+    end
+    nil
+  end
+
+  def self.database_name : String
+    connection_context_database || default_database_name
+  end
+
+  def self.database_name=(database : String) : String
+    self.default_database_name = database
+  end
+
+  def self.current_database : String
+    database_name
+  end
+
+  def self.current_role : Symbol
+    context = connection_context
+    return context.role unless context.nil?
+    should_use_reader? ? ::Grant::Settings.settings.reading_role : :primary
+  end
+
+  def self.current_shard : Symbol?
+    context = connection_context
+    context.nil? ? nil : context.shard
+  end
+
+  def self.preventing_writes? : Bool
+    context = connection_context
+    !context.nil? && context.prevent_writes
+  end
+
+  def self.connected_to(database : String? = nil, role : Symbol? = nil,
+                        shard : Symbol? = nil, prevent_writes : Bool = false,
+                        &block : -> T) : T forall T
+    previous = connection_context
+    inherited_prevention = !previous.nil? && previous.prevent_writes
+    if inherited_prevention && !role.nil? && !previous.nil? &&
+       ::Grant::ConnectionManagement.registry_role(role) == :writing &&
+       ::Grant::ConnectionManagement.registry_role(previous.role) == :reading
+      inherited_prevention = false
+    end
+    implied = !role.nil? && ::Grant::ConnectionManagement.registry_role(role) == :reading
+    context = ::Grant::ConnectionContext::ConnectionContext.new(
+      database, role || current_role, shard || current_shard,
+      prevent_writes || implied || inherited_prevention, {{ model.stringify }})
+    state = ::Grant::ConnectionContext::ConnectionState.current
+    depth = state.contexts.size
+    state.contexts << context
+    outer_floor = state.block_floor
+    state.block_floor = depth + 1
+    result = yield
+    while state.contexts.size > depth
+      state.contexts.pop
+    end
+    state.block_floor = outer_floor
+    ::Grant::ConnectionContext::ConnectionState.release_if_empty
+    result
+  end
+
+  def self.while_preventing_writes(&block : -> T) : T forall T
+    connected_to(prevent_writes: true) { yield }
+  end
+end
