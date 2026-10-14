@@ -1293,7 +1293,7 @@
   target: grant_querying_select_projection_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/range_sharding_spec.cr
   target: grant_range_sharding_test.iyi
   area: query
