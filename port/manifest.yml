@@ -2364,7 +2364,7 @@
   target: adapter_sqlite_test.iyi
   area: other
   examples: 0
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/advanced_multi_database_spec.cr
   target: grant_advanced_multi_database_test.iyi
   area: other
