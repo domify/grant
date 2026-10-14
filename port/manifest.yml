@@ -1123,7 +1123,7 @@
   target: grant_query_relation_load_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/relation_update_spec.cr
   target: grant_query_relation_update_test.iyi
   area: query

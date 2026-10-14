@@ -965,9 +965,9 @@ pub class Builder(Model)
 
   def last(n : Int32) : Array(Model) | ErrorBase
     memoized = @records
-    return memoized.last(n) unless memoized.nil?
-    return ordered_copy(false).select!.last(n) if limit_or_offset?
-    ordered_copy(true).limit_in_place(n).select!.reverse
+    return memoized.reversed.first(n).reversed unless memoized.nil?
+    return ordered_copy(false).select!.reversed.first(n).reversed if limit_or_offset?
+    ordered_copy(true).limit_in_place(n).select!.reversed
   end
 
   def last_strict : Model | RecordNotFound | ErrorBase
@@ -1156,6 +1156,11 @@ pub class Builder(Model)
   def each(&block : Model -> T) : Nil | ErrorBase forall T
     records!.each { |record| yield record }
     nil
+  end
+
+  # Enumerable projection over the memoized relation records.
+  def map(&block : Model -> T) : Array(T) | ErrorBase forall T
+    records!.map { |record| yield record }
   end
 
   def ids : Array(Value) | ErrorBase
