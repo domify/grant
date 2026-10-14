@@ -35,9 +35,11 @@ transactions_done() {
 worker() {
   local directory=$1 name=$2 prompt=$3 status waits=0
   while :; do
-    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" codex exec -p port -C "$directory" \
+    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec -p port -C "$directory" \
       --output-last-message "port/last-$name.txt" "$prompt" < /dev/null > "port/codex-$name.log" 2>&1)
     status=$?
+    # A hung run (no output for hours, seen once) is killed after two hours.
+    [[ $status -ne 124 ]] || printf 'Worker %s run timed out after 2 h (%s)\n' "$name" "$(date -Iseconds)" >> "$root/port/status.log"
     # A Codex usage limit is not a stall: wait for the quota to reset and rerun.
     if grep -q 'hit your usage limit' "$directory/port/codex-$name.log" && [[ $waits -lt 72 ]]; then
       waits=$((waits + 1))
