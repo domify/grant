@@ -3,6 +3,7 @@ module grant/encryption
 pub import grant/encryption/config
 pub import grant/encryption/sealed
 pub import grant/encryption/encrypted_attribute
+pub import grant/encryption/serializer
 
 # Typed declaration slice of Encryption::Model. Converter method bodies are
 # deferred just like Base's column introspection. Persistence instantiates the
@@ -38,7 +39,16 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
         return ::Grant::Encryption::Sealed.stored(value) if ::Grant::Encryption::Sealed.sealed?(value)
       {% end %}
       \{% begin %}
-      {{model}}.{{attr}}_encrypted_attribute.seal(value.to_s)
+      {{model}}.{{attr}}_encrypted_attribute.seal(::Grant::Encryption::Serializer.dump(value))
+      \{% end %}
+    end
+
+    # Native rows carry SQLite values rather than a DB::ResultSet cursor.
+    def self.from_db(stored : String?) : {{base}}? | ::Grant::Error::ErrorBase
+      return nil if stored.nil?
+      \{% begin %}
+      plain = {{model}}.{{attr}}_encrypted_attribute.open(stored)!
+      ::Grant::Encryption::Serializer.load(plain, {{base}})
       \{% end %}
     end
   end

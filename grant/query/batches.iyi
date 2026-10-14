@@ -15,7 +15,7 @@ pub trait Batches(Model)
       rows = next_batch_rows(last_value, batch_size)!
       break if rows.empty?
       last_value = rows.last[Model.primary_name]
-      result = yield rows.map { |row| Model.from_row(row) }
+      result = yield rows.map { |row| Model.from_row(row)! }
       return result if result.is_a?(::Error)
       break if rows.size < batch_size
     end

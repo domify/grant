@@ -1,0 +1,30 @@
+module grant/encryption/serializer
+
+pub import grant/error
+import grant/error::{ErrorBase}
+
+# Typed scalar slice of the upstream Serializer. Strings pass through; numbers
+# and booleans use their text representation before the shared String cipher.
+pub def dump(value : String | Int | Float | Bool) : String
+  value.to_s
+end
+
+pub def load(raw : String, type : T.class) : T | ErrorBase forall T
+  {% if T == String %}
+    raw
+  {% elsif T == Int64 %}
+    value = raw.to_i64?
+    value.nil? ? ErrorBase.new("Invalid encrypted Int64: #{raw}") : value
+  {% elsif T == Int32 %}
+    value = raw.to_i?
+    value.nil? ? ErrorBase.new("Invalid encrypted Int32: #{raw}") : value
+  {% elsif T == Float64 %}
+    raw.to_f64
+  {% elsif T == Float32 %}
+    raw.to_f32
+  {% elsif T == Bool %}
+    raw == "true"
+  {% else %}
+    {% raise "encrypted serializer type has not been ported" %}
+  {% end %}
+end

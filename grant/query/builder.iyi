@@ -248,11 +248,11 @@ pub class Builder(Model)
     pluck_single([Model.primary_name])!.map { |row| row.first }
   end
 
-  def select : Array(Model) | DatabaseError
-    Model.__connection.query(to_sql, @where_values)!.map { |row| Model.from_row(row) }
+  def select : Array(Model) | DatabaseError | ErrorBase
+    Model.__connection.query(to_sql, @where_values)!.map { |row| Model.from_row(row)! }
   end
 
-  def first : Model | Nil | DatabaseError
+  def first : Model | Nil | DatabaseError | ErrorBase
     sql = to_sql
     sql += " ORDER BY \"#{Model.primary_name}\" ASC" if @order_fields.empty?
     rows = Model.__connection.query("#{sql} LIMIT 1", @where_values)!
@@ -260,13 +260,13 @@ pub class Builder(Model)
     row.nil? ? nil : Model.from_row(row)
   end
 
-  def first_strict : Model | DatabaseError | RecordNotFound
+  def first_strict : Model | DatabaseError | ErrorBase | RecordNotFound
     record = first!
     return RecordNotFound.new(Model.to_s, "first") if record.nil?
     record
   end
 
-  def last : Model | Nil | DatabaseError
+  def last : Model | Nil | DatabaseError | ErrorBase
     sql = projection_sql(Model.select_fields_sql, true)
     sql += " ORDER BY \"#{Model.primary_name}\" DESC" if @order_fields.empty?
     rows = Model.__connection.query("#{sql} LIMIT 1", @where_values)!
@@ -274,7 +274,7 @@ pub class Builder(Model)
     row.nil? ? nil : Model.from_row(row)
   end
 
-  def find_by(**criteria) : Model | Nil | DatabaseError
+  def find_by(**criteria) : Model | Nil | DatabaseError | ErrorBase
     chain_copy.where_in_place(**criteria).first
   end
 end

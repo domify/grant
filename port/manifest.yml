@@ -184,6 +184,9 @@
     - T-b14edc42d6
     - T-246a479be1
     - T-4df1da3cd8
+  - target: grant_encryption_w6b_lazy_decrypt_eager_test.iyi
+    status: done
+    examples:
     - T-b99425d1f4
 - source: crystal-upstream/spec/grant/errors/constraint_translation_spec.cr
   target: grant_errors_constraint_translation_test.iyi
