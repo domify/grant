@@ -1,20 +1,20 @@
 import std/enumerable
 import grant/base::{Base}
 import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/errors::{Rollback, ErrorBase, NotOpenError, InvalidSavepointNameError}
 import grant/transaction::{Handle, IsolationLevel, ConnectionTransactions}
 import grant::{transaction, connection}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
 end
 
-CURRENT_ADAPTER = "sqlite"
-Connections.register(CURRENT_ADAPTER, Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 
 # it: is a closed null handle that runs after_commit immediately

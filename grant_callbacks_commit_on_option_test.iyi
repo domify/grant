@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{Rollback}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class CommitOnModel < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table commit_on_models
 
   column id : Int64, primary: true
@@ -25,7 +24,7 @@ class CommitOnModel < Base
   after_rollback(on: [:update, :destroy]) { CommitOnModel.event_log << "rb_ud" }
   after_rollback { CommitOnModel.event_log << "rb_any" }
 end
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 CommitOnModel.migrator.drop_and_create.or_panic
 
 # it: runs an on: array callback for create and update but not destroy

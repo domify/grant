@@ -1,25 +1,24 @@
 import grant/base::{Base}
 import std/time::{Time}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import std/enumerable
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
 end
 
 class School < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table schools
   column custom_id : Int64, primary: true
   column name : String?
 end
 
 class Review < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table reviews
   column id : Int64, primary: true
   column name : String?
@@ -32,20 +31,20 @@ class Review < Base
 end
 
 class NonAutoDefaultPK < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table non_auto_default_pk
   column id : Int64, primary: true, auto: false
   column name : String?
 end
 
 class NonAutoCustomPK < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table non_auto_custom_pk
   column custom_id : Int64, primary: true, auto: false
   column name : String?
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 School.migrator.drop_and_create.or_panic
 Review.migrator.drop_and_create.or_panic

@@ -40,6 +40,13 @@ pub class Connections
   def self.[](name : String) : Connection
     adapter = @@adapters[name]?
     return adapter.checkout.or_panic unless adapter.nil?
+    raw = @@registry[name]?
+    return raw unless raw.nil?
+    # Fallback to the first registered connection for backward compatibility,
+    # as upstream resolve_adapter_for_role does for a model that references a
+    # connection name that was not explicitly registered.
+    first = @@adapters.values.first?
+    return first.checkout.or_panic unless first.nil?
     @@registry[name]
   end
 

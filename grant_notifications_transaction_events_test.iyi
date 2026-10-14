@@ -1,14 +1,14 @@
 import std/time::{Span}
 import grant/base::{Base}
-import grant/adapter/sqlite::{Sqlite}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/events::{Transaction, TransactionStart, TransactionOutcome}
 import grant/notifications
 import grant/errors::{Rollback}
 import grant/error::{ErrorBase}
+import spec_helper::{CURRENT_ADAPTER, restore_default_spec_connections, establish_spec_connection}
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
@@ -22,7 +22,7 @@ private def transaction_events(&block : -> T) : Array(Transaction) forall T
   events
 end
 
-ConnectionRegistry.establish_connection(database: "sqlite", adapter: Sqlite, url: "sqlite3::memory:").or_panic
+restore_default_spec_connections
 Parent.migrator.drop_and_create.or_panic
 
 # it: publishes start and commit with a duration
@@ -151,9 +151,9 @@ end
 assert !built
 
 # Configured adapter names survive the native physical connection boundary.
-ConnectionRegistry.establish_connection(database: "named", adapter: Sqlite, url: "sqlite3::memory:").or_panic
+establish_spec_connection("named")
 named = ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter("named", :primary)
 events = transaction_events { ::Grant::Transaction.run(named, ::Grant::Transaction::Options.new) { nil }.or_panic }
 assert events.first.connection == named.name
 ConnectionRegistry.remove_connection("named", :primary).or_panic
-ConnectionRegistry.remove_connection("sqlite", :primary).or_panic
+ConnectionRegistry.remove_connection(CURRENT_ADAPTER, :primary).or_panic

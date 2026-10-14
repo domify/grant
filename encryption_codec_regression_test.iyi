@@ -3,8 +3,7 @@ import grant/encryption/cipher::{Cipher, DecryptionError}
 import grant/encryption/key_provider::{KeyProvider, KeyError}
 import grant/encryption/encrypted_attribute::{EncryptedAttribute}
 import std/base64::{Base64}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 # Fixed vector computed independently with Python's HMAC-SHA256 and
 # cryptography's AES-CBC/PKCS7, using the upstream payload construction.
@@ -49,12 +48,12 @@ KeyProvider.key_derivation_salt = "lazy-salt"
 assert email.open(email_stored).or_panic == "ada@example.com"
 
 class CodecUser < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table codec_users
   column id : Int64, primary: true
   encrypts secret : String, lazy: true
 end
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 CodecUser.migrator.drop_and_create.or_panic
 user = CodecUser.create_strict(secret: "hush").or_panic
 stored = CodecUser.__connection.query("SELECT secret FROM codec_users WHERE id = ?", [user.id] of ::Grant::Adapter::Sqlite::Value).or_panic.first["secret"].as(String)

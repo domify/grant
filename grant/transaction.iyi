@@ -404,17 +404,32 @@ impl ConnectionTransactions for Connection
   end
 end
 
-# SQLite branch of the upstream adapter-specific control statement builder.
+# The upstream adapter-specific control statement builder (MySQL is out of
+# scope). PostgreSQL takes the isolation level and access mode on BEGIN.
 pub def begin_statements(adapter : Base, options : Options) : Array(String)
-  begin_statements(adapter.checkout.or_panic, options)
+  dialect_begin_statements(adapter.postgres?, adapter.sqlite?, options)
 end
 
 pub def begin_statements(adapter : Connection, options : Options) : Array(String)
-  case options.isolation
-  when nil then ["BEGIN"]
-  when IsolationLevel::Serializable then ["BEGIN EXCLUSIVE"]
-  when IsolationLevel::ReadUncommitted then ["BEGIN DEFERRED"]
-  else ["BEGIN IMMEDIATE"]
+  dialect_begin_statements(adapter.postgres?, adapter.sqlite?, options)
+end
+
+private def dialect_begin_statements(postgres : Bool, sqlite : Bool, options : Options) : Array(String)
+  if postgres
+    parts = ["BEGIN"]
+    isolation = options.isolation
+    parts << "ISOLATION LEVEL #{isolation.to_sql.or_panic}" unless isolation.nil?
+    parts << (options.readonly ? "READ ONLY" : "READ WRITE")
+    [parts.join(" ")]
+  elsif sqlite
+    case options.isolation
+    when nil then ["BEGIN"]
+    when IsolationLevel::Serializable then ["BEGIN EXCLUSIVE"]
+    when IsolationLevel::ReadUncommitted then ["BEGIN DEFERRED"]
+    else ["BEGIN IMMEDIATE"]
+    end
+  else
+    ["BEGIN"]
   end
 end
 

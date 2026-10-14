@@ -1,18 +1,17 @@
 import grant::{settings}
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import std/time::{Time, Span}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class TimestampPrecisionRecord < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table timestamp_precision_records
   column id : Int64, primary: true
   column label : String
   timestamps
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 TimestampPrecisionRecord.migrator.drop_and_create.or_panic
 
 # it: preserves microseconds when timestamps are saved and reloaded

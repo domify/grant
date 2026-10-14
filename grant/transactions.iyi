@@ -10,7 +10,10 @@ pub def import_records(adapter : Connection, table_name : String, primary_name :
   return nil if model_array.empty?
   return DatabaseError.new(21, "import", "batch_size must be positive") if batch_size <= 0
   fields = model_array[0].__column_names
-  fields << primary_name
+  # PG fails when inserting null into an auto-increment primary key: when every
+  # model's key is nil, leave the key out so the database assigns it.
+  include_primary = !(model_array[0].__primary_auto? && model_array.all? { |model| model.__primary_value.nil? })
+  fields << primary_name if include_primary
   offset = 0
   while offset < model_array.size
     rows = [] of Array(Value)
@@ -21,7 +24,7 @@ pub def import_records(adapter : Connection, table_name : String, primary_name :
       model.before_save
       model.before_create
       values = model.__column_values!
-      values << model.__primary_value
+      values << model.__primary_value if include_primary
       rows << values
       index += 1
     end

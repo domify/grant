@@ -1,13 +1,21 @@
 import transaction_crud_models::{Parent}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/adapter/test_helpers::{AdapterTestHelpers}
 import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
 import grant/errors::{ErrorBase, Rollback}
 import grant/error_taxonomy::{InvalidForeignKey}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 def adapter : Connection
   Parent.adapter.as(Connection)
+end
+
+def serial_key : String
+  if adapter.postgres?
+    "BIGSERIAL PRIMARY KEY"
+  else
+    "INTEGER PRIMARY KEY AUTOINCREMENT"
+  end
 end
 
 def run(statement : String)
@@ -23,11 +31,13 @@ def insert_author(name : String) : Int64
   adapter.query("SELECT MAX(id) AS id FROM o01_authors").or_panic[0]["id"].as(Int64)
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 run("DROP TABLE IF EXISTS o01_books").or_panic
 run("DROP TABLE IF EXISTS o01_authors").or_panic
-run("CREATE TABLE o01_authors (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(50))").or_panic
-run("CREATE TABLE o01_books (id INTEGER PRIMARY KEY AUTOINCREMENT, author_id BIGINT NOT NULL, title VARCHAR(50), FOREIGN KEY (author_id) REFERENCES o01_authors (id))").or_panic
+run("CREATE TABLE o01_authors (id #{serial_key}, name VARCHAR(50))").or_panic
+# A table-level FOREIGN KEY clause: MySQL 8.0 parses and ignores an
+# inline column REFERENCES clause.
+run("CREATE TABLE o01_books (id #{serial_key}, author_id BIGINT NOT NULL, title VARCHAR(50), FOREIGN KEY (author_id) REFERENCES o01_authors (id))").or_panic
 
 # it: empties several tables in one call and restarts their ids
 adapter.truncate_tables("o01_books", "o01_authors").or_panic
@@ -38,14 +48,20 @@ assert count("o01_books") == 0
 assert count("o01_authors") == 0
 assert insert_author("fresh") == 1
 
-# SQLite branch of the upstream PostgreSQL-named example (excluded by existing metadata).
+# it: is a single TRUNCATE ... RESTART IDENTITY CASCADE on PostgreSQL
 adapter.truncate_tables("o01_books", "o01_authors").or_panic
 statements = [] of String
 adapter.query_observer = ->(sql : String) { statements << sql; nil }
 adapter.truncate_tables("o01_books", "o01_authors").or_panic
 adapter.query_observer = nil
-# Preserve the SQLite branch of the original adapter-specific assertions.
-assert statements.size >= 2
+
+if adapter.postgres?
+  assert statements.size == 1
+  assert statements.first.includes?("TRUNCATE TABLE")
+  assert statements.first.includes?("RESTART IDENTITY CASCADE")
+else
+  assert statements.size >= 2
+end
 
 # it: does nothing for an empty list
 adapter.truncate_tables("o01_books", "o01_authors").or_panic

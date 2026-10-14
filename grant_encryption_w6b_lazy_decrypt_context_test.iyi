@@ -6,12 +6,12 @@ import grant/encryption/config::{Config}
 import grant/encryption
 import grant/encryption/context::{UnsupportedTypeError}
 import grant/error::{ErrorBase}
-import grant/connections::{Connections}
 import grant/adapter/sqlite::{Connection, Value}
 import std/base64::{Base64}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class W6bLazyUser < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table w6b_lazy_users
 
   column id : Int64, primary: true
@@ -38,7 +38,7 @@ end
 (KeyProvider.primary_key = Base64.encode("test_primary_key_32_bytes_long!!")).or_panic
 (KeyProvider.deterministic_key = Base64.encode("test_determ_key_32_bytes_long!!!")).or_panic
 KeyProvider.key_derivation_salt = "lazy-salt"
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 W6bLazyUser.migrator.drop_and_create.or_panic
 
 # it: reads like an eagerly decrypted attribute around without_encryption

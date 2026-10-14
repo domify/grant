@@ -948,7 +948,7 @@ pub abstract class Base
         \{% elsif type.includes?("Int64") %}
           record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw : nil
         \{% elsif type.includes?("Bool") %}
-          record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw != 0 : nil
+          record.\{{ v.name }} = %raw.is_a?(Bool) ? %raw : (%raw.is_a?(Int64) ? %raw != 0 : nil)
         \{% elsif type.includes?("Float32") %}
           record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw.to_f32 : nil
         \{% elsif type.includes?("Time") %}

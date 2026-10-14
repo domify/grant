@@ -1,24 +1,24 @@
 import grant/base::{Base}
 import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/errors::{ErrorBase}
 import grant/transaction::{current_connection?}
 import transaction_sql_recorder::{record, begins}
 import grant
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
 end
 
 def other_database : String
-  "sqlite_with_replica"
+  "#{CURRENT_ADAPTER}_with_replica"
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
-Connections.register(other_database, Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 
 # it: routes a model back onto its own open transaction from inside another database's transaction

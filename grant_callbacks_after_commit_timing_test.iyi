@@ -1,8 +1,7 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{Rollback, ErrorBase}
 import grant/transaction::{enqueue_pending_callback}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class CommitTimingModel < Base
   connection sqlite
@@ -69,7 +68,7 @@ class CommitTimingOther < Base
 end
 
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 CommitTimingModel.migrator.drop_and_create.or_panic
 CommitTimingOther.migrator.drop_and_create.or_panic
 

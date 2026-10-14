@@ -1,17 +1,16 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{RecordNotSaved}
 import grant/error_taxonomy::{StatementInvalid}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class ReadOnlyTxRow < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table read_only_tx_rows
   column id : Int64, primary: true
   column name : String?
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 ReadOnlyTxRow.migrator.drop_and_create.or_panic
 ReadOnlyTxRow.clear.or_panic
 

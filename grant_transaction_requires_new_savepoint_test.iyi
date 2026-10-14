@@ -1,20 +1,21 @@
 import std/enumerable
 import grant/base::{Base}
 import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/errors::{Rollback, ErrorBase}
 import grant/transaction::{current_connection?}
 import transaction_sql_recorder::{record, begins}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
 end
 
 # Separate connections share the SQLite database, as in the upstream pool.
-Connections.register("sqlite", Connection.open("file:requires_new_spec?mode=memory&cache=shared").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 
 # it: opens a SAVEPOINT on the pinned connection instead of a second transaction

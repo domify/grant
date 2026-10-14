@@ -1,20 +1,19 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/locking::{LockMode}
 import grant/errors::{RecordNotFound, TransactionIsolationError, Rollback}
 import grant/error::{ErrorBase}
 import transaction_sql_recorder
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class WithLockSpecAccount < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table with_lock_spec_accounts
   column id : Int64, primary: true
   column owner : String
   column balance : Int32 = 0
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 WithLockSpecAccount.migrator.drop_and_create.or_panic
 
 # it: returns a non-nil value with its type

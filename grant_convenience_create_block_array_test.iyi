@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/adapter/sqlite::{Connection}
-import grant/connections::{Connections}
 import grant/errors::{RecordInvalid, RecordNotSaved}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class ConvItem < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table conv_items
   column id : Int64, primary: true
   column name : String
@@ -16,7 +15,7 @@ class ConvItem < Base
   end
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 ConvItem.migrator.drop_and_create.or_panic
 ConvItem.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_items_name ON conv_items(name)").or_panic
 
@@ -122,7 +121,7 @@ assert created.as(Array(ConvItem)).map { |record| record.name } == ["first", "se
 assert created.as(Array(ConvItem)).all? { |record| record.persisted? && record.qty == 4 }
 
 class ConvInitItem < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table conv_init_items
   column id : Int64, primary: true
   column name : String?

@@ -1,6 +1,5 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class CallbackTest < Base
   connection sqlite
@@ -105,7 +104,7 @@ class FailingCallbackTest < Base
   end
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 CallbackTest.migrator.drop_and_create.or_panic
 FailingCallbackTest.migrator.drop_and_create.or_panic
 

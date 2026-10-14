@@ -1,25 +1,25 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
 import grant/adapter/sqlite::{Connection}
 import grant/errors::{Rollback, ErrorBase}
 import grant/transaction::{current_connection?}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 # Relevant columns from spec_models.cr; both models use the same adapter.
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
 end
 
 class Teacher < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table teachers
   column id : Int64, primary: true
   column name : String?
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 Teacher.migrator.drop_and_create.or_panic
 

@@ -4,7 +4,7 @@ import grant/base::{Base}
 import std/io::{Memory}
 
 pub class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
@@ -16,14 +16,14 @@ pub class Parent < Base
 end
 
 pub class School < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table schools
   column custom_id : Int64, primary: true
   column name : String?
 end
 
 pub class ReservedWord < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table "select"
   column id : Int64, primary: true
   column all : String?
@@ -31,7 +31,7 @@ end
 
 
 pub class CallbackWithAbort < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table callbacks_with_abort
   column abort_at : String, primary: true, auto: false
   column do_abort : Bool?
@@ -49,7 +49,7 @@ end
 
 
 pub class Comment < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table comments
   column id : Int64, primary: true
   column commentbody : String?
@@ -58,7 +58,7 @@ end
 
 
 pub class Teacher < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table teachers
   column id : Int64, primary: true
   column name : String?

@@ -1,9 +1,8 @@
 import transaction_crud_models::{CallbackWithAbort}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import std/io::{Memory}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 CallbackWithAbort.migrator.drop_and_create.or_panic
 
 

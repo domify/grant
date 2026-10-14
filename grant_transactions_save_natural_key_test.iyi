@@ -1,15 +1,14 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Kvs < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table kvs
   column k : String, primary: true, auto: false
   column v : String?
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 Kvs.migrator.drop_and_create.or_panic
 
 # it: fails when a primary key is not set

@@ -3,7 +3,7 @@ pub import grant/base
 import grant/base::{Base}
 
 pub class County < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table nation_counties
   column id : Int64, primary: true
   column name : String?

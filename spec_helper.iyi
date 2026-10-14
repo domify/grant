@@ -53,3 +53,14 @@ pub def restore_default_spec_connections : Nil
   end
   nil
 end
+
+# Registers *database* for the current adapter, for examples that name their
+# own registry entry.
+pub def establish_spec_connection(database : String, role : Symbol = :primary, url : String = ADAPTER_URL) : Nil
+  if CURRENT_ADAPTER == "pg"
+    ConnectionRegistry.establish_connection(database: database, adapter: Pg, url: url, role: role).or_panic
+  else
+    ConnectionRegistry.establish_connection(database: database, adapter: Sqlite, url: url, role: role).or_panic
+  end
+  nil
+end

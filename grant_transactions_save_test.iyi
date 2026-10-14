@@ -1,11 +1,10 @@
 import transaction_crud_models::{Parent, School, ReservedWord, Comment}
 import nation
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{RecordInvalid}
 import std/time::{Time}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 School.migrator.drop_and_create.or_panic
 Nation::County.migrator.drop_and_create.or_panic

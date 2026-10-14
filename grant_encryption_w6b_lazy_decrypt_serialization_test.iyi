@@ -2,12 +2,12 @@ import grant/base::{Base}
 import grant/encryption/cipher::{Cipher, DecryptionError}
 import grant/encryption/key_provider::{KeyProvider}
 import grant/encryption/config::{Config}
-import grant/connections::{Connections}
 import grant/adapter/sqlite::{Connection, Value}
 import std/base64::{Base64}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class W6bLazyUser < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table w6b_lazy_users
 
   column id : Int64, primary: true
@@ -34,7 +34,7 @@ end
 (KeyProvider.primary_key = Base64.encode("test_primary_key_32_bytes_long!!")).or_panic
 (KeyProvider.deterministic_key = Base64.encode("test_determ_key_32_bytes_long!!!")).or_panic
 KeyProvider.key_derivation_salt = "lazy-salt"
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 W6bLazyUser.migrator.drop_and_create.or_panic
 
 private def w6b_raw(user_id, column : String) : String? | ::Grant::Errors::DatabaseError
@@ -77,7 +77,7 @@ assert bad.to_yaml.is_a?(DecryptionError)
 assert bad.to_h.is_a?(DecryptionError)
 
 class SerializationScalars < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table serialization_scalars
   column id : Int64, primary: true
   column at : ::Std::Time::Time?

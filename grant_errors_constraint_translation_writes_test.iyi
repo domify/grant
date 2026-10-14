@@ -6,7 +6,7 @@ import grant/error_taxonomy::{StatementInvalid, RecordNotUnique, InvalidForeignK
 import grant/adapter/sqlite_connection::{SQLiteError}
 
 class G01Account < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   connects_to database: "g01"
   table g01_accounts
   column id : Int64, primary: true
@@ -15,7 +15,7 @@ class G01Account < Base
 end
 
 class G01Note < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   connects_to database: "g01"
   table g01_notes
   column id : Int64, primary: true

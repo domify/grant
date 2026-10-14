@@ -168,8 +168,10 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
     params = [] of Value
     rows.each { |row| row.each { |value| params << value } }
     if update_on_duplicate && !columns.empty?
+      updated = columns.dup
+      updated << "updated_at" if fields.includes?("updated_at") && !updated.includes?("updated_at")
       statement += " ON CONFLICT (\"#{primary_name}\") DO UPDATE SET "
-      statement += columns.map { |key| "\"#{key}\" = excluded.\"#{key}\"" }.join(", ")
+      statement += updated.map { |key| "\"#{key}\" = excluded.\"#{key}\"" }.join(", ")
     elsif ignore_on_duplicate
       statement += " ON CONFLICT DO NOTHING"
     end

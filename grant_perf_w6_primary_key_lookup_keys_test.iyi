@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{RecordNotFound}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class W6LookupPlain < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table w6_lookup_plains
 
   column id : Int64, primary: true
@@ -12,7 +11,7 @@ class W6LookupPlain < Base
 end
 
 class W6LookupSlug < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table w6_lookup_slugs
 
   column slug : String, primary: true, auto: false
@@ -24,7 +23,7 @@ private def reset
   W6LookupSlug.clear.or_panic
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 W6LookupPlain.migrator.drop_and_create.or_panic
 W6LookupSlug.migrator.drop_and_create.or_panic
 

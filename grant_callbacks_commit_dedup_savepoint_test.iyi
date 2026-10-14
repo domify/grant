@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{Rollback}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class CommitDedupSavepointModel < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table commit_dedup_savepoint_models
 
   column id : Int64, primary: true
@@ -25,7 +24,7 @@ class CommitDedupSavepointModel < Base
   after_rollback(on: :destroy) { CommitDedupSavepointModel.event_log << "rollback_on_destroy" }
   after_rollback { CommitDedupSavepointModel.event_log << "rollback" }
 end
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 CommitDedupSavepointModel.migrator.drop_and_create.or_panic
 
 # it: does not fire commit callbacks for an update undone by a rolled back savepoint

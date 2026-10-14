@@ -1,11 +1,10 @@
-import std/file::{File}
 import grant/base::{Base}
-import grant/adapter/sqlite::{Sqlite}
+import spec_helper::{CURRENT_ADAPTER, restore_default_spec_connections}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/errors::{Rollback}
 
 class TransactionReplicaParent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
@@ -13,7 +12,7 @@ class TransactionReplicaParent < Base
 end
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
@@ -21,8 +20,8 @@ class Parent < Base
 end
 
 TransactionReplicaParent.connection_config = {
-  :writing => "sqlite",
-  :reading => "sqlite_with_replica",
+  :writing => CURRENT_ADAPTER,
+  :reading => "#{CURRENT_ADAPTER}_with_replica",
 }
 
 private def with_immediate_replica_reads(&block : -> T) : T forall T
@@ -33,21 +32,19 @@ private def with_immediate_replica_reads(&block : -> T) : T forall T
   result
 end
 
-path = File.tempfile("transaction_replica", ".sqlite3")
-ConnectionRegistry.establish_connection(database: "sqlite", adapter: Sqlite, url: "sqlite3:#{path}").or_panic
-ConnectionRegistry.establish_connection(database: "sqlite_with_replica", adapter: Sqlite, url: "sqlite3:#{path}", role: :reading).or_panic
+restore_default_spec_connections
 TransactionReplicaParent.migrator.drop_and_create.or_panic
 
 # it: routes reads to the reader outside a transaction (control)
 with_immediate_replica_reads do
-  writer = ConnectionRegistry.get_adapter("sqlite", :writing)
+  writer = ConnectionRegistry.get_adapter(CURRENT_ADAPTER, :writing)
   assert TransactionReplicaParent.adapter.object_id != writer.object_id
 end
 
 # it: keeps every statement inside the transaction on the writer
 Parent.clear.or_panic
 with_immediate_replica_reads do
-  writer = ConnectionRegistry.get_adapter("sqlite", :writing)
+  writer = ConnectionRegistry.get_adapter(CURRENT_ADAPTER, :writing)
   result = TransactionReplicaParent.transaction do
     assert TransactionReplicaParent.adapter.object_id == writer.object_id
     TransactionReplicaParent.create_strict(name: "In transaction").or_panic
@@ -60,15 +57,15 @@ assert Parent.count.or_panic == 0
 
 # it: keeps a readonly transaction's reads on the writer
 with_immediate_replica_reads do
-  writer = ConnectionRegistry.get_adapter("sqlite", :writing)
+  writer = ConnectionRegistry.get_adapter(CURRENT_ADAPTER, :writing)
   TransactionReplicaParent.transaction(readonly: true) do
     assert TransactionReplicaParent.adapter.object_id == writer.object_id
   end.or_panic
 end
 
 # Native routing checks verify physical checkout and quiet-period behavior.
-writer = ConnectionRegistry.get_adapter("sqlite", :writing)
-reader = ConnectionRegistry.get_adapter("sqlite_with_replica", :reading)
+writer = ConnectionRegistry.get_adapter(CURRENT_ADAPTER, :writing)
+reader = ConnectionRegistry.get_adapter("#{CURRENT_ADAPTER}_with_replica", :reading)
 with_immediate_replica_reads do
   assert TransactionReplicaParent.__connection.object_id == reader.checkout.or_panic.object_id
   TransactionReplicaParent.transaction do
@@ -87,6 +84,5 @@ with_immediate_replica_reads do
   assert TransactionReplicaParent.connection.scalar("SELECT COUNT(*) FROM parents").or_panic == 1
 end
 
-ConnectionRegistry.remove_connection("sqlite", :primary).or_panic
-ConnectionRegistry.remove_connection("sqlite_with_replica", :reading).or_panic
-File.delete(path)
+ConnectionRegistry.remove_connection(CURRENT_ADAPTER, :primary).or_panic
+ConnectionRegistry.remove_connection("#{CURRENT_ADAPTER}_with_replica", :writing).or_panic

@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{RecordNotSaved, ErrorBase}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class T6HaltedRecord < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table t6_halted_records
   column id : Int64, primary: true
   column name : String
@@ -16,7 +15,7 @@ class T6HaltedRecord < Base
 end
 
 class T6CommitFailureRecord < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table t6_commit_failure_records
   column id : Int64, primary: true
   column name : String
@@ -28,7 +27,7 @@ class T6CommitFailureRecord < Base
   end
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 T6HaltedRecord.migrator.drop_and_create.or_panic
 T6CommitFailureRecord.migrator.drop_and_create.or_panic
 

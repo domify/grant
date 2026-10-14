@@ -5,7 +5,7 @@ import grant/adapter/sqlite::{Sqlite}
 import grant/connection_registry::{ConnectionRegistry}
 
 class LockWaitSpecJob < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   connects_to database: "lock_wait_rows"
   table lock_wait_spec_jobs
 

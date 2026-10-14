@@ -146,11 +146,17 @@ pub class Builder(Model)
     projection_sql(Model.select_fields_sql)
   end
 
-  private def projection_sql(fields : String, reverse_order : Bool = false) : String
+  # As the upstream assembler: ... ORDER BY, LIMIT, then the lock clause.
+  private def projection_sql(fields : String, reverse_order : Bool = false, default_order : String? = nil, limit : Int32? = nil, order_override : Bool = false) : String
     sql = "SELECT #{fields} FROM \"#{Model.table_name}\""
     sql += where_sql
     sql += " GROUP BY #{@group_fields.map { |field| field[:field] }.join(", ")}" unless @group_fields.empty?
-    sql += " ORDER BY #{@order_fields.map { |term| render_order_term(term, reverse_order) }.join(", ")}" unless @order_fields.empty?
+    if !@order_fields.empty? && !order_override
+      sql += " ORDER BY #{@order_fields.map { |term| render_order_term(term, reverse_order) }.join(", ")}"
+    elsif !default_order.nil?
+      sql += " ORDER BY #{default_order}"
+    end
+    sql += " LIMIT #{limit}" unless limit.nil?
     mode = @lock_mode
     unless mode.nil?
       clause = mode.to_sql(Model.adapter)
@@ -188,7 +194,11 @@ pub class Builder(Model)
   protected def next_batch_rows(last_value : Value, batch_size : Int32)
     relation = chain_copy
     relation.where_in_place("\"#{Model.primary_name}\" > ?", last_value) unless last_value.nil?
-    Model.__connection.query("#{relation.to_sql} ORDER BY \"#{Model.primary_name}\" ASC LIMIT #{batch_size}", relation.batch_values)
+    Model.__connection.query(relation.batch_sql(batch_size), relation.batch_values)
+  end
+
+  protected def batch_sql(batch_size : Int32) : String
+    projection_sql(Model.select_fields_sql, false, "\"#{Model.primary_name}\" ASC", batch_size, true)
   end
 
   protected def batch_values : Array(Value)
@@ -206,7 +216,7 @@ pub class Builder(Model)
   end
 
   def exists? : Bool | DatabaseError
-    rows = Model.__connection.query("#{projection_sql("1")} LIMIT 1", @where_values)!
+    rows = Model.__connection.query(projection_sql("1", false, nil, 1), @where_values)!
     !rows.empty?
   end
 
@@ -226,8 +236,7 @@ pub class Builder(Model)
     field_names.each_with_index do |field, index|
       projections << "\"#{Model.table_name}\".\"#{field}\" AS \"grant_pluck_#{index}\""
     end
-    sql = projection_sql(projections.join(", "))
-    sql += " LIMIT 1" if first_only
+    sql = projection_sql(projections.join(", "), false, nil, first_only ? 1 : nil)
     rows = Model.__connection.query(sql, @where_values)!
     rows.map do |row|
       values = [] of Value
@@ -257,9 +266,8 @@ pub class Builder(Model)
   end
 
   def first : Model | Nil | DatabaseError | ErrorBase
-    sql = to_sql
-    sql += " ORDER BY \"#{Model.primary_name}\" ASC" if @order_fields.empty?
-    rows = Model.__connection.query("#{sql} LIMIT 1", @where_values)!
+    sql = projection_sql(Model.select_fields_sql, false, "\"#{Model.primary_name}\" ASC", 1)
+    rows = Model.__connection.query(sql, @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
   end
@@ -271,9 +279,8 @@ pub class Builder(Model)
   end
 
   def last : Model | Nil | DatabaseError | ErrorBase
-    sql = projection_sql(Model.select_fields_sql, true)
-    sql += " ORDER BY \"#{Model.primary_name}\" DESC" if @order_fields.empty?
-    rows = Model.__connection.query("#{sql} LIMIT 1", @where_values)!
+    sql = projection_sql(Model.select_fields_sql, true, "\"#{Model.primary_name}\" DESC", 1)
+    rows = Model.__connection.query(sql, @where_values)!
     row = rows.first?
     row.nil? ? nil : Model.from_row(row)
   end

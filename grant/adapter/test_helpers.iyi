@@ -2,6 +2,7 @@ module grant/adapter/test_helpers
 
 import grant/adapter/driver::{Connection}
 import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
+import grant/adapter/pg_test_helpers::{PgTestHelpers}
 import grant/transaction::{ConnectionTransactions}
 import grant/errors::{DatabaseError, ErrorBase, TransactionIsolationError}
 
@@ -9,15 +10,20 @@ pub trait AdapterTestHelpers
   abstract def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
   abstract def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
   abstract def truncate_tables(*names : String) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
+  abstract def reset_pk_sequence_strict(table_name : String, primary_key : String = "id") : Nil | ::Grant::Errors::DatabaseError
 end
 
+# Grant::Adapter::Base's helpers, with the per-adapter SQL from the SQLite and
+# PostgreSQL helper files chosen by the connection's dialect.
 impl AdapterTestHelpers for Connection
   def disable_referential_integrity(&block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError forall T
     transaction do
-      execute("PRAGMA defer_foreign_keys = ON")!
+      execute(postgres? ? pg_referential_integrity_off_sql : sqlite_referential_integrity_off_sql)!
       value = yield
-      restored = execute("PRAGMA defer_foreign_keys = OFF")
-      # Preserve the block error even if restoring the setting also fails.
+      on_sql = postgres? ? pg_referential_integrity_on_sql : sqlite_referential_integrity_on_sql
+      restored = on_sql.nil? ? nil : execute(on_sql)
+      # Preserve the block error even if restoring the setting also fails: an
+      # aborted transaction (PostgreSQL) rejects the restore and resets anyway.
       if value.is_a?(::Error)
         value
       else
@@ -33,9 +39,19 @@ impl AdapterTestHelpers for Connection
 
   def truncate_tables(names : Array(String)) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::ErrorBase | ::Grant::Errors::TransactionIsolationError
     return nil if names.empty?
+    if postgres?
+      # One TRUNCATE for every table, restarting sequences and emptying the
+      # tables that reference them.
+      execute(pg_truncate_statement(names))!
+      return nil
+    end
     disable_referential_integrity do
       truncate_statements(names)!.each { |statement| execute(statement)! }
       nil
     end
+  end
+
+  def reset_pk_sequence_strict(table_name : String, primary_key : String = "id") : Nil | ::Grant::Errors::DatabaseError
+    postgres? ? pg_reset_pk_sequence_strict(table_name, primary_key) : sqlite_reset_pk_sequence_strict(table_name, primary_key)
   end
 end

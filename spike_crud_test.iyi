@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class SpikeRecord < Base
   table spike_records
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   column id : Int64, primary: true
   column name : String
   getter callback_ran : Bool = false
@@ -14,7 +13,7 @@ class SpikeRecord < Base
   end
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 SpikeRecord.migrator.drop_and_create.or_panic
 record = SpikeRecord.create(name: "before")
 assert record.persisted?

@@ -1,10 +1,10 @@
 import transaction_crud_models::{Parent}
 import grant/locking::{LockMode}
 import grant/adapter/sqlite::{Sqlite, Connection}
-import grant/connections::{Connections}
 import grant/error::{ErrorBase}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
 
 # it: adds lock mode to query

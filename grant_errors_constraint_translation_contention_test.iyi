@@ -9,7 +9,7 @@ import grant/adapter/pool_support::{ticks}
 import grant/error::{ErrorBase}
 
 class G01Account < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   connects_to database: "g01"
   table g01_accounts
   column id : Int64, primary: true

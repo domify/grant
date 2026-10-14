@@ -1,10 +1,9 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{Rollback}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class SaveCommitModel < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table save_commit_models
   column id : Int64, primary: true
   column name : String?
@@ -20,7 +19,7 @@ class SaveCommitModel < Base
 end
 
 class SaveCommitBothModel < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table save_commit_both_models
   column id : Int64, primary: true
   column name : String?
@@ -36,7 +35,7 @@ class SaveCommitBothModel < Base
   after_save_commit { SaveCommitBothModel.event_log << "save_commit" }
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 SaveCommitModel.migrator.drop_and_create.or_panic
 SaveCommitBothModel.migrator.drop_and_create.or_panic
 

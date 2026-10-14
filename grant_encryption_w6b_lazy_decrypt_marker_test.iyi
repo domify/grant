@@ -3,7 +3,7 @@ import grant/encryption/sealed::{ArgumentError}
 import grant/encryption/sealed
 
 class W6bLazyUser < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table w6b_lazy_users
 
   column id : Int64, primary: true

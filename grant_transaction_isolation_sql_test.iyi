@@ -1,24 +1,33 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/base
+import grant/adapter/sqlite::{Sqlite}
+import grant/adapter/pg::{Pg}
 import grant/errors::{ErrorBase, TransactionIsolationError}
 import grant/transaction::{Options, IsolationLevel, begin_statements}
 import transaction_sql_recorder::{record}
+import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
 class Parent < Base
-  connection sqlite
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table parents
   column id : Int64, primary: true
   column name : String?
 end
 
-def statements_for(adapter : Connection, isolation : IsolationLevel? = nil) : Array(String)
-  begin_statements(adapter, Options.new(isolation: isolation))
+def statements_for(adapter : ::Grant::Adapter::Base::Base, isolation : IsolationLevel? = nil, readonly : Bool = false) : Array(String)
+  begin_statements(adapter, Options.new(isolation: isolation, readonly: readonly))
 end
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
+register_spec_connections
 Parent.migrator.drop_and_create.or_panic
-sqlite = Connection.open(":memory:").or_panic
+pg = Pg.new("sql_only_pg", "postgres://localhost/unused")
+sqlite = Sqlite.new("sql_only_sqlite", "sqlite3://./unused_isolation.db")
+
+# it: puts the level and access mode in BEGIN
+assert statements_for(pg) == ["BEGIN READ WRITE"]
+assert statements_for(pg, readonly: true) == ["BEGIN READ ONLY"]
+assert statements_for(pg, isolation: IsolationLevel::Serializable) == ["BEGIN ISOLATION LEVEL SERIALIZABLE READ WRITE"]
+assert statements_for(pg, isolation: IsolationLevel::RepeatableRead, readonly: true) == ["BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"]
 
 # it: maps levels onto BEGIN variants
 assert statements_for(sqlite) == ["BEGIN"]
@@ -67,5 +76,4 @@ end.or_panic
 
 # it: is an ErrorBase
 assert TransactionIsolationError.new.is_a?(ErrorBase)
-sqlite.close.or_panic
 Parent.adapter.close.or_panic
