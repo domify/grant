@@ -742,7 +742,7 @@
   target: grant_connection_management_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection_registry_spec.cr
   target: grant_connection_registry_test.iyi
   area: query
