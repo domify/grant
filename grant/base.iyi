@@ -5,6 +5,7 @@ pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
+pub import grant/record_copy
 pub import grant/callbacks
 pub import grant/transactions
 pub import grant/integrators
@@ -160,6 +161,25 @@ pub abstract class Base
         @{{decl.var}}
       end
     {% end %}
+
+    # Internal copies preserve sealed values without invoking public readers.
+    def __raw_{{decl.var}} : {{decl.type}} | Nil
+      @{{decl.var}}
+    end
+
+    def __raw_{{decl.var}}=(value : {{decl.type}} | Nil) : Nil
+      @{{decl.var}} = value
+      nil
+    end
+
+    def __baseline_{{decl.var}} : {{decl.type}} | Nil
+      @__persisted_{{decl.var}}
+    end
+
+    def __baseline_{{decl.var}}=(value : {{decl.type}} | Nil) : Nil
+      @__persisted_{{decl.var}} = value
+      nil
+    end
 
     def {{decl.var}}_changed? : Bool
       @{{decl.var}} != @__persisted_{{decl.var}}
@@ -464,12 +484,25 @@ pub abstract class Base
   macro __process_columns
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
+    ::Grant::RecordCopy.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
         @__persisted_\{{ v.name }} = @\{{ v.name }}
       \{% end %}
       nil
+    end
+
+    def changed : Array(String)
+      names = [] of String
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        names << \{{ v.name.stringify }} if @\{{ v.name }} != @__persisted_\{{ v.name }}
+      \{% end %}
+      names
+    end
+
+    def has_changes_to_save? : Bool
+      changed?
     end
 
     def changed? : Bool

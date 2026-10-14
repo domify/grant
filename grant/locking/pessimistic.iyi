@@ -95,7 +95,7 @@ pub macro model_methods(model)
   private def replace_with_locked_row(locked_relation)
     fresh = locked_relation.first_strict!
     \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-      @\{{ column.name }} = fresh.\{{ column.name }}
+      @\{{ column.name }} = fresh.__raw_\{{ column.name }}
     \{% end %}
     __mark_persisted
     self
