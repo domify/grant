@@ -108,7 +108,7 @@ statements = w6_perf_statements do
   end.or_panic
 end
 assert statements.size == 4
-assert statements[0] == "BEGIN"
+assert statements[0] == (W6PerfPerson.adapter.postgres? ? "BEGIN READ WRITE" : "BEGIN")
 assert statements[1].starts_with?("SAVEPOINT ")
 assert statements[2].starts_with?("RELEASE SAVEPOINT ")
 assert statements[3] == "COMMIT"

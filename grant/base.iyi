@@ -58,7 +58,7 @@ pub struct MigratorColumn
   end
 
   def base_type : String
-    @type_name.gsub("?", "").gsub(" | Nil", "").gsub("::", "").strip
+    @type_name.gsub("::", "").gsub(" | Nil", "").gsub("Nil | ", "").gsub("?", "").strip
   end
 end
 

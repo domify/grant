@@ -4,7 +4,7 @@
   target: adapter_test_helpers_test.iyi
   area: transactions
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/abort_spec.cr
   target: grant_callbacks_abort_test.iyi
   area: transactions
@@ -289,7 +289,7 @@
   target: grant_locking_pessimistic_test.iyi
   area: transactions
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/locking/with_lock_spec.cr
   target: grant_locking_with_lock_test.iyi
   area: transactions
@@ -457,7 +457,7 @@
   target: grant_transaction_isolation_sql_test.iyi
   area: transactions
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/replica_routing_spec.cr
   target: grant_transaction_replica_routing_test.iyi
   area: transactions

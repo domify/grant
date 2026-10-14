@@ -1,6 +1,7 @@
 import transaction_crud_models::{Parent}
 import grant/locking::{LockMode}
 import grant/adapter/sqlite::{Sqlite, Connection}
+import grant/adapter/pg::{Pg}
 import grant/error::{ErrorBase}
 import spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 
@@ -67,16 +68,37 @@ end.or_panic
 assert Parent.find_strict(parent.id).or_panic.name == "Updated"
 
 # it: generates correct SQL for different adapters
-# Preserve the SQLite branch of this mixed-adapter example.
-sqlite_adapter = Sqlite.new("test_sqlite", "sqlite3::memory:")
+pg_adapter = Pg.new("test_pg", "postgres://localhost/test")
+# MySQL assertions are adapter-out-of-scope.
+sqlite_adapter = Sqlite.new("test_sqlite", "sqlite3://./test.db")
+
+# PostgreSQL supports all lock modes
+assert LockMode::Update.to_sql(pg_adapter) == "FOR UPDATE"
+assert LockMode::UpdateNoWait.to_sql(pg_adapter) == "FOR UPDATE NOWAIT"
+assert LockMode::ShareSkipLocked.to_sql(pg_adapter) == "FOR SHARE SKIP LOCKED"
+
+# SQLite doesn't support row-level locking
 assert LockMode::Update.to_sql(sqlite_adapter) == ""
 
 # it: correctly reports lock mode support
-assert !Parent.adapter.supports_lock_mode?(LockMode::Update)
+if Parent.adapter.postgres?
+  assert Parent.adapter.supports_lock_mode?(LockMode::UpdateNoWait)
+elsif Parent.adapter.sqlite?
+  assert !Parent.adapter.supports_lock_mode?(LockMode::Update)
+end
 
 # it: delegates LockMode#to_sql to the adapter's #lock_clause
 sqlite_adapter = Sqlite.new("test_sqlite", "sqlite3::memory:")
 assert LockMode::Update.to_sql(sqlite_adapter) == sqlite_adapter.lock_clause(LockMode::Update)
+
+# it: preserves PostgreSQL lock SQL via #lock_clause
+pg = Pg.new("test_pg", "postgres://localhost/test")
+assert pg.lock_clause(LockMode::Update) == "FOR UPDATE"
+assert pg.lock_clause(LockMode::Share) == "FOR SHARE"
+assert pg.lock_clause(LockMode::UpdateNoWait) == "FOR UPDATE NOWAIT"
+assert pg.lock_clause(LockMode::UpdateSkipLocked) == "FOR UPDATE SKIP LOCKED"
+assert pg.lock_clause(LockMode::ShareNoWait) == "FOR SHARE NOWAIT"
+assert pg.lock_clause(LockMode::ShareSkipLocked) == "FOR SHARE SKIP LOCKED"
 
 # it: treats SQLite locking as a no-op (empty clause)
 sqlite = Sqlite.new("test_sqlite", "sqlite3::memory:")

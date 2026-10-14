@@ -140,7 +140,13 @@ statements = TransactionSqlRecorder.record do
   account.with_lock(isolation: Grant::Transaction::IsolationLevel::Serializable) { |locked| locked.balance }.or_panic
 end
 begin_statement = TransactionSqlRecorder.begins(statements).first
-assert begin_statement == "BEGIN EXCLUSIVE"
+if WithLockSpecAccount.adapter.postgres?
+  assert begin_statement.includes?("ISOLATION LEVEL SERIALIZABLE")
+elsif WithLockSpecAccount.adapter.sqlite?
+  assert begin_statement == "BEGIN EXCLUSIVE"
+else
+  assert statements.any?(&.includes?("ISOLATION LEVEL SERIALIZABLE"))
+end
 
 # it: refuses an isolation level inside a transaction that is already open
 WithLockSpecAccount.clear.or_panic
@@ -171,7 +177,12 @@ assert WithLockSpecAccount.find_strict(account.id).or_panic.balance == 1
 # it: are refused by lock! where the adapter takes real locks, so the lock is never silently dropped
 WithLockSpecAccount.clear.or_panic
 account = WithLockSpecAccount.create_strict(owner: "Ada").or_panic
-assert account.lock_strict.or_panic == account
+
+if WithLockSpecAccount.adapter.supports_lock_mode?(LockMode::Update)
+  assert account.lock_strict.is_a?(Grant::Locking::Pessimistic::TransactionRequiredError)
+else
+  assert account.lock_strict.or_panic == account
+end
 
 # it: are allowed inside a transaction
 WithLockSpecAccount.clear.or_panic
