@@ -2594,7 +2594,7 @@
   target: grant_simple_connection_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/sti/sti_validation_callback_inheritance_spec.cr
   target: grant_sti_sti_validation_callback_inheritance_test.iyi
   area: other
