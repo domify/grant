@@ -168,6 +168,32 @@
   area: transactions
   examples: 19
   status: todo
+  children:
+  - target: grant_errors_constraint_translation_classification_test.iyi
+    status: done
+    examples:
+    - T-620e709399
+    - T-cebb94ca81
+    - T-8ddf5aaf3b
+  - target: grant_errors_constraint_translation_test.iyi
+    status: todo
+    examples:
+    - T-fbb6a630b8
+    - T-08bd27d3ca
+    - T-5ed3192212
+    - T-ac011e14df
+    - T-08a9ad6106
+    - T-c2672abc09
+    - T-6498eb3382
+    - T-a5b162c634
+    - T-d9681263ec
+    - T-0c0e0a861e
+    - T-7baac676fd
+    - T-a48a5dc168
+    - T-34f7ced063
+    - T-ac79958735
+    - T-1a819b94ff
+    - T-6304cdbf37
 - source: crystal-upstream/spec/grant/locking/lock_wait_spec.cr
   target: grant_locking_lock_wait_test.iyi
   area: transactions

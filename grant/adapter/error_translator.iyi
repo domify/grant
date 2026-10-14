@@ -1,0 +1,17 @@
+module grant/adapter/error_translator
+
+# Shared vocabulary from Grant::Adapter::ErrorTranslator. Adapter-specific
+# classifiers return nil for failures outside the translated taxonomy.
+pub enum Kind
+  Unique
+  ForeignKey
+  NotNull
+  ValueTooLong
+  Deadlock
+  SerializationFailure
+  LockWaitTimeout
+  StatementTimeout
+  QueryCanceled
+  ReadOnly
+  NoDatabase
+end
