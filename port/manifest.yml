@@ -1243,7 +1243,7 @@
   target: test/grant_querying_find_by_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/find_each_spec.cr
   target: test/grant_querying_find_each_test.iyi
   area: query
@@ -1283,7 +1283,7 @@
   target: test/grant_querying_relation_calculations_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/reload_spec.cr
   target: test/grant_querying_reload_test.iyi
   area: query
@@ -1293,7 +1293,7 @@
   target: test/grant_querying_select_projection_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/range_sharding_spec.cr
   target: test/grant_range_sharding_test.iyi
   area: query
