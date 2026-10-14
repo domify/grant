@@ -1,0 +1,31 @@
+module converter_spec_support
+
+pub import std/slice
+pub import std/json
+
+# Upstream FieldEmitter's sequential read surface, parameterized so the
+# emitter retains types which real drivers expose only for their adapter.
+pub class FieldEmitter(V)
+  @position : Int32 = 0
+  @values : Array(V) = [] of V
+
+  def _set_values(values : Array(V)) : Nil
+    @values = values.dup
+    nil
+  end
+
+  def read : V
+    raise "Overread" if @position >= @values.size
+    value = @values[@position]
+    @position += 1
+    value
+  end
+
+  def column_count : Int32
+    @values.size
+  end
+
+  def column_name(index : Int32) : String
+    "Column #{index}"
+  end
+end

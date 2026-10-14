@@ -1,0 +1,43 @@
+module grant/converters
+
+pub import std/enum
+pub import std/slice
+pub import std/json
+
+pub def bytes_text(value : ::Std::Slice::Bytes) : String
+  String.new(value.size) { |buffer| value.size.times { |i| buffer[i] = value[i] } }
+end
+
+# Structural port of the converter families in src/grant/converters.cr.
+pub struct Enum(E, T)
+  def self.to_db(value : E?) : Int64 | String | Nil
+    return nil if value.nil?
+    {% if T == String || T == ::Std::Slice::Bytes %}
+      value.to_s
+    {% else %}
+      value.to_i64
+    {% end %}
+  end
+
+  def self.from_db(value : V) : E? forall V
+    case value
+    when String then E.parse?(value)
+    when ::Std::Slice::Bytes then E.parse?(String.new(value.size) { |buffer| value.size.times { |i| buffer[i] = value[i] } })
+    when Int8, Int16, Int32, Int64, Float32, Float64 then E.from_value?(value.to_i64)
+    else nil
+    end
+  end
+
+  def self.from_rs(result : R) : E? forall R
+    value = result.read
+    return nil if value.nil?
+    {% if T == String %}
+      E.parse?(value.as(String))
+    {% elsif T == ::Std::Slice::Bytes %}
+      E.parse?(bytes_text(value.as(::Std::Slice::Bytes)))
+    {% else %}
+      E.from_value?(value.as(T).to_i64)
+    {% end %}
+  end
+end
+

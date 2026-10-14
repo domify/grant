@@ -2464,7 +2464,7 @@
   target: grant_converters_enum_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/converters/json_spec.cr
   target: grant_converters_json_test.iyi
   area: other
