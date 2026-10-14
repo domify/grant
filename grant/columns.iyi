@@ -2,11 +2,77 @@ module grant/columns
 
 pub import grant/error
 pub import std/time
+pub import std/json
+pub import std/yaml
 
 # Scalar column values retain their model types at the reflective boundary.
 pub alias Type = Nil | String | Int32 | Int64 | Float32 | Float64 | Bool | ::Std::Time::Time
 
+# Grant::DATETIME_FORMAT under the native UTC settings implementation.
+pub def datetime_text(value : ::Std::Time::Time) : String
+  text = value.to_rfc3339(6)
+  text[0, 10] + " " + text[11, 15] + "+0000"
+end
+
 pub macro model_methods(model)
+  # Upstream Columns#to_h reads typed getters, which unseal lazy values.
+  private def __typed_column_values : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    fields = {} of String => ::Grant::Columns::Type
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      value = \{{ v.name }}
+      \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
+        value = value!
+      \{% end %}
+      fields[\{{ v.name.stringify }}] = value
+    \{% end %}
+    fields
+  end
+
+  def to_h : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    fields = __typed_column_values!
+    fields.each do |name, value|
+      fields[name] = ::Grant::Columns.datetime_text(value) if value.is_a?(::Std::Time::Time)
+    end
+    fields
+  end
+
+  def to_json : String | ::Grant::Error::ErrorBase
+    json = ::Std::Json::Builder.new
+    to_json(json)!
+    json.to_s
+  end
+
+  def to_json(json : ::Std::Json::Builder) : Nil | ::Grant::Error::ErrorBase
+    fields = __typed_column_values!
+    values = {} of String => ::Std::Json::Any
+    fields.each do |name, value|
+      normalized = case value
+                   when ::Std::Time::Time then value.to_rfc3339(6)
+                   when Int32 then value.to_i64
+                   when Float32 then value.to_f64
+                   else value
+                   end
+      values[name] = ::Std::Json::Any.new(normalized)
+    end
+    ::Std::Json::Any.new(values).to_json(json)
+    nil
+  end
+
+  def to_yaml : String | ::Grant::Error::ErrorBase
+    fields = __typed_column_values!
+    values = {} of ::Std::Yaml::Any => ::Std::Yaml::Any
+    fields.each do |name, value|
+      normalized = case value
+                   when ::Std::Time::Time then value.to_rfc3339(6)
+                   when Int32 then value.to_i64
+                   when Float32 then value.to_f64
+                   else value
+                   end
+      values[::Std::Yaml::Any.new(name)] = ::Std::Yaml::Any.new(normalized)
+    end
+    ::Std::Yaml::YAML.dump(::Std::Yaml::Any.new(values))
+  end
+
   def read_attribute(attribute_name : Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
     \{% begin %}
       case attribute_name.to_s

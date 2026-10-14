@@ -177,7 +177,6 @@
   - target: grant_encryption_w6b_lazy_decrypt_test.iyi
     status: todo
     examples:
-    - T-b14edc42d6
     - T-246a479be1
   - target: grant_encryption_w6b_lazy_decrypt_changes_test.iyi
     status: done
@@ -200,6 +199,10 @@
     status: done
     examples:
     - T-ca25d5293c
+  - target: grant_encryption_w6b_lazy_decrypt_serialization_test.iyi
+    status: done
+    examples:
+    - T-b14edc42d6
 - source: crystal-upstream/spec/grant/errors/constraint_translation_spec.cr
   target: grant_errors_constraint_translation_test.iyi
   area: transactions
