@@ -61,6 +61,10 @@ pub class Sqlite < Base
     open(statement) { |db| db.exec(statement, [value] of Value) }
   end
 
+  def quote_boolean(value : Bool) : String
+    value ? "TRUE" : "FALSE"
+  end
+
   def quote(name : String) : String
     "\"#{name.gsub("\"", "\"\"")}\""
   end

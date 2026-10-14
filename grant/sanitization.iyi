@@ -1,0 +1,115 @@
+module grant/sanitization
+
+import std/text
+import std/time::{Time}
+import std/slice::{Bytes}
+import grant/adapter/base::{Base}
+import grant/error::{ArgumentError}
+
+pub class WrongNumberOfArguments < ArgumentError
+end
+
+impl ::Error for WrongNumberOfArguments
+  def message : String
+    @message
+  end
+end
+
+pub def quote(value : T, adapter : Base? = nil) : String | ArgumentError forall T
+  case value
+  when Nil
+    "NULL"
+  when Bool
+    adapter.nil? ? (value ? "1" : "0") : adapter.quote_boolean(value)
+  when Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64
+    value.to_s
+  when String, Char, Symbol
+    quote_string(value.to_s)
+  when Time
+    quote_string(value.to_rfc3339.gsub("T", " ").gsub("Z", ""))
+  when Bytes
+    quote_bytes(value)
+  else
+    ArgumentError.new("Grant::Sanitization cannot quote value of type #{T}")
+  end
+end
+
+pub def quote_string(value : String) : String
+  escaped = value.gsub("\0", "").gsub("'", "''")
+  "'#{escaped}'"
+end
+
+pub def quote_identifier(name : T, adapter : Base? = nil) : String forall T
+  return adapter.quote(name.to_s) unless adapter.nil?
+  escaped = name.to_s.gsub("\"", "\"\"")
+  "\"#{escaped}\""
+end
+
+pub def sanitize_sql_array(ary : Array(T), adapter : Base? = nil) : String | ArgumentError forall T
+  return ArgumentError.new("sanitize_sql_array requires a non-empty array") if ary.empty?
+  sql = ary.first.to_s
+  values = [] of T
+  ary.each_with_index { |value, index| values << value if index > 0 }
+  placeholder_count = count_placeholders(sql)
+  if placeholder_count != values.size
+    return WrongNumberOfArguments.new("wrong number of bind variables (#{values.size} for #{placeholder_count}) in: #{sql}")
+  end
+  return sql if placeholder_count == 0
+  substitute_placeholders(sql, values, adapter)
+end
+
+pub def sanitize_sql_array(*args : *T, adapter : Base? = nil) : String | ArgumentError forall T
+  sanitize_sql_array(args.to_a, adapter)
+end
+
+private def count_placeholders(sql : String) : Int32
+  count = 0
+  in_string = false
+  chars = sql.chars
+  i = 0
+  while i < chars.size
+    c = chars[i]
+    if c == '\''
+      if in_string && i + 1 < chars.size && chars[i + 1] == '\''
+        i += 2
+        next
+      end
+      in_string = !in_string
+    elsif c == '?' && !in_string
+      count += 1
+    end
+    i += 1
+  end
+  count
+end
+
+private def substitute_placeholders(sql : String, values : Array(T), adapter : Base?) : String | ArgumentError forall T
+  result = String::Builder.new
+  in_string = false
+  value_index = 0
+  chars = sql.chars
+  i = 0
+  while i < chars.size
+    c = chars[i]
+    if c == '\''
+      if in_string && i + 1 < chars.size && chars[i + 1] == '\''
+        result << '\'' << '\''
+        i += 2
+        next
+      end
+      in_string = !in_string
+      result << c
+    elsif c == '?' && !in_string
+      result << quote(values[value_index], adapter)!
+      value_index += 1
+    else
+      result << c
+    end
+    i += 1
+  end
+  result.to_s
+end
+
+private def quote_bytes(value : Bytes) : String
+  "x'#{value.hexstring}'"
+end

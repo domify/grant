@@ -18,6 +18,7 @@ pub import grant/validators
 pub import grant/callbacks
 pub import grant/secure_token
 pub import grant/transactions
+pub import grant/query/finders
 pub import grant/integrators
 pub import grant/encryption
 pub import grant/locking/pessimistic
@@ -605,6 +606,7 @@ pub abstract class Base
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
+    ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
     ::Grant::Columns.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})

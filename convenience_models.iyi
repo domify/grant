@@ -1,0 +1,40 @@
+module convenience_models
+
+import grant/base::{Base}
+import spec_helper::{register_spec_connections}
+import std/env
+import std/text
+
+pub class ConvItem < Base
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
+  table conv_items
+  column id : Int64, primary: true
+  column name : String
+  column status : String?
+  column kind : String?
+  column qty : Int32?
+
+  validate :name, "Name cannot be blank" do |item|
+    !item.name.to_s.blank?
+  end
+
+end
+
+pub def reset_items : Nil
+  register_spec_connections
+  ConvItem.migrator.drop_and_create.or_panic
+  ConvItem.adapter.open { |db| db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_items_name ON conv_items(name)") }.or_panic
+  nil
+end
+
+pub def statements(&block : -> R) : Array(String) forall R
+  captured = [] of String
+  ConvItem.adapter.with_connection do |db|
+    previous = db.query_observer
+    db.query_observer = ->(sql : String) { captured << sql; nil }
+    yield
+    db.query_observer = previous
+    nil
+  end.or_panic
+  captured
+end

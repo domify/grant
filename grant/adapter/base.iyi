@@ -19,6 +19,10 @@ pub abstract class Base
   abstract def supports_lock_mode?(mode : LockMode) : Bool
   abstract def quote(name : String) : String
 
+  def quote_boolean(value : Bool) : String
+    value ? "1" : "0"
+  end
+
   def sqlite? : Bool
     false
   end

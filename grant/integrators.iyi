@@ -3,6 +3,42 @@ module grant/integrators
 # Native class-method slice of Grant::Integrators, expanded into each model
 # because imported classes cannot be reopened in iyi.
 pub macro create_methods(model)
+  def self.destroy(id : T) : {{ model }} | ::Grant::Error::ErrorBase forall T
+    record = find_strict(id)!
+    record.destroy
+    record
+  end
+
+  def self.destroy(ids : Array(T)) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
+    records = find_strict(ids)!
+    records.each { |record| record.destroy }
+    records
+  end
+
+  def self.update(id : T, **attrs) : {{ model }} | ::Grant::Error::ErrorBase forall T
+    record = find_strict(id)!
+    record.update(**attrs)
+    record
+  end
+
+  def self.update(id : T, attrs : A) : {{ model }} | ::Grant::Error::ErrorBase forall T, A
+    record = find_strict(id)!
+    record.update(attrs)
+    record
+  end
+
+  def self.update(ids : Array(T), **attrs) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
+    records = find_strict(ids)!
+    records.each { |record| record.update(**attrs) }
+    records
+  end
+
+  def self.update(ids : Array(T), attrs : A) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T, A
+    records = find_strict(ids)!
+    records.each { |record| record.update(attrs) }
+    records
+  end
+
   def self.find_or_create_by(**args) : {{ model }} | ::Grant::Errors::ErrorBase
     found = find_by(**args)!
     found || create(**args)
