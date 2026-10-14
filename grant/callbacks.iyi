@@ -64,3 +64,96 @@ pub macro guard(condition, unless_condition, continuation)
     end
   {% end %}
 end
+
+pub macro model_methods(model)
+    def __persist_with_around(*, skip_timestamps : Bool) : Bool | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+      if new_record?
+        __run_around_create { __persist(skip_timestamps: skip_timestamps) }
+      else
+        __run_around_update { __persist(skip_timestamps: skip_timestamps) }
+      end
+    end
+
+    def __destroy_with_around : Bool | ::Grant::Error::ErrorBase
+      __run_around_destroy { __destroy_with_callbacks }
+    end
+
+    def __run_around_create(&action : -> T) : T | ::Grant::Errors::RecordNotSaved forall T
+      result = ::Grant::Errors::RecordNotSaved.new(__table_name).as(T | ::Grant::Errors::RecordNotSaved)
+      continuation = -> { result = action.call; nil }
+      \{% begin %}
+      \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_around_create_") } %}
+      \{% prepended = callbacks.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true } %}
+      \{% ordered = [] of ASTNode %}
+      \{% for i in (0...prepended.size) %}
+        \{% ordered << prepended[prepended.size - 1 - i] %}
+      \{% end %}
+      \{% for m in callbacks %}
+        \{% unless m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true %}
+          \{% ordered << m %}
+        \{% end %}
+      \{% end %}
+      \{% callbacks = ordered %}
+      \{% for i in (0...callbacks.size) %}
+        \{% m = callbacks[callbacks.size - 1 - i] %}
+        previous_\{{ m.name }} = continuation
+        continuation = -> { \{{ m.name }}(previous_\{{ m.name }}) }
+      \{% end %}
+      \{% end %}
+      continuation.call
+      result
+    end
+
+    def __run_around_update(&action : -> T) : T | ::Grant::Errors::RecordNotSaved forall T
+      result = ::Grant::Errors::RecordNotSaved.new(__table_name).as(T | ::Grant::Errors::RecordNotSaved)
+      continuation = -> { result = action.call; nil }
+      \{% begin %}
+      \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_around_update_") } %}
+      \{% prepended = callbacks.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true } %}
+      \{% ordered = [] of ASTNode %}
+      \{% for i in (0...prepended.size) %}
+        \{% ordered << prepended[prepended.size - 1 - i] %}
+      \{% end %}
+      \{% for m in callbacks %}
+        \{% unless m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true %}
+          \{% ordered << m %}
+        \{% end %}
+      \{% end %}
+      \{% callbacks = ordered %}
+      \{% for i in (0...callbacks.size) %}
+        \{% m = callbacks[callbacks.size - 1 - i] %}
+        previous_\{{ m.name }} = continuation
+        continuation = -> { \{{ m.name }}(previous_\{{ m.name }}) }
+      \{% end %}
+      \{% end %}
+      continuation.call
+      result
+    end
+
+    def __run_around_destroy(&action : -> T) : T | ::Grant::Errors::RecordNotSaved forall T
+      result = ::Grant::Errors::RecordNotSaved.new(__table_name).as(T | ::Grant::Errors::RecordNotSaved)
+      continuation = -> { result = action.call; nil }
+      \{% begin %}
+      \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_around_destroy_") } %}
+      \{% prepended = callbacks.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true } %}
+      \{% ordered = [] of ASTNode %}
+      \{% for i in (0...prepended.size) %}
+        \{% ordered << prepended[prepended.size - 1 - i] %}
+      \{% end %}
+      \{% for m in callbacks %}
+        \{% unless m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true %}
+          \{% ordered << m %}
+        \{% end %}
+      \{% end %}
+      \{% callbacks = ordered %}
+      \{% for i in (0...callbacks.size) %}
+        \{% m = callbacks[callbacks.size - 1 - i] %}
+        previous_\{{ m.name }} = continuation
+        continuation = -> { \{{ m.name }}(previous_\{{ m.name }}) }
+      \{% end %}
+      \{% end %}
+      continuation.call
+      result
+    end
+
+end

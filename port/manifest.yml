@@ -617,7 +617,7 @@
   target: grant_callbacks_around_callbacks_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/around_validation_spec.cr
   target: grant_callbacks_around_validation_test.iyi
   area: query
