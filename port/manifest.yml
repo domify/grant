@@ -602,7 +602,7 @@
   target: grant_boolean_predicates_test.iyi
   area: query
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/bulk/insert_all_spec.cr
   target: grant_bulk_insert_all_test.iyi
   area: query
@@ -1668,7 +1668,7 @@
   target: adapter_placeholder_rewrite_test.iyi
   area: associations
   examples: 21
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/additional_options_spec.cr
   target: grant_associations_additional_options_test.iyi
   area: associations
@@ -2359,12 +2359,12 @@
   target: adapter_pg_test.iyi
   area: other
   examples: 0
-  status: todo
+  status: done
 - source: crystal-upstream/spec/adapter/sqlite_spec.cr
   target: adapter_sqlite_test.iyi
   area: other
   examples: 0
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/advanced_multi_database_spec.cr
   target: grant_advanced_multi_database_test.iyi
   area: other

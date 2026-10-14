@@ -311,7 +311,7 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
     observer.call(sql) unless observer.nil?
     return DatabaseError.new(0, "prepare", "connection is closed", sql) if @closed
     return DatabaseError.new(0, "prepare", "NUL byte in SQL", sql) if sql.includes?("\0")
-    statement = PlaceholderScanner.rewrite(sql, 0, true)
+    statement = PlaceholderScanner.numbered_parameters?(sql) ? sql : PlaceholderScanner.rewrite(sql, 0, true)
     texts = [] of String?
     parameters.each do |value|
       texts << case value
