@@ -12,17 +12,24 @@ import grant/error_taxonomy::{StatementInvalid}
 # Compatibility name used by the initial SQLite binding.
 pub alias DatabaseError = StatementInvalid
 
-pub struct RecordNotFound
+pub class RecordNotFound < ErrorBase
   getter model : String
   getter id : String
 
   def initialize(@model : String, @id : String)
+    super("Couldn't find #{@model} with id=#{@id}")
+  end
+
+  def initialize(message : String)
+    @model = ""
+    @id = ""
+    super(message)
   end
 end
 
 impl ::Error for RecordNotFound
   def message : String
-    "Couldn't find #{@model} with id=#{@id}"
+    @message
   end
 end
 

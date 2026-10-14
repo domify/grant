@@ -102,6 +102,10 @@ pub class Builder(Model)
     self
   end
 
+  def where(**matches) : self
+    chain_copy.where_in_place(**matches)
+  end
+
   def lock(mode : LockMode = LockMode::Update) : self
     chain_copy.lock_in_place(mode)
   end

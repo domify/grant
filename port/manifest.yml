@@ -252,12 +252,15 @@
     - T-ee47173a8e
     - T-ce557f85ef
     - T-747bffb959
-  - target: grant_perf_w6_primary_key_lookup_test.iyi
-    status: todo
+  - target: grant_perf_w6_primary_key_lookup_scopes_test.iyi
+    status: done
     examples:
     - T-7c6c414e88
     - T-1517679e67
     - T-996df7c774
+  - target: grant_perf_w6_primary_key_lookup_test.iyi
+    status: todo
+    examples:
     - T-e21bacd14f
     - T-45c3a23a71
     - T-a83f744f01

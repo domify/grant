@@ -1,0 +1,12 @@
+module grant/querying
+
+import grant/errors::{RecordNotFound}
+
+pub class NotFound < RecordNotFound
+end
+
+impl ::Error for NotFound
+  def message : String
+    @message
+  end
+end

@@ -3,6 +3,8 @@ import std/named_tuple
 pub import std/time
 pub import grant/timestamps
 pub import grant/query/builder
+pub import grant/scoping
+pub import grant/querying
 pub import grant/callbacks
 pub import grant/transactions
 pub import grant/integrators
@@ -82,6 +84,24 @@ pub abstract class Base
 
     macro finished
       __process_columns
+    end
+  end
+
+  def self._has_default_scope? : Bool
+    false
+  end
+
+  def self.apply_default_scope(query : ::Grant::Query::Builder::Builder(Model)) forall Model
+    query
+  end
+
+  macro default_scope(&block)
+    def self._has_default_scope? : Bool
+      true
+    end
+
+    def self.apply_default_scope(query : ::Grant::Query::Builder::Builder(Model)) forall Model
+      query.{{block.body}}
     end
   end
 
@@ -856,29 +876,60 @@ pub abstract class Base
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       found = find(id)!
-      return ::Grant::Errors::RecordNotFound.new(\{{ @type.name.stringify }}, id.to_s) if found.nil?
+      return ::Grant::Querying::NotFound.new("No " + \{{ @type.name.stringify }} + " found where #{primary_name} = #{id}") if found.nil?
       found
       \{% end %}
     end
 
+    def self._unscoped? : Bool
+      ::Grant::Scoping.unscoped?(self.to_s)
+    end
+
+    def self._unscoped=(value : Bool) : Nil
+      ::Grant::Scoping.set_unscoped(self.to_s, value)
+    end
+
+    def self.current_scope : ::Grant::Query::Builder::Builder({{ @type }})
+      scoped = ::Grant::Scoping.current_relation(self)
+      return scoped unless scoped.nil?
+      query = ::Grant::Query::Builder::Builder({{ @type }}).new
+      !_unscoped? && _has_default_scope? ? apply_default_scope(query) : query
+    end
+
+    def self.scoping(relation : ::Grant::Query::Builder::Builder({{ @type }}), &block : -> T) : T forall T
+      ::Grant::Scoping.with_relation(self, relation) { yield }
+    end
+
+    def self.unscoped(&block : ::Grant::Query::Builder::Builder({{ @type }}) -> T) : T forall T
+      old_unscoped = _unscoped?
+      self._unscoped = true
+      result = ::Grant::Scoping.without_relation(self.to_s) { yield ::Grant::Query::Builder::Builder({{ @type }}).new }
+      self._unscoped = old_unscoped
+      result
+    end
+
+    def self.unscoped : ::Grant::Query::Builder::Builder({{ @type }})
+      ::Grant::Query::Builder::Builder({{ @type }}).new
+    end
+
     def self.where(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})
-      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt)
+      current_scope.where_in_place(stmt)
     end
 
     def self.where(field : Symbol | String, operator : Symbol, value : ::Grant::Adapter::Sqlite::Value) : ::Grant::Query::Builder::Builder({{ @type }}) | ::Grant::Error::ErrorBase
-      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(field, operator, value)
+      current_scope.where_in_place(field, operator, value)
     end
 
     def self.where(stmt : String, values : Array(V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall V
-      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt, values)
+      current_scope.where_in_place(stmt, values)
     end
 
     def self.where(stmt : String, value : ::Grant::Adapter::Sqlite::Value) : ::Grant::Query::Builder::Builder({{ @type }})
-      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(stmt, value)
+      current_scope.where_in_place(stmt, value)
     end
 
     def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})
-      ::Grant::Query::Builder::Builder({{ @type }}).new.where_in_place(**args)
+      current_scope.where_in_place(**args)
     end
 
     def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError
