@@ -431,7 +431,7 @@ pub abstract class Base
       \{% end %}
       operation = new_record? ? :create : :update
       failed = false
-      result = ::Grant::Base::Base.run_transaction(__transaction_adapter, ::Grant::Transaction::Options.new(requires_new: true)) do
+      result = ::Grant::Base::Base.run_transaction(__transaction_adapter, ::Grant::Transaction::Options.new(requires_new: true, lazy_begin: true)) do
         saved = __run_around_save { __save(validate: validate, skip_timestamps: skip_timestamps) }
         failed = saved.is_a?(::Error)
         if failed
@@ -456,7 +456,7 @@ pub abstract class Base
     end
 
     def __remember_transaction_state : Nil
-      return unless __adapter.in_transaction?
+      return if ::Grant::Transaction::TransactionState.current_state_for_connection?(__adapter).nil?
       __remember_record_flags
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
         snapshot_\{{ v.name }} = new_record? ? @\{{ v.name }} : @__persisted_\{{ v.name }}
@@ -1198,7 +1198,7 @@ pub abstract class Base
   end
 
   def __remember_record_flags : Nil
-    return unless __adapter.in_transaction?
+    return if ::Grant::Transaction::TransactionState.current_state_for_connection?(__adapter).nil?
     state = TransactionState.new(@new_record, @destroyed)
     ::Grant::Transaction.enlist_record_rollback_action(__adapter) { __restore_transaction_state(state) }
   end
@@ -1273,7 +1273,7 @@ pub abstract class Base
     else
       self.before_update!
     end
-    set_timestamps(mode: @new_record ? :create : :update) unless skip_timestamps
+    set_timestamps(mode: @new_record ? :create : :update) if !skip_timestamps && (@new_record || !__changed_column_names.empty?)
     names = __column_names
     values = __column_values
     if @new_record

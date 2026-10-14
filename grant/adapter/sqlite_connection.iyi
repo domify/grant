@@ -116,6 +116,7 @@ pub class Connection
   property name : String = "sqlite"
   getter path : String
   property grant_last_used_ticks : Int64 = ticks
+  property transaction_materializer : Proc(Nil | DatabaseError)? = nil
   property query_observer : Proc(String, Nil)? = nil
 
   def initialize(@handle : Void*, @path : String = ":memory:")
@@ -293,6 +294,14 @@ pub class Connection
   end
 
   private def prepare(sql : String, parameters : Array(Value)) : Void* | DatabaseError
+    materializer = @transaction_materializer
+    unless materializer.nil?
+      # Control statements must bypass this hook while materializing.
+      @transaction_materializer = nil
+      materialized = materializer.call
+      @transaction_materializer = materializer
+      return materialized if materialized.is_a?(DatabaseError)
+    end
     @last_statement = sql
     observer = @query_observer
     observer.call(sql) unless observer.nil?

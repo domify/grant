@@ -30,6 +30,9 @@ pub class TransactionState
   getter enclosing : TransactionState?
   getter pending_callbacks = [] of NamedTuple(on_commit: Proc(Nil | ::Grant::Error::ErrorBase), on_rollback: Proc(Nil))
   getter record_callbacks = {} of UInt64 => CommitCallback
+  property begun : Bool = false
+  property begin_error : DatabaseError? = nil
+  property savepoint_name : String? = nil
   property open : Bool = true
   property manual : Bool = false
   getter manual_savepoints = [] of Handle
@@ -249,24 +252,35 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
   end
 
   connection = options.independent ? adapter.open_independent! : (enclosing.nil? ? adapter : enclosing.connection)
-  outer = !connection.in_transaction?
-  savepoint = outer || enclosing.nil? ? "" : (savepoint_name || enclosing.next_savepoint_name)
-  started_at = Time.monotonic
-  begun = execute_control(connection, outer ? begin_statements(adapter, options)[0] : "SAVEPOINT #{savepoint}")
-  if begun.is_a?(DatabaseError)
-    connection.close if options.independent
-    return begun
-  end
-  state = TransactionState.new(adapter, connection, options, outer ? nil : enclosing, started_at)
+  outer = enclosing.nil? || options.independent
+  savepoint = outer ? "" : (savepoint_name || enclosing.as(TransactionState).next_savepoint_name)
+  state = TransactionState.new(adapter, connection, options, outer ? nil : enclosing)
+  state.savepoint_name = outer ? nil : savepoint
+  previous_materializer = connection.transaction_materializer
   TransactionState.push(state)
-  publish_transaction_start(state, outer ? nil : savepoint)
+  # Like upstream, savepoints are eager even when the save requests lazy BEGIN.
+  if !options.lazy_begin || !outer
+    begun = materialize(state)
+    if begun.is_a?(DatabaseError)
+      TransactionState.pop
+      state.open = false
+      connection.close if options.independent
+      return begun
+    end
+  end
+  connection.transaction_materializer = -> { materialize(state) }
   result = yield
+  connection.transaction_materializer = previous_materializer
   TransactionState.pop
   state.open = false
+  begin_error = state.begin_error
+  result = begin_error unless begin_error.nil?
   if result.is_a?(::Error)
-    execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
-    execute_control(connection, "RELEASE SAVEPOINT #{savepoint}")! unless outer
-    publish_transaction_end(state, TransactionOutcome::Rollback, state.started_at, outer ? nil : savepoint)
+    if state.begun
+      execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")!
+      execute_control(connection, "RELEASE SAVEPOINT #{savepoint}")! unless outer
+      publish_transaction_end(state, TransactionOutcome::Rollback, state.started_at, outer ? nil : savepoint)
+    end
     restore_records(state)
     state.pending_callbacks.each { |callback| callback[:on_rollback].call }
     connection.close! if options.independent
@@ -274,7 +288,7 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
     return result
   end
 
-  committed = execute_control(connection, outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}")
+  committed = state.begun ? execute_control(connection, outer ? "COMMIT" : "RELEASE SAVEPOINT #{savepoint}") : nil
   if committed.is_a?(DatabaseError)
     execute_control(connection, outer ? "ROLLBACK" : "ROLLBACK TO SAVEPOINT #{savepoint}")
     execute_control(connection, "RELEASE SAVEPOINT #{savepoint}") unless outer
@@ -284,7 +298,7 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
     connection.close if options.independent
     return committed
   end
-  publish_transaction_end(state, TransactionOutcome::Commit, state.started_at, outer ? nil : savepoint)
+  publish_transaction_end(state, TransactionOutcome::Commit, state.started_at, outer ? nil : savepoint) if state.begun
   unless outer || enclosing.nil?
     state.record_callbacks.each do |record_id, callback|
       existing = enclosing.record_callbacks[record_id]?
@@ -307,6 +321,34 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
     finalize_after_all_commit(state)
   end
   result
+end
+
+# Open the physical transaction or savepoint, materializing deferred parents first.
+private def materialize(state : TransactionState) : Nil | DatabaseError
+  return nil if state.begun
+  error = state.begin_error
+  return error unless error.nil?
+  parent = state.enclosing
+  unless parent.nil?
+    parent_result = materialize(parent)
+    if parent_result.is_a?(DatabaseError)
+      state.begin_error = parent_result
+      return parent_result
+    end
+  end
+  connection = state.connection
+  previous = connection.transaction_materializer
+  connection.transaction_materializer = nil
+  name = state.savepoint_name
+  result = execute_control(connection, name.nil? ? begin_statements(state.adapter, state.options)[0] : "SAVEPOINT #{name}")
+  connection.transaction_materializer = previous
+  if result.is_a?(DatabaseError)
+    state.begin_error = result
+    return result
+  end
+  state.begun = true
+  publish_transaction_start(state, name)
+  nil
 end
 
 private def restore_records(state : TransactionState) : Nil
@@ -386,6 +428,7 @@ pub def begin_manual(adapter : Connection, options : Options) : Handle | Databas
   started_at = Time.monotonic
   execute_control(adapter, begin_statements(adapter, options)[0])!
   state = TransactionState.new(adapter, adapter, options, nil, started_at)
+  state.begun = true
   state.manual = true
   TransactionState.push(state)
   publish_transaction_start(state, nil)

@@ -248,7 +248,7 @@
   target: grant_perf_w6_statement_count_test.iyi
   area: transactions
   examples: 14
-  status: todo
+  status: done
   children:
   - target: grant_perf_w6_statement_count_create_find_test.iyi
     status: done
@@ -260,7 +260,7 @@
     - T-4c6fdec284
     - T-8e9d441cbb
   - target: grant_perf_w6_statement_count_test.iyi
-    status: todo
+    status: done
     examples:
     - T-d54b657d37
     - T-0705e1d3f8
