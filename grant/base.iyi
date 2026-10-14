@@ -469,6 +469,7 @@ pub abstract class Base
   end
 
   macro around_save(method = nil, **options, &block)
+    @[::Grant::Callbacks::Callback(prepend: {{ options[:prepend] || false }})]
     def __callback_around_save_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
       ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, continuation)
       {% if block %}
@@ -481,14 +482,17 @@ pub abstract class Base
     end
   end
 
-  macro before_save(method = nil, **options, &block)
+  macro before_save(*methods, **options, &block)
+    @[::Grant::Callbacks::Callback(prepend: {{ options[:prepend] || false }})]
     def __callback_before_save_{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
       ::Grant::Callbacks.guard({{ options[:if] }}, {{ options[:unless] }}, nil)
       {% if block %}
         {{ block.body }}
       {% else %}
-        %result = {{ method.id }}
-        return %result if %result.is_a?(::Grant::Callbacks::Abort)
+        {% for method in methods %}
+          %result = {{ method.id }}
+          return %result if %result.is_a?(::Grant::Callbacks::Abort)
+        {% end %}
       {% end %}
       nil
     end
@@ -717,6 +721,17 @@ pub abstract class Base
       continuation = -> { result = action.call; nil }
       \{% begin %}
       \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_around_save_") } %}
+      \{% prepended = callbacks.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true } %}
+      \{% ordered = [] of ASTNode %}
+      \{% for i in (0...prepended.size) %}
+        \{% ordered << prepended[prepended.size - 1 - i] %}
+      \{% end %}
+      \{% for m in callbacks %}
+        \{% unless m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true %}
+          \{% ordered << m %}
+        \{% end %}
+      \{% end %}
+      \{% callbacks = ordered %}
       \{% for i in (0...callbacks.size) %}
         \{% m = callbacks[callbacks.size - 1 - i] %}
         previous_\{{ m.name }} = continuation
@@ -1354,10 +1369,24 @@ pub abstract class Base
 
     def before_save : Nil | ::Grant::Callbacks::Abort
       @_current_callback = "before_save"
-      \{% for m in @type.methods.select { |m| m.name.starts_with?("__callback_before_save_") } %}
+      \{% begin %}
+      \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_before_save_") } %}
+      \{% prepended = callbacks.select { |m| m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true } %}
+      \{% ordered = [] of ASTNode %}
+      \{% for i in (0...prepended.size) %}
+        \{% ordered << prepended[prepended.size - 1 - i] %}
+      \{% end %}
+      \{% for m in callbacks %}
+        \{% unless m.annotation(::Grant::Callbacks::Callback) && m.annotation(::Grant::Callbacks::Callback)[:prepend] == true %}
+          \{% ordered << m %}
+        \{% end %}
+      \{% end %}
+      \{% callbacks = ordered %}
+      \{% for m in callbacks %}
         \{{ m.name }}!
       \{% end %}
       nil
+      \{% end %}
     end
 
     def after_save : Nil | ::Grant::Callbacks::Abort
