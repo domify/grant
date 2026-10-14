@@ -978,7 +978,7 @@
   target: grant_query_executor_test.iyi
   area: query
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/existence_predicates_spec.cr
   target: grant_query_existence_predicates_test.iyi
   area: query
