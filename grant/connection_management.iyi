@@ -21,6 +21,10 @@ pub class ReplicaLagTracker
   property written : Bool = false
   property lag_threshold = ::Std::Time::Span.seconds(2_i64)
 
+  def written? : Bool
+    @written
+  end
+
   def mark_write : Nil
     @last_write_time = ::Std::Time::Time.monotonic
     @written = true

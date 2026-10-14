@@ -602,7 +602,7 @@
   target: grant_boolean_predicates_test.iyi
   area: query
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/bulk/insert_all_spec.cr
   target: grant_bulk_insert_all_test.iyi
   area: query
