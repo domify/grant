@@ -1,7 +1,8 @@
+module test/grant_persistence_dirty_tracking_api_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-class T6PersistenceRecord < Base
+pub class T6PersistenceRecord < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table t6_persistence_records
   column id : Int64, primary: true

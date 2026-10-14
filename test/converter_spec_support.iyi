@@ -1,4 +1,4 @@
-module converter_spec_support
+module test/converter_spec_support
 
 pub import std/slice
 pub import std/json

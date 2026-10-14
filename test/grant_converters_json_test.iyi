@@ -1,5 +1,6 @@
+module test/grant_converters_json_test
 import grant/converters
-import converter_spec_support::{FieldEmitter, MyType}
+import test/converter_spec_support::{FieldEmitter, MyType}
 import std/json::{Any, JSON}
 import std/slice::{Bytes}
 

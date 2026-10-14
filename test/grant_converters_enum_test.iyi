@@ -1,8 +1,9 @@
+module test/grant_converters_enum_test
 import grant/converters
-import converter_spec_support::{FieldEmitter}
+import test/converter_spec_support::{FieldEmitter}
 import std/slice::{Bytes}
 
-enum TestEnum
+pub enum TestEnum
   Zero
   One
   Two
