@@ -219,6 +219,10 @@ pub def in_explicit_transaction? : Bool
   TransactionState.in_explicit_transaction?
 end
 
+pub def current_connection?(adapter : Base) : Connection?
+  current_connection?(adapter.checkout.or_panic)
+end
+
 pub def current_connection?(adapter : Connection) : Connection?
   state = TransactionState.current_state_for?(adapter)
   state.nil? ? nil : state.connection
@@ -359,6 +363,10 @@ impl ConnectionTransactions for Connection
 end
 
 # SQLite branch of the upstream adapter-specific control statement builder.
+pub def begin_statements(adapter : Base, options : Options) : Array(String)
+  begin_statements(adapter.checkout.or_panic, options)
+end
+
 pub def begin_statements(adapter : Connection, options : Options) : Array(String)
   case options.isolation
   when nil then ["BEGIN"]

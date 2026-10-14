@@ -7,7 +7,7 @@ import grant/errors::{ErrorBase, Rollback}
 import grant/error_taxonomy::{InvalidForeignKey}
 
 def adapter : Connection
-  Parent.adapter
+  Parent.adapter.as(Connection)
 end
 
 def run(statement : String)

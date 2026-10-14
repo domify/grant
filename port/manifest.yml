@@ -356,7 +356,7 @@
   target: grant_transaction_replica_routing_test.iyi
   area: transactions
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/requires_new_savepoint_spec.cr
   target: grant_transaction_requires_new_savepoint_test.iyi
   area: transactions

@@ -50,6 +50,10 @@ pub abstract class Base
     !@_database.nil?
   end
 
+  def close : Nil | DatabaseError
+    disconnect_strict
+  end
+
   def disconnect_strict : Nil | DatabaseError
     closing = @_database
     @_database = nil

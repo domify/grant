@@ -6,6 +6,17 @@ import grant/errors::{DatabaseError}
 
 # Grant::Connections: named adapters registered once, looked up by models.
 pub class Connections
+  @@connection_switch_wait_period : Int32 = 2000
+
+  def self.connection_switch_wait_period : Int32
+    @@connection_switch_wait_period
+  end
+
+  def self.connection_switch_wait_period=(value : Int32) : Nil
+    @@connection_switch_wait_period = value
+    nil
+  end
+
   @@adapters = {} of String => Base
   @@registry = {} of String => Connection
 

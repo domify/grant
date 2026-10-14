@@ -78,6 +78,7 @@ pub abstract class Base
   macro inherited
     @@table_name : String = {{ @type.name.split("::").last.underscore.stringify }} + "s"
     @@connection_name : String = "sqlite"
+    @@own_connection_config : Hash(Symbol, String)? = nil
 
     macro finished
       __process_columns
@@ -407,6 +408,7 @@ pub abstract class Base
   end
 
   macro __process_columns
+    ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
@@ -612,6 +614,9 @@ pub abstract class Base
     end
 
     def self.transaction_adapter
+      unless connection_config.empty?
+        return resolve_adapter_for_role(::Grant::Settings.settings.writing_role)
+      end
       \{% begin %}
       \{% declaration = @type.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
       \{% if declaration %}
@@ -640,11 +645,17 @@ pub abstract class Base
       \{% else %}
         name = @@connection_name
       \{% end %}
+      configured_role = role == :primary ? ::Grant::Settings.settings.writing_role : role
+      name = connection_config[configured_role]? || connection_config[role]? || name
       ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter(name, ::Grant::ConnectionManagement.registry_role(role))
       \{% end %}
     end
 
     def self.adapter
+      unless connection_config.empty?
+        role = should_use_reader? ? ::Grant::Settings.settings.reading_role : ::Grant::Settings.settings.writing_role
+        return resolve_adapter_for_role(role)
+      end
       \{% begin %}
       \{% declaration = @type.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
       \{% if declaration %}
@@ -666,7 +677,12 @@ pub abstract class Base
 
     def self.__connection : ::Grant::Adapter::Sqlite::Connection
       original = __transaction_connection
-      ::Grant::Base::Base.current_transaction_connection(original) || original
+      current = ::Grant::Base::Base.current_transaction_connection(original)
+      return current unless current.nil?
+      if should_use_reader?
+        return resolve_adapter_for_role(::Grant::Settings.settings.reading_role).checkout.or_panic
+      end
+      original
     end
 
     def self.connection
@@ -1093,7 +1109,9 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      \{{ @type }}.__connection
+      \{{ @type }}.mark_write_operation
+      original = \{{ @type }}.__transaction_connection
+      ::Grant::Base::Base.current_transaction_connection(original) || original
       \{% end %}
     end
 

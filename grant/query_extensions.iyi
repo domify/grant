@@ -2,6 +2,7 @@ module grant/query_extensions
 
 import grant/adapter/sqlite_connection::{Value}
 import grant/errors::{DatabaseError}
+import grant/transaction
 
 # Native trait supplies the upstream Builder reopening without an import cycle.
 pub trait QueryExtensions(Model)
@@ -34,6 +35,9 @@ pub trait QueryExtensions(Model)
       values << value
     end
     values.concat(batch_values)
-    Model.adapter.execute("UPDATE \"#{Model.table_name}\" SET #{fields.join(", ")}#{where_sql}", values)!.changes
+    Model.mark_write_operation
+    original = Model.__transaction_connection
+    connection = ::Grant::Transaction.current_connection?(original) || original
+    connection.execute("UPDATE \"#{Model.table_name}\" SET #{fields.join(", ")}#{where_sql}", values)!.changes
   end
 end
