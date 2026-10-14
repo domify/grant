@@ -2509,7 +2509,7 @@
   target: grant_migrator_defaults_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/migrator/migrator_spec.cr
   target: grant_migrator_migrator_test.iyi
   area: other

@@ -6,6 +6,7 @@ pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
 pub import grant/columns
+pub import grant/migrator
 pub import grant/columns_helpers
 pub import grant/attributes
 pub import grant/record_copy
@@ -30,6 +31,9 @@ pub import grant/errors
 import grant/errors::{DatabaseError, RecordNotFound, RecordNotSaved, Rollback}
 import grant/database
 
+pub alias Migrator = ::Grant::Migrator::Migrator
+pub alias MigratorColumn = ::Grant::Migrator::MigratorColumn
+
 pub annotation Column
 end
 
@@ -39,85 +43,6 @@ pub struct TransactionState
   getter destroyed : Bool
 
   def initialize(@new_record : Bool, @destroyed : Bool)
-  end
-end
-
-# One column of a model as the migrator sees it: the Crystal type name and
-# the column annotation's options.
-pub struct MigratorColumn
-  getter name : String
-  getter type_name : String
-  getter column_type : String?
-  getter primary : Bool
-  getter auto : Bool
-
-  def initialize(@name : String, @type_name : String, @column_type : String?, @primary : Bool, @auto : Bool)
-  end
-
-  def nilable? : Bool
-    @type_name.includes?("?") || @type_name.includes?("Nil")
-  end
-
-  def base_type : String
-    @type_name.gsub("::", "").gsub(" | Nil", "").gsub("Nil | ", "").gsub("?", "").strip
-  end
-end
-
-pub class Migrator
-  # Grant::Adapter::Pg::Schema::TYPES over Grant::Adapter::Base::Schema::TYPES.
-  PG_TYPES = {
-    "Bool"       => "BOOL",
-    "Float32"    => "REAL",
-    "Float64"    => "DOUBLE PRECISION",
-    "Int32"      => "INT",
-    "Int64"      => "BIGINT",
-    "String"     => "TEXT",
-    "Time"       => "TIMESTAMP",
-    "StdTimeTime" => "TIMESTAMP",
-    "AUTO_Int32" => "SERIAL",
-    "AUTO_Int64" => "BIGSERIAL",
-    "UUID"       => "UUID",
-    "created_at" => "TIMESTAMP",
-    "updated_at" => "TIMESTAMP",
-  }
-
-  getter table : String
-  getter connection : Connection
-  @specs : Array(MigratorColumn)
-
-  def initialize(@connection : Connection, @table : String, @specs : Array(MigratorColumn))
-  end
-
-  def columns : Array(String)
-    @specs.map { |spec| column_sql(spec) }
-  end
-
-  def native_type(spec : MigratorColumn) : String
-    explicit = spec.column_type
-    return explicit unless explicit.nil?
-    key = spec.base_type
-    if @connection.postgres?
-      return PG_TYPES["AUTO_#{key}"]? || "BIGSERIAL" if spec.primary && spec.auto
-      return PG_TYPES[spec.name]? || "TIMESTAMP" if spec.name == "created_at" || spec.name == "updated_at"
-      return PG_TYPES[key]? || "TEXT"
-    end
-    key.includes?("Int") ? "INTEGER" : (key.includes?("Bool") ? "BOOLEAN" : (key.includes?("Float") ? "REAL" : "TEXT"))
-  end
-
-  private def column_sql(spec : MigratorColumn) : String
-    name = ::Grant::Base.quote_identifier(spec.name)
-    if spec.primary
-      "#{name} #{native_type(spec)} PRIMARY KEY#{spec.auto ? "" : " NOT NULL"}"
-    else
-      "#{name} #{native_type(spec)}#{spec.nilable? ? "" : " NOT NULL"}"
-    end
-  end
-
-  def drop_and_create : Nil | DatabaseError
-    cascade = @connection.postgres? ? " CASCADE" : ""
-    @connection.execute("DROP TABLE IF EXISTS #{::Grant::Base.quote_identifier(@table)}#{cascade}")!
-    @connection.execute("CREATE TABLE #{::Grant::Base.quote_identifier(@table)} (#{columns.join(", ")})")!
-    nil
   end
 end
 
@@ -191,7 +116,7 @@ pub abstract class Base
   end
 
   macro column(decl, **options)
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
@@ -900,16 +825,20 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.migrator : ::Grant::Base::Migrator
+    def self.exec(sql : String, binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : ::Grant::Adapter::Driver::Mutation | ::Grant::Errors::ErrorBase | Cancelled
+      connection.execute(sql, binds)
+    end
+
+    def self.migrator : ::Grant::Migrator::Migrator
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      ::Grant::Base::Migrator.new(__connection, table_name, [
+      ::Grant::Migrator::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
           \{% ann = v.annotation(::Grant::Base::Column) %}
-          ::Grant::Base::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}),
+          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}),
         \{% end %}
-      ] of ::Grant::Base::MigratorColumn)
+      ] of ::Grant::Migrator::MigratorColumn)
       \{% end %}
     end
 
