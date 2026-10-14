@@ -632,7 +632,7 @@
   target: grant_callbacks_prepend_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/proc_conditions_spec.cr
   target: grant_callbacks_proc_conditions_test.iyi
   area: query
