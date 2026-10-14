@@ -35,8 +35,16 @@ pub class W6C04
     W6C04_DIR
   end
 
+  # Upstream names the database `grant_w6_c04_<name>`. Port worktrees share
+  # one PostgreSQL server, so the checkout's own database name prefixes it.
   def self.database_name(name : String) : String
-    "grant_w6_c04_#{name}"
+    "#{checkout_database}_w6_c04_#{name}"
+  end
+
+  private def self.checkout_database : String
+    path = ADAPTER_URL.split('?').first
+    slash = path.rindex('/')
+    slash.nil? ? "grant" : path[slash + 1, path.bytesize - slash - 1]
   end
 
   # A URL on the PostgreSQL server of `PG_DATABASE_URL`, naming *database*.

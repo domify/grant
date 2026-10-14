@@ -1,7 +1,6 @@
 import grant
-import std/file::{File}
 import grant/base::{Base}
-import grant/adapter/sqlite::{Sqlite}
+import w6_c04_support::{W6C04}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/error_taxonomy::{StatementInvalid}
 
@@ -31,11 +30,10 @@ private def w6_failure(fragment : String, &block : -> T) : StatementInvalid fora
   error
 end
 
-path = File.tempfile("w6_sql", ".sqlite3")
-ConnectionRegistry.establish_connection(database: "w6_sql", adapter: Sqlite, url: "sqlite3:#{path}", role: :primary).or_panic
+W6C04.provision("w6_sql", ["CREATE TABLE w6_sql_things (#{W6C04.id_column}, label TEXT, amount BIGINT)"])
+W6C04.establish("w6_sql", "w6_sql", :primary)
 adapter = ConnectionRegistry.get_adapter("w6_sql", :primary)
-adapter.open { |db| db.exec("CREATE TABLE w6_sql_things (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, amount BIGINT)") }.or_panic
-adapter.open { |db| db.exec("INSERT INTO w6_sql_things (label, amount) VALUES ('a', 1)") }.or_panic
+W6C04.exec("w6_sql", "INSERT INTO w6_sql_things (label, amount) VALUES ('a', 1)")
 sql = "SELECT missing_col FROM w6_sql_things"
 
 # it: reports the statement of update_all, delete_all and find_each
@@ -81,5 +79,5 @@ assert scan.find_in_batches(batch_size: 0) { |_| }.is_a?(::Grant::Errors::ErrorB
 assert W6SqlThing.where("amount = ?", 3_i64).delete_all.or_panic == 1_i64
 assert W6SqlThing.where("1 = 1").count.or_panic == 0_i64
 
-ConnectionRegistry.remove_connection("w6_sql", :primary).or_panic
-File.delete(path)
+W6C04.remove("w6_sql", :primary)
+W6C04.cleanup

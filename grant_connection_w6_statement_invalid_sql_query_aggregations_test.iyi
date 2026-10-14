@@ -1,7 +1,6 @@
 import grant
-import std/file::{File}
 import grant/base::{Base}
-import grant/adapter/sqlite::{Sqlite}
+import w6_c04_support::{W6C04}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/error_taxonomy::{StatementInvalid}
 
@@ -31,11 +30,10 @@ private def w6_failure(fragment : String, &block : -> T) : StatementInvalid fora
   error
 end
 
-path = File.tempfile("w6_sql", ".sqlite3")
-ConnectionRegistry.establish_connection(database: "w6_sql", adapter: Sqlite, url: "sqlite3:#{path}", role: :primary).or_panic
+W6C04.provision("w6_sql", ["CREATE TABLE w6_sql_things (#{W6C04.id_column}, label TEXT, amount BIGINT)"])
+W6C04.establish("w6_sql", "w6_sql", :primary)
 adapter = ConnectionRegistry.get_adapter("w6_sql", :primary)
-adapter.open { |db| db.exec("CREATE TABLE w6_sql_things (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, amount BIGINT)") }.or_panic
-adapter.open { |db| db.exec("INSERT INTO w6_sql_things (label, amount) VALUES ('a', 1)") }.or_panic
+W6C04.exec("w6_sql", "INSERT INTO w6_sql_things (label, amount) VALUES ('a', 1)")
 sql = "SELECT missing_col FROM w6_sql_things"
 
 # it: reports the statement of the aggregations
@@ -62,19 +60,19 @@ assert empty.avg(:amount).or_panic.nil?
 assert empty.min(:amount).or_panic.nil?
 assert empty.max(:amount).or_panic.nil?
 grouped = W6SqlThing.where("1 = 1").group_records(:label)
-counts = grouped.count.or_panic.as(Hash(::Grant::Adapter::Sqlite::Value, Int64))
+counts = grouped.count.or_panic.as(Hash(::Grant::Adapter::Driver::Value, Int64))
 assert counts["a"] == 2_i64
 assert counts["b"] == 1_i64
 assert counts[nil] == 1_i64
-sums = grouped.sum(:amount).or_panic.as(Hash(::Grant::Adapter::Sqlite::Value, ::Grant::Adapter::Sqlite::Value))
+sums = grouped.sum(:amount).or_panic.as(Hash(::Grant::Adapter::Driver::Value, ::Grant::Adapter::Driver::Value))
 assert sums["a"] == 4_i64
 assert sums["b"] == 9_i64
 assert sums[nil] == 0_i64
 assert relation.count.or_panic == 2_i64
-assert relation.group_records(:label, :amount).count.or_panic.as(Hash(Array(::Grant::Adapter::Sqlite::Value), Int64))[(["a", 1_i64] of ::Grant::Adapter::Sqlite::Value)] == 1_i64
+assert relation.group_records(:label, :amount).count.or_panic.as(Hash(Array(::Grant::Adapter::Driver::Value), Int64))[(["a", 1_i64] of ::Grant::Adapter::Driver::Value)] == 1_i64
 assert relation.count.or_panic == 2_i64
 adapter.open { |db| db.exec("INSERT INTO w6_sql_things (label, amount) VALUES ('exact', 9007199254740993)") }.or_panic
 assert W6SqlThing.where("label = ?", "exact").sum(:amount).or_panic == 9007199254740993_i64
 
-ConnectionRegistry.remove_connection("w6_sql", :primary).or_panic
-File.delete(path)
+W6C04.remove("w6_sql", :primary)
+W6C04.cleanup

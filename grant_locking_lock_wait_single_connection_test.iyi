@@ -1,19 +1,17 @@
 import grant/base::{Base}
 import grant/locking::{LockMode}
 import grant/errors::{RecordNotFound}
-import grant/adapter/sqlite::{Sqlite}
-import grant/connection_registry::{ConnectionRegistry}
+import spec_helper::{register_spec_connections}
 
 class LockWaitSpecJob < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
-  connects_to database: "lock_wait"
   table lock_wait_spec_jobs
 
   column id : Int64, primary: true
   column state : String
 end
 
-ConnectionRegistry.establish_connection(database: "lock_wait", adapter: Sqlite, url: "sqlite3::memory:").or_panic
+register_spec_connections
 LockWaitSpecJob.migrator.drop_and_create.or_panic
 
 private def lock_wait_spec_real_locks? : Bool
@@ -53,6 +51,10 @@ assert locked.lock_mode == LockMode::Share
 assert locked.where("state = ?", "queued").lock_mode == LockMode::Share
 assert locked.lock_in_place(LockMode::Update).object_id == locked.object_id
 assert locked.lock_mode == LockMode::Update
-assert locked.to_sql == relation.to_sql
+if lock_wait_spec_real_locks?
+  assert locked.to_sql == "#{relation.to_sql} FOR UPDATE"
+else
+  assert locked.to_sql == relation.to_sql
+end
 assert LockWaitSpecJob.where(id: -1_i64).lock.first_strict.is_a?(RecordNotFound)
-assert !lock_wait_spec_real_locks?
+assert lock_wait_spec_real_locks? == LockWaitSpecJob.adapter.postgres?

@@ -1,7 +1,6 @@
 import grant
-import std/file::{File}
 import grant/base::{Base}
-import grant/adapter/sqlite::{Sqlite}
+import w6_c04_support::{W6C04}
 import grant/connection_registry::{ConnectionRegistry}
 import grant/error_taxonomy::{StatementInvalid}
 import grant/errors::{RecordNotSaved}
@@ -43,11 +42,10 @@ private def w6_wrapped_failure(fragment : String, &block : -> T) : StatementInva
   statement
 end
 
-path = File.tempfile("w6_sql", ".sqlite3")
-ConnectionRegistry.establish_connection(database: "w6_sql", adapter: Sqlite, url: "sqlite3:#{path}", role: :primary).or_panic
+W6C04.provision("w6_sql", ["CREATE TABLE w6_sql_things (#{W6C04.id_column}, label TEXT, amount BIGINT)"])
+W6C04.establish("w6_sql", "w6_sql", :primary)
 adapter = ConnectionRegistry.get_adapter("w6_sql", :primary)
-adapter.open { |db| db.exec("CREATE TABLE w6_sql_things (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, amount BIGINT)") }.or_panic
-adapter.open { |db| db.exec("INSERT INTO w6_sql_things (label, amount) VALUES ('a', 1)") }.or_panic
+W6C04.exec("w6_sql", "INSERT INTO w6_sql_things (label, amount) VALUES ('a', 1)")
 sql = "SELECT missing_col FROM w6_sql_things"
 
 # it: reports the statement of a select naming a column the table lacks
@@ -70,7 +68,7 @@ w6_failure("missing_col") { W6SqlThing.connection.execute("UPDATE w6_sql_things 
 # Native success checks exercise hydration, parameter binding and error recovery.
 assert W6SqlThing.first("WHERE amount = ?", [1_i64]).or_panic.as(W6SqlThing).label == "a"
 assert W6SqlThing.first("WHERE amount = ?", [2_i64]).or_panic.nil?
-assert W6SqlThing.find_by_sql("SELECT id, label, amount FROM w6_sql_things WHERE amount = ?", [1_i64] of ::Grant::Adapter::Sqlite::Value).or_panic.first.label == "a"
+assert W6SqlThing.find_by_sql("SELECT id, label, amount FROM w6_sql_things WHERE amount = ?", [1_i64] of ::Grant::Adapter::Driver::Value).or_panic.first.label == "a"
 assert W6SqlThing.find(1_i64).or_panic.as(W6SqlThing).amount == 1_i64
 assert W6SqlThing.find_strict(1_i64).or_panic.label == "a"
 assert W6SqlGhostThing.find_strict(1_i64).is_a?(StatementInvalid)
@@ -79,5 +77,5 @@ assert W6SqlThing.where(label: "a").update_all(amount: 2_i64).or_panic == 1_i64
 assert W6SqlThing.find(1_i64).or_panic.as(W6SqlThing).amount == 2_i64
 assert W6SqlThing.count.or_panic == 1_i64
 
-ConnectionRegistry.remove_connection("w6_sql", :primary).or_panic
-File.delete(path)
+W6C04.remove("w6_sql", :primary)
+W6C04.cleanup
