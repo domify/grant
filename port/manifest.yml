@@ -2604,7 +2604,7 @@
   target: test/grant_validation_helpers_blank_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/choice_spec.cr
   target: test/grant_validation_helpers_choice_test.iyi
   area: other
@@ -2614,7 +2614,7 @@
   target: test/grant_validation_helpers_exclusion_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/inequality_spec.cr
   target: test/grant_validation_helpers_inequality_test.iyi
   area: other
@@ -2629,7 +2629,7 @@
   target: test/grant_validation_helpers_nil_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/uniqueness_spec.cr
   target: test/grant_validation_helpers_uniqueness_test.iyi
   area: other
