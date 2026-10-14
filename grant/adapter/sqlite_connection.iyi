@@ -3,7 +3,7 @@ module grant/adapter/sqlite_connection
 import grant/cstring::{cstring}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
-import grant/error_taxonomy::{InvalidForeignKey, RecordNotUnique, NotNullViolation}
+import grant/error_taxonomy::{InvalidForeignKey, RecordNotUnique, NotNullViolation, LockWaitTimeout}
 import grant/error::{ErrorBase}
 
 # The native SQLite C driver has no exception object; retain its error code
@@ -166,6 +166,9 @@ pub class Connection
       when 2067, 1555 then return RecordNotUnique.new(code, operation, detail, sql, cause)
       when 787        then return InvalidForeignKey.new(code, operation, detail, sql, cause)
       when 1299       then return NotNullViolation.new(code, operation, detail, sql, cause)
+      end
+      if code & 0xFF == 5 || code & 0xFF == 6
+        return LockWaitTimeout.new(code, operation, detail, sql, cause)
       end
     end
     DatabaseError.new(code, operation, detail, sql, cause)

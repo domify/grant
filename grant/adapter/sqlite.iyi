@@ -8,6 +8,7 @@ pub alias Mutation = ::Grant::Adapter::SqliteConnection::Mutation
 import std/dir::{Dir}
 import std/text
 import std/file::{File}
+import std/time::{Span}
 import grant/adapter/base::{Base}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{NoDatabaseError}
@@ -44,6 +45,19 @@ pub class Sqlite < Base
 
   def initialize(name : String, url : String)
     super(name, url)
+    query = url.split('?')[1]?
+    unless query.nil?
+      query.split('&').each do |part|
+        pair = part.split('=')
+        value = pair[1]?
+        next if value.nil?
+        case pair.first
+        when "max_pool_size" then @pool_size = value.to_i
+        when "checkout_timeout" then @checkout_timeout = Span.milliseconds((value.to_f * 1000).to_i64)
+        when "busy_timeout" then @busy_timeout_ms = value.to_i
+        end
+      end
+    end
   end
 
   def insert(table_name : String, fields : Array(String), params : Array(Value), lastval : String?) : Int64 | ErrorBase | Cancelled

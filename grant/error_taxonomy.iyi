@@ -71,7 +71,21 @@ end
 pub class ConnectionNotEstablished < ErrorBase
 end
 
-pub class ConnectionTimeoutError < ErrorBase
+pub class ConnectionTimeoutError < ConnectionNotEstablished
+  getter cause : ErrorBase?
+
+  def initialize(message : String, @cause : ErrorBase? = nil)
+    super(message)
+  end
+end
+
+pub class LockWaitTimeout < StatementInvalid
+end
+
+impl ::Error for LockWaitTimeout
+  def message : String
+    @message
+  end
 end
 
 impl ::Error for ConnectionTimeoutError

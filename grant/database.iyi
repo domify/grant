@@ -34,6 +34,15 @@ pub class ConnectionLost < ErrorBase
   end
 end
 
+pub class PoolTimeout < ErrorBase
+end
+
+impl ::Error for PoolTimeout
+  def message : String
+    @message
+  end
+end
+
 impl ::Error for ConnectionLost
   def message : String
     @message
@@ -56,8 +65,9 @@ pub class Pool
   @reserved = [] of Connection
   @path : String
   @max_connections : Int32
+  @busy_timeout_ms : Int32
 
-  def initialize(connection : Connection, @path : String, @max_connections : Int32 = 1)
+  def initialize(connection : Connection, @path : String, @max_connections : Int32 = 1, @busy_timeout_ms : Int32 = 5000)
     @connections << connection
   end
 
@@ -71,8 +81,11 @@ pub class Pool
     @connections.each do |connection|
       return connection unless @reserved.includes?(connection)
     end
-    return ConnectionTimeoutError.new("Connection pool exhausted") if @connections.size >= @max_connections
-    connection = Connection.open(@path)!
+    if @connections.size >= @max_connections
+      cause = PoolTimeout.new("Connection pool exhausted")
+      return ConnectionTimeoutError.new(cause.message, cause)
+    end
+    connection = Connection.open(@path, @busy_timeout_ms)!
     @connections << connection
     connection
   end
@@ -91,7 +104,7 @@ pub class Pool
     connection.close!
     @connections.delete(connection)
     @reserved.delete(connection)
-    replacement = Connection.open(path)!
+    replacement = Connection.open(path, @busy_timeout_ms)!
     replacement.query_observer = connection.query_observer
     @connections << replacement
     nil
@@ -106,17 +119,25 @@ end
 pub class Database
   getter pool : Pool
 
-  def initialize(connection : Connection, path : String, pool_size : Int32 = 1)
-    @pool = Pool.new(connection, path, pool_size)
+  def initialize(connection : Connection, path : String, pool_size : Int32 = 1, busy_timeout_ms : Int32 = 5000)
+    @pool = Pool.new(connection, path, pool_size, busy_timeout_ms)
   end
 
-  def self.open(path : String, pool_size : Int32 = 1) : Database | DatabaseError
-    connection = Connection.open(path)!
-    new(connection, path, pool_size)
+  def self.open(path : String, pool_size : Int32 = 1, busy_timeout_ms : Int32 = 5000) : Database | DatabaseError
+    connection = Connection.open(path, busy_timeout_ms)!
+    new(connection, path, pool_size, busy_timeout_ms)
   end
 
   def checkout : Connection | ErrorBase
     @pool.checkout
+  end
+
+  def using_connection(&block : Connection -> T) : T | ErrorBase forall T
+    connection = checkout!
+    @pool.reserve(connection)
+    result = yield connection
+    @pool.release(connection)
+    result
   end
 
   def close : Nil | DatabaseError

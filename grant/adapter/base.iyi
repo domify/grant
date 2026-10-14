@@ -22,7 +22,8 @@ pub abstract class Base
   property retry_attempts : Int32 = 1
   property retry_delay : Span = Span.milliseconds(200_i64)
   property verify_idle_after : Span? = Span.seconds(30_i64)
-  property pool_size : Int32 = 1
+  property pool_size : Int32 = 25
+  property busy_timeout_ms : Int32 = 5000
   property checkout_timeout : Span = Span.seconds(5_i64)
   @waiting_checkouts : Int32 = 0
 
@@ -32,7 +33,7 @@ pub abstract class Base
   def database : Database | DatabaseError | ConnectionRefused
     opened = @_database
     return opened unless opened.nil?
-    opened = Database.open(database_path, @pool_size)!
+    opened = Database.open(database_path, @pool_size, @busy_timeout_ms)!
     @_database = opened
     opened
   end
@@ -199,10 +200,14 @@ pub abstract class Base
   end
 
   def open(sql : String? = nil, binds : Array(Value)? = nil, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
+    open_connection(sql, binds, false) { |connection| yield connection }
+  end
+
+  private def open_connection(sql : String?, binds : Array(Value)?, pool_only : Bool, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
     lost_retries = idempotent_read?(sql) && @retry_attempts > 0 ? 1 : 0
     attempt = 0
     loop do
-      connection = checkout!
+      connection = (pool_only ? checkout_connection : checkout)!
       # The upstream transaction route never enters its replaying pool route.
       lost_retries = 0 if connection.in_transaction? || !pinned_connection?.nil?
       @in_use += 1
@@ -226,5 +231,9 @@ pub abstract class Base
         return result
       end
     end
+  end
+
+  def open_pool_connection(sql : String? = nil, binds : Array(Value)? = nil, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
+    open_connection(sql, binds, true) { |connection| yield connection }
   end
 end

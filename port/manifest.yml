@@ -195,6 +195,9 @@
     - T-5ed3192212
     - T-ac011e14df
     - T-0c0e0a861e
+  - target: grant_errors_constraint_translation_contention_test.iyi
+    status: done
+    examples:
     - T-1a819b94ff
     - T-6304cdbf37
 - source: crystal-upstream/spec/grant/locking/lock_wait_spec.cr
