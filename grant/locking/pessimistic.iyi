@@ -20,7 +20,7 @@ end
 # instance and ClassMethods API into each model through Base's finished hook.
 pub macro model_methods(model)
   def self.lock(mode : ::Grant::Locking::LockMode = ::Grant::Locking::LockMode::Update)
-    ::Grant::Query::Builder::Builder({{ model }}).new.lock(mode)
+    current_scope.lock(mode)
   end
 
   def self.with_lock(id : ::Grant::Adapter::Driver::Value, mode : ::Grant::Locking::LockMode = ::Grant::Locking::LockMode::Update, requires_new : Bool = false, isolation : ::Grant::Transaction::IsolationLevel? = nil, &block : {{ model }} -> U) : U | ::Grant::Error::ErrorBase | ::Grant::Errors::RecordNotFound forall U

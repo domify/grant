@@ -6,8 +6,9 @@ import grant/errors::{DatabaseError, RecordNotFound, ErrorBase}
 import grant/error::{ArgumentError}
 import grant/locking::{LockMode}
 import grant/query/where_field::{Bind, WhereField, StructuredWhere, JoinClause, HavingClause, OrderField, GroupField}
-import grant/query/where_field
+pub import grant/query/where_field
 import grant/query/bind_value::{to_bind, to_value}
+import grant/query/join_support::{JoinSupport}
 import grant/query/assembler
 import grant/query/executor
 import grant/query/batches::{Batches}
@@ -66,8 +67,11 @@ pub class Builder(Model)
   def initialize(@db_type : DbType = DbType::Sqlite, @boolean_operator : Symbol = :and)
   end
 
-  def db_type : DbType
-    Model.adapter.postgres? ? DbType::Pg : DbType::Sqlite
+  getter db_type : DbType
+
+  # The DbType of *adapter*, as the model passes it to new relations.
+  def self.db_type_for(adapter : ::Grant::Adapter::Base::Base) : DbType
+    adapter.postgres? ? DbType::Pg : DbType::Sqlite
   end
 
   def distinct? : Bool
@@ -236,7 +240,7 @@ pub class Builder(Model)
   end
 
   def assembler : ::Grant::Query::Assembler::Base(Model, Builder(Model))
-    if Model.adapter.postgres?
+    if @db_type == DbType::Pg
       ::Grant::Query::Assembler::Pg(Model, Builder(Model)).new(self).as(::Grant::Query::Assembler::Base(Model, Builder(Model)))
     else
       ::Grant::Query::Assembler::Sqlite(Model, Builder(Model)).new(self).as(::Grant::Query::Assembler::Base(Model, Builder(Model)))
@@ -415,6 +419,38 @@ pub class Builder(Model)
     add_array_condition(:or, field.to_s, negated ? :nin : :in, values)
   end
 
+  def and_where(field : Symbol | String, operator : Symbol, value : T) : self forall T
+    chain_copy.and_in_place(field, operator, value)
+  end
+
+  def and_where(stmt : String) : self
+    chain_copy.and_in_place(stmt)
+  end
+
+  def and_where(stmt : String, value : T) : self forall T
+    chain_copy.and_in_place(stmt, value)
+  end
+
+  def and_where(**matches) : self
+    chain_copy.and_in_place(**matches)
+  end
+
+  def or_where(field : Symbol | String, operator : Symbol, value : T) : self forall T
+    chain_copy.or_in_place(field, operator, value)
+  end
+
+  def or_where(stmt : String) : self
+    chain_copy.or_in_place(stmt)
+  end
+
+  def or_where(stmt : String, value : T) : self forall T
+    chain_copy.or_in_place(stmt, value)
+  end
+
+  def or_where(**matches) : self
+    chain_copy.or_in_place(**matches)
+  end
+
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
     if value.is_a?(Array)
@@ -463,7 +499,7 @@ pub class Builder(Model)
   # deferred) for a field this model does not have.
   private def structured_field_sql(field : String) : String?
     parts = field.split('.')
-    unless (parts.size == 1 || parts.size == 2) && parts.all? { |part| ::Grant::Query::JoinSupport::JoinSupport.identifier?(part) }
+    unless (parts.size == 1 || parts.size == 2) && parts.all? { |part| JoinSupport.identifier?(part) }
       defer(ArgumentError.new("Invalid query field #{field.inspect}"))
       return nil
     end
@@ -818,6 +854,13 @@ pub class Builder(Model)
     assembled_error = query_assembler.error
     return assembled_error unless assembled_error.nil?
     executor
+  end
+
+  # SELECT projection: only these columns (upstream `select(*columns)`).
+  def select(*columns : Symbol | String) : self
+    copy = chain_copy
+    copy.select_columns = columns.to_a.map { |column| column.to_s }
+    copy
   end
 
   def select : Array(Model) | ErrorBase

@@ -1040,7 +1040,7 @@ pub abstract class Base
     def self.current_scope : ::Grant::Query::Builder::Builder({{ @type }})
       scoped = ::Grant::Scoping.current_relation(self)
       return scoped unless scoped.nil?
-      query = ::Grant::Query::Builder::Builder({{ @type }}).new
+      query = ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
       !_unscoped? && _has_default_scope? ? apply_default_scope(query) : query
     end
 
@@ -1051,13 +1051,13 @@ pub abstract class Base
     def self.unscoped(&block : ::Grant::Query::Builder::Builder({{ @type }}) -> T) : T forall T
       old_unscoped = _unscoped?
       self._unscoped = true
-      result = ::Grant::Scoping.without_relation(self.to_s) { yield ::Grant::Query::Builder::Builder({{ @type }}).new }
+      result = ::Grant::Scoping.without_relation(self.to_s) { yield ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter)) }
       self._unscoped = old_unscoped
       result
     end
 
     def self.unscoped : ::Grant::Query::Builder::Builder({{ @type }})
-      ::Grant::Query::Builder::Builder({{ @type }}).new
+      ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
     end
 
     def self.where(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})

@@ -933,12 +933,12 @@
   target: grant_query_assemblers_pg_test.iyi
   area: query
   examples: 17
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/assemblers/sqlite_spec.cr
   target: grant_query_assemblers_sqlite_test.iyi
   area: query
   examples: 21
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/async_spec.cr
   target: grant_query_async_test.iyi
   area: query
@@ -948,7 +948,7 @@
   target: grant_query_builder_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/calculate_spec.cr
   target: grant_query_calculate_test.iyi
   area: query
