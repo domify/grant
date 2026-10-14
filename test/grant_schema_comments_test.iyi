@@ -1,9 +1,10 @@
+module test/grant_schema_comments_test
 import grant/schema/schema_statements::{RecordingStatements, AdapterStatements}
 import grant/schema/introspection
 import grant/schema/column_info::{ColumnInfo}
 import grant/adapter/schema::{Dialect, UnsupportedOperation}
 import grant/connections::{Connections}
-import spec_helper
+import test/spec_helper
 import std/text
 SpecHelper.register_spec_connections
 # it: comments a table on PostgreSQL and MySQL and skips SQLite

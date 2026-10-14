@@ -1,9 +1,10 @@
+module test/grant_schema_pg_enum_extension_test
 import grant/schema/schema_statements::{RecordingStatements, AdapterStatements}
 import grant/schema/introspection
 import grant/adapter/schema::{Dialect, UnsupportedOperation}
 import grant/errors::{ErrorBase}
 import grant/connections::{Connections}
-import spec_helper
+import test/spec_helper
 import std/text
 SpecHelper.register_spec_connections
 pg = RecordingStatements.new(Dialect::Pg)

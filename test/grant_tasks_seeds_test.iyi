@@ -1,5 +1,6 @@
+module test/grant_tasks_seeds_test
 import grant/seeds
-import spec_helper
+import test/spec_helper
 import grant/connections::{Connections}
 import grant/errors::{ErrorBase}
 SpecHelper.register_spec_connections
@@ -76,5 +77,5 @@ reset_seeds
 error = ::Grant::Seeds.run("db/m04_no_seeds.cr")
 assert error.is_a?(::Grant::Seeds::SeedFileMissing)
 assert error.message.includes?("m04_no_seeds.cr") if error.is_a?(ErrorBase)
-assert ::Grant::Seeds.run("grant_tasks_seeds_test.iyi").is_a?(::Grant::Seeds::SeedsNotCompiled)
+assert ::Grant::Seeds.run("test/grant_tasks_seeds_test.iyi").is_a?(::Grant::Seeds::SeedsNotCompiled)
 reset_seeds
