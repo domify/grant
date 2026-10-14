@@ -1,7 +1,7 @@
 module grant/connection_pool
 
 import grant/adapter/base::{Base}
-import grant/adapter/sqlite_connection::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/pool_stat::{PoolStat}
 import grant/error::{ErrorBase}
 

@@ -16,8 +16,13 @@ module CoverageGen
   AREAS = %w[transactions query associations dirty_state other].freeze
   EXCLUDE_REASON = "adapter-out-of-scope".freeze
 
-  # Whole upstream files that only exist for PostgreSQL or MySQL.
-  ADAPTER_FILE = %r{(^|/)(pg|mysql|pg_[a-z_]+|mysql_[a-z_]+|jsonb|gin_index)(_spec)?\.cr$}
+  # SQLite and PostgreSQL are in scope; only MySQL is excluded.
+  ADAPTERS = %w[sqlite pg mysql].freeze
+  IN_SCOPE_ADAPTERS = %w[sqlite pg].freeze
+  # Whole upstream files that only exist for MySQL.
+  ADAPTER_FILE = %r{(^|/)(mysql|mysql_[a-z_]+)(_spec)?\.cr$}
+  # Whole upstream files that only exist for PostgreSQL (in scope, run on pg only).
+  PG_FILE = %r{(^|/)(pg|pg_[a-z_]+|jsonb|gin_index)(_spec)?\.cr$}
 
   AREA_RULES = [
     ["transactions", /transaction|savepoint|commit|rollback|atomicit|pessimistic|advisory_lock/i],
@@ -48,21 +53,36 @@ module CoverageGen
     line.scan(/<<[-~]["']?([A-Z_][A-Z0-9_]*)["']?/).flatten
   end
 
-  # Is the current macro / runtime adapter branch PostgreSQL or MySQL only?
-  def branch_excluded?(conds, in_else)
-    current = conds.last
-    if in_else
-      return conds.any? { |c| c =~ /==\s*"sqlite"/ || c =~ /sqlite\?/ }
-    end
-    return true if current =~ /==\s*"(pg|mysql)"/ && current !~ /sqlite/ && current !~ /includes\?/
-    return true if current =~ /(postgres|mysql)\?/
-    return true if current =~ /!=\s*"sqlite"/
-    return true if current =~ /^\s*unless\b.*==\s*"sqlite"/
-    false
+  # The adapters under which a single condition is true; unknown conditions
+  # are true under every adapter.
+  def cond_adapters(cond)
+    negate = cond =~ /\A\s*unless\b/
+    body = cond.sub(/\A\s*(if|unless|elsif)\s+/, "")
+    set =
+      if (list = body[/\[([^\]]*)\]\.includes\?/, 1])
+        list.scan(/"(\w+)"/).flatten & ADAPTERS
+      elsif body =~ /!=\s*"(\w+)"/
+        ADAPTERS - [$1]
+      elsif (named = body.scan(/==\s*"(\w+)"/).flatten & ADAPTERS).any?
+        body.include?("&&") ? [named.first] : named
+      elsif (named = body.scan(/\b(postgres|mysql|sqlite)\?/).flatten).any?
+        named.map { |n| n == "postgres" ? "pg" : n }.uniq
+      else
+        ADAPTERS
+      end
+    negate ? ADAPTERS - set : set
+  end
+
+  # Adapters under which the current branch of an if/elsif/else chain runs.
+  def branch_adapters(conds, in_else)
+    earlier = in_else ? conds : conds[0...-1]
+    taken = earlier.flat_map { |c| cond_adapters(c) }.uniq
+    current = in_else ? ADAPTERS : cond_adapters(conds.last)
+    current - taken
   end
 
   def adapter_cond?(cond)
-    cond =~ /CURRENT_ADAPTER|adapter\.(postgres|mysql|sqlite)\?/
+    cond =~ /CURRENT_ADAPTER|\b(postgres|mysql|sqlite)\?/
   end
 
   def spec_files
@@ -77,6 +97,7 @@ module CoverageGen
     rel = file.delete_prefix(ROOT + "/")
     urel = file.delete_prefix(UPSTREAM + "/")
     whole_excluded = urel =~ ADAPTER_FILE
+    whole_pg = urel =~ PG_FILE
     entries = []
     describes = []   # [indent, name]
     macro = []       # {conds:, else:, adapter:}
@@ -105,7 +126,7 @@ module CoverageGen
       end
       indent = line[/^\s*/].size
       # Runtime adapter blocks: `if CURRENT_ADAPTER == "pg"` on its own line.
-      if line =~ /^\s*(if|unless)\s+(CURRENT_ADAPTER\s*[!=]=\s*"\w+"|adapter\.\w+\?)\s*$/
+      if line =~ /^\s*(if|unless)\s+((?:[\w:]+\.)?(?:CURRENT_ADAPTER\s*[!=]=\s*"\w+"|adapter\.(?:postgres|mysql|sqlite)\?|dialect\.(?:postgres|mysql|sqlite)\?))\s*$/
         runtime << {indent: indent, conds: ["#{$1} #{$2}"], else: false}
       elsif (top = runtime.last) && top[:indent] == indent
         if line =~ /^\s*elsif\s+(.*)$/ then top[:conds] << "if #{$1}"
@@ -124,10 +145,12 @@ module CoverageGen
         chain = describes.map(&:last).join(" > ")
         key = [urel, chain, desc]
         n = (seen[key] += 1)
-        excluded = whole_excluded ||
-          macro.any? { |m| m[:adapter] && branch_excluded?(m[:conds], m[:else]) } ||
-          runtime.any? { |r| branch_excluded?(r[:conds], r[:else]) } ||
-          "#{chain} #{desc}" =~ /\b(postgres(ql)?|mysql|mariadb)\b/i && "#{chain} #{desc}" !~ /sqlite/i
+        adapters = whole_pg ? ["pg"] : ADAPTERS.dup
+        macro.each { |m| adapters &= branch_adapters(m[:conds], m[:else]) if m[:adapter] }
+        runtime.each { |r| adapters &= branch_adapters(r[:conds], r[:else]) }
+        label = "#{chain} #{desc}"
+        adapters &= ["mysql"] if label =~ /\b(mysql|mariadb)\b/i && label !~ /\b(sqlite|postgres(ql)?|pg)\b/i
+        excluded = whole_excluded || (adapters & IN_SCOPE_ADAPTERS).empty?
         entries << {
           "id" => sid("T", *key, n), "kind" => "test",
           "source_ref" => "#{rel}:#{no}", "area" => classify(urel, "#{chain} #{desc}"),
@@ -135,13 +158,18 @@ module CoverageGen
           "name" => [chain, desc].reject(&:empty?).join(" > ") + (kw == "it" ? "" : " [upstream #{kw}]"),
           "status" => excluded ? "excluded" : "todo",
           "exclusion_reason" => excluded ? EXCLUDE_REASON : nil,
+          "adapters" => adapters & IN_SCOPE_ADAPTERS,
           "_indent" => ind,
         }
-      elsif line =~ /\bpending!\s*\(?\s*"([^"]*)"/ && $1 =~ /(postgres\w*|mysql|mariadb)\b[^"]*\bonly\b/i &&
+      elsif line =~ /\bpending!\s*\(?\s*"([^"]*)"/ && $1 =~ /(mysql|mariadb)\b[^"]*\bonly\b/i &&
             (last = entries.last) && indent > last["_indent"]
-        # `pending!("PostgreSQL only")` inside an example makes that example adapter specific.
+        # `pending!("MySQL only")` inside an example makes that example adapter specific.
         last["status"] = "excluded"
         last["exclusion_reason"] = EXCLUDE_REASON
+      elsif line =~ /\bpending!\s*\(?\s*"([^"]*)"/ && $1 =~ /\bpostgres\w*\b[^"]*\bonly\b/i &&
+            (last = entries.last) && indent > last["_indent"]
+        # `pending!("PostgreSQL only")` makes that example run on pg only.
+        last["adapters"] &= ["pg"]
       end
       heredoc.concat(heredoc_terms(line))
     end

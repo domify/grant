@@ -1,11 +1,18 @@
 #!/usr/bin/env ruby
 require "open3"
 require "pathname"
+require "digest"
 require_relative "../port/manifest"
 
 Dir.chdir(CoverageGen::ROOT)
 ENV["IYI_CACHE_DIR"] = File.join(Dir.pwd, ".iyi-cache")
 iyi = ENV.fetch("IYI", "/home/priit/contribute/iyi/bin/iyi")
+# Every test runs once per in-scope adapter (SQLite and PostgreSQL). Each
+# checkout gets its own PostgreSQL database so parallel worktrees never share rows.
+adapters = ENV.fetch("PORT_ADAPTERS", "sqlite pg").split
+pg_server = ENV.fetch("PG_SERVER_URL", "postgres://grant:password@127.0.0.1:5433")
+pg_database = "grant_#{Digest::SHA1.hexdigest(Dir.pwd)[0, 10]}"
+pg_url = ENV.fetch("PG_DATABASE_URL", "#{pg_server}/#{pg_database}")
 fast = ARGV.first == "--fast"
 integrate = ARGV.first == "--integrate"
 ARGV.shift if fast || integrate
@@ -88,6 +95,12 @@ end
 puts "INTEGRATE validation only; OK means no regression, full mode is the only completion result" if integrate
 
 tests = fast ? selected : all_tests
+if adapters.include?("pg") && !ENV.key?("PG_DATABASE_URL")
+  _, status = Open3.capture2e("psql", "#{pg_server}/postgres", "-qtc", "SELECT 1")
+  errors << "PostgreSQL is unreachable at #{pg_server} (docker start grant-pg)" unless status.success?
+  exists, _ = Open3.capture2e("psql", "#{pg_server}/postgres", "-qtAc", "SELECT 1 FROM pg_database WHERE datname = '#{pg_database}'")
+  Open3.capture2e("psql", "#{pg_server}/postgres", "-qc", "CREATE DATABASE #{pg_database}") if status.success? && exists.strip != "1"
+end
 errors << "no tests selected" if tests.empty?
 tests.each do |file|
   unless File.file?(file) && file.end_with?("_test.iyi")
@@ -96,16 +109,21 @@ tests.each do |file|
   end
   # Example descriptions are provenance; reject disabling markers in all other lines.
   contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) }.join
-  errors << "skip/pending/TODO marker: #{file}" if contents.match?(/\b(skip|skipped|pending|TODO|FIXME|xit)\b/i)
-  output, status = Open3.capture2e(ENV.to_h, iyi, "test", "--json", file)
-  puts output
-  begin
-    result = JSON.parse(output)
-    passed = status.success? && result["failed"] == 0 && result["skipped"] == 0 && result["passed"].to_i > 0 &&
-      result.fetch("tests").all? { |t| t["status"] == "pass" }
-    errors << "test failed: #{file}" unless passed
-  rescue JSON::ParserError, KeyError
-    errors << "invalid test JSON: #{file}"
+  # Disabling constructs, not words: upstream names such as `skipped` and SQL
+  # such as SKIP LOCKED are ordinary code.
+  errors << "skip/pending/TODO marker: #{file}" if contents.match?(/^\s*(skip|pending|xit)\b|\bpending!|\b(TODO|FIXME)\b|#\s*(skip|skipped|pending)\b/i)
+  adapters.each do |adapter|
+    env = ENV.to_h.merge("CURRENT_ADAPTER" => adapter, "PG_DATABASE_URL" => pg_url)
+    output, status = Open3.capture2e(env, iyi, "test", "--json", file)
+    puts "[#{adapter}] #{output}"
+    begin
+      result = JSON.parse(output)
+      passed = status.success? && result["failed"] == 0 && result["skipped"] == 0 && result["passed"].to_i > 0 &&
+        result.fetch("tests").all? { |t| t["status"] == "pass" }
+      errors << "test failed on #{adapter}: #{file}" unless passed
+    rescue JSON::ParserError, KeyError
+      errors << "invalid test JSON on #{adapter}: #{file}"
+    end
   end
 end
 errors.each { |error| warn error }

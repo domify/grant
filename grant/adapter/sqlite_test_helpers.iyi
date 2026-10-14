@@ -1,6 +1,6 @@
 module grant/adapter/sqlite_test_helpers
 
-import grant/adapter/sqlite::{Connection, Value}
+import grant/adapter/driver::{Connection, Value}
 import grant/errors::{DatabaseError}
 
 # Native traits preserve the adapter helper API without reopening an imported class.

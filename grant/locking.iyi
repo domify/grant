@@ -1,5 +1,9 @@
 module grant/locking
 
+import grant/error_taxonomy
+
+pub alias LockWaitTimeoutError = ::Grant::ErrorTaxonomy::LockWaitTimeout
+
 # The adapter owns SQL rendering so a SQLite-only application never imports
 # an adapter it does not use.
 pub enum LockMode

@@ -5,7 +5,7 @@ import grant/locking::{LockMode}
 import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost}
 import grant/pool_stat::{PoolStat}
 import grant/adapter/pool_support::{backoff, idempotent_read?, ticks}
-import grant/adapter/sqlite_connection::{Connection, Value, Mutation}
+import grant/adapter/driver::{Connection, Value, Mutation}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError, ConnectionTimeoutError}
 
@@ -133,6 +133,16 @@ pub abstract class Base
 
   def pinned_connection? : Connection?
     @pinned_connections[IyiScheduler.current.object_id]?
+  end
+
+  def pin_connection(connection : Connection) : Nil
+    @pinned_connections[IyiScheduler.current.object_id] = connection
+    nil
+  end
+
+  def unpin_connection : Nil
+    @pinned_connections.delete(IyiScheduler.current.object_id)
+    nil
   end
 
   def with_connection(&block : Connection -> T) : T | ErrorBase | Cancelled forall T

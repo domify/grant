@@ -1,6 +1,6 @@
 module grant/query/builder
 
-import grant/adapter/sqlite_connection::{Value}
+import grant/adapter/driver::{Value}
 import grant/errors::{DatabaseError, RecordNotFound, ErrorBase}
 import grant/locking::{LockMode}
 import grant/query/batches::{Batches}
@@ -250,6 +250,10 @@ pub class Builder(Model)
 
   def select : Array(Model) | DatabaseError | ErrorBase
     Model.__connection.query(to_sql, @where_values)!.map { |row| Model.from_row(row)! }
+  end
+
+  def to_a : Array(Model) | DatabaseError | ErrorBase
+    self.select
   end
 
   def first : Model | Nil | DatabaseError | ErrorBase

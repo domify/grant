@@ -1,6 +1,6 @@
 module grant/query_extensions
 
-import grant/adapter/sqlite_connection::{Value}
+import grant/adapter/driver::{Value}
 import grant/errors::{DatabaseError}
 import grant/transaction
 

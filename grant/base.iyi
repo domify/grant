@@ -17,7 +17,7 @@ pub import grant/locking/pessimistic
 
 pub import grant/adapter/sqlite
 pub import grant/adapter/base
-import grant/adapter/sqlite::{Connection, Value, Row}
+import grant/adapter/driver::{Connection, Value, Row}
 pub import grant/connection_management
 pub import grant/connection_pool
 pub import grant/connection
@@ -166,6 +166,13 @@ pub abstract class Base
     {% else %}
       def {{decl.var}} : {{decl.type}} | Nil
         @{{decl.var}}
+      end
+    {% end %}
+
+    {% unless options[:lazy] %}
+      def {{decl.var}}_strict : {{decl.type}} | ::Grant::Encryption::Sealed::NilAssertionError
+        value = @{{decl.var}}
+        value.nil? ? ::Grant::Encryption::Sealed::NilAssertionError.new({{ @type.stringify }} + "#" + {{ decl.var.stringify }} + " cannot be nil") : value
       end
     {% end %}
 
@@ -677,7 +684,7 @@ pub abstract class Base
       return ::Grant::Error::ErrorBase.new("Cannot touch on a new record object") unless persisted?
       __remember_transaction_state
       touch_fields = [] of String
-      touch_values = [] of ::Grant::Adapter::Sqlite::Value
+      touch_values = [] of ::Grant::Adapter::Driver::Value
       \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
       \{% for v in columns %}
         \{% if ["updated_at", "updated_on"].includes?(v.name.stringify) && v.annotation(::Grant::Base::Column)[:type].includes?("Time") %}
@@ -773,7 +780,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.__transaction_connection : ::Grant::Adapter::Sqlite::Connection
+    def self.__transaction_connection : ::Grant::Adapter::Driver::Connection
       selected = transaction_adapter
       if selected.is_a?(::Grant::Adapter::Base::Base)
         selected.checkout.or_panic
@@ -782,7 +789,7 @@ pub abstract class Base
       end
     end
 
-    def self.__connection : ::Grant::Adapter::Sqlite::Connection
+    def self.__connection : ::Grant::Adapter::Driver::Connection
       original = __transaction_connection
       current = ::Grant::Base::Base.current_transaction_connection(original)
       return current unless current.nil?
@@ -803,7 +810,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.with_connection(&block : ::Grant::Adapter::Sqlite::Connection -> T) forall T
+    def self.with_connection(&block : ::Grant::Adapter::Driver::Connection -> T) forall T
       selected = transaction_adapter
       if selected.is_a?(::Grant::Adapter::Base::Base)
         selected.with_connection { |raw| yield raw }
@@ -865,7 +872,7 @@ pub abstract class Base
       \{% end %}
     end
 
-    def self.from_row(row : ::Grant::Adapter::Sqlite::Row) : {{ @type }} | ::Grant::Error::ErrorBase
+    def self.from_row(row : ::Grant::Adapter::Driver::Row) : {{ @type }} | ::Grant::Error::ErrorBase
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -948,7 +955,7 @@ pub abstract class Base
       find(::Grant::Base.sqlite_value(id))
     end
 
-    def self.find(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+    def self.find(id : ::Grant::Adapter::Driver::Value) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -962,7 +969,7 @@ pub abstract class Base
       find_strict(::Grant::Base.sqlite_value(id))
     end
 
-    def self.find_strict(id : ::Grant::Adapter::Sqlite::Value) : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+    def self.find_strict(id : ::Grant::Adapter::Driver::Value) : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -1007,7 +1014,7 @@ pub abstract class Base
       current_scope.where_in_place(stmt)
     end
 
-    def self.where(field : Symbol | String, operator : Symbol, value : ::Grant::Adapter::Sqlite::Value) : ::Grant::Query::Builder::Builder({{ @type }}) | ::Grant::Error::ErrorBase
+    def self.where(field : Symbol | String, operator : Symbol, value : ::Grant::Adapter::Driver::Value) : ::Grant::Query::Builder::Builder({{ @type }}) | ::Grant::Error::ErrorBase
       current_scope.where_in_place(field, operator, value)
     end
 
@@ -1015,7 +1022,7 @@ pub abstract class Base
       current_scope.where_in_place(stmt, values)
     end
 
-    def self.where(stmt : String, value : ::Grant::Adapter::Sqlite::Value) : ::Grant::Query::Builder::Builder({{ @type }})
+    def self.where(stmt : String, value : ::Grant::Adapter::Driver::Value) : ::Grant::Query::Builder::Builder({{ @type }})
       current_scope.where_in_place(stmt, value)
     end
 
@@ -1068,7 +1075,7 @@ pub abstract class Base
       all("#{clause} LIMIT 1", values)!.first?
     end
 
-    def self.find_by_sql(sql : String, binds : Array(::Grant::Adapter::Sqlite::Value) = [] of ::Grant::Adapter::Sqlite::Value) : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+    def self.find_by_sql(sql : String, binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       __connection.query(sql, binds)!.map { |row| from_row(row)! }
     end
 
@@ -1096,7 +1103,7 @@ pub abstract class Base
       self.class.primary_name
     end
 
-    def __primary_value : ::Grant::Adapter::Sqlite::Value
+    def __primary_value : ::Grant::Adapter::Driver::Value
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -1137,11 +1144,11 @@ pub abstract class Base
       names
     end
 
-    def __column_values : Array(::Grant::Adapter::Sqlite::Value) | ::Grant::Error::ErrorBase
+    def __column_values : Array(::Grant::Adapter::Driver::Value) | ::Grant::Error::ErrorBase
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      values = [] of ::Grant::Adapter::Sqlite::Value
+      values = [] of ::Grant::Adapter::Driver::Value
       \{% for v in columns %}
         \{% unless v == primary %}
           \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
@@ -1264,11 +1271,11 @@ pub abstract class Base
       nil
     end
 
-    def __transaction_adapter : ::Grant::Adapter::Sqlite::Connection | ::Grant::Adapter::Base::Base
+    def __transaction_adapter : ::Grant::Adapter::Driver::Connection | ::Grant::Adapter::Base::Base
       self.class.transaction_adapter
     end
 
-    def __adapter : ::Grant::Adapter::Sqlite::Connection
+    def __adapter : ::Grant::Adapter::Driver::Connection
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
@@ -1347,7 +1354,7 @@ pub abstract class Base
   end
 
   abstract def __primary_name : String
-  abstract def __primary_value : ::Grant::Adapter::Sqlite::Value
+  abstract def __primary_value : ::Grant::Adapter::Driver::Value
   abstract def __primary_auto? : Bool
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)

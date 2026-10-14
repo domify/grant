@@ -1,6 +1,7 @@
 module grant/database
 
-import grant/adapter/sqlite_connection::{Connection}
+import grant/adapter/driver::{Connection}
+import grant/adapter/drivers::{open_connection}
 import grant/errors::{DatabaseError}
 import grant/error::{ErrorBase}
 import grant/error_taxonomy::{ConnectionTimeoutError}
@@ -85,7 +86,7 @@ pub class Pool
       cause = PoolTimeout.new("Connection pool exhausted")
       return ConnectionTimeoutError.new(cause.message, cause)
     end
-    connection = Connection.open(@path, @busy_timeout_ms)!
+    connection = open_connection(@path, @busy_timeout_ms)!
     @connections << connection
     connection
   end
@@ -104,7 +105,7 @@ pub class Pool
     connection.close!
     @connections.delete(connection)
     @reserved.delete(connection)
-    replacement = Connection.open(path, @busy_timeout_ms)!
+    replacement = open_connection(path, @busy_timeout_ms)!
     replacement.query_observer = connection.query_observer
     @connections << replacement
     nil
@@ -124,7 +125,7 @@ pub class Database
   end
 
   def self.open(path : String, pool_size : Int32 = 1, busy_timeout_ms : Int32 = 5000) : Database | DatabaseError
-    connection = Connection.open(path, busy_timeout_ms)!
+    connection = open_connection(path, busy_timeout_ms)!
     new(connection, path, pool_size, busy_timeout_ms)
   end
 

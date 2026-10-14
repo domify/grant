@@ -1,0 +1,82 @@
+module grant/adapter/driver
+
+import grant/locking::{LockMode}
+import grant/adapter/pool_support::{ticks}
+import grant/errors::{DatabaseError}
+
+# Native replacement for crystal-db's driver contract. Grant's adapters, pools
+# and models hold this abstract connection; the SQLite and PostgreSQL drivers
+# own their C handles beneath it.
+pub alias Value = Nil | Bool | Int64 | Float64 | String
+pub alias Row = Hash(String, Value)
+
+pub struct Mutation
+  getter changes : Int64
+  getter last_insert_id : Int64
+
+  def initialize(@changes : Int64, @last_insert_id : Int64)
+  end
+end
+
+# Live driver result set: statement ownership stays with Connection#query.
+pub abstract class ResultSet
+  abstract def column_names : Array(String)
+  abstract def each(&block : -> T) : Nil | T | DatabaseError forall T
+  abstract def read : Value | DatabaseError
+
+  def column_count : Int32
+    column_names.size
+  end
+end
+
+pub abstract class Connection
+  @savepoint_sequence : UInt64 = 0_u64
+  property name : String = "sqlite"
+  property grant_last_used_ticks : Int64 = ticks
+  property transaction_materializer : Proc(Nil | DatabaseError)? = nil
+  property query_observer : Proc(String, Nil)? = nil
+
+  abstract def path : String
+  abstract def last_statement : String?
+  abstract def supports_lock_mode?(mode : LockMode) : Bool
+  abstract def lock_clause(mode : LockMode) : String
+  abstract def import_records(table_name : String, primary_name : String, fields : Array(String), rows : Array(Array(Value)), update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | DatabaseError
+  abstract def open_independent : Connection | DatabaseError
+  abstract def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+  abstract def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+  abstract def query(sql : String, parameters : Array(Value) = [] of Value, &block : ResultSet -> T) : T | DatabaseError forall T
+  abstract def in_transaction? : Bool
+  abstract def closed? : Bool
+  abstract def close : Nil | DatabaseError
+
+  # PostgreSQL reports the generated key through RETURNING; SQLite through
+  # its last-insert rowid.
+  abstract def insert(sql : String, parameters : Array(Value), primary_name : String?) : Mutation | DatabaseError
+
+  def exec(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    execute(sql, parameters)
+  end
+
+  def select_all(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+    query(sql, parameters)
+  end
+
+  def scalar(sql : String, parameters : Array(Value) = [] of Value) : Value | DatabaseError
+    rows = query(sql, parameters)!
+    return nil if rows.empty?
+    rows.first.values.first
+  end
+
+  def savepoint_name : String
+    @savepoint_sequence += 1_u64
+    "grant_savepoint_#{@savepoint_sequence}"
+  end
+
+  def sqlite? : Bool
+    false
+  end
+
+  def postgres? : Bool
+    false
+  end
+end

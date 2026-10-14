@@ -1,8 +1,8 @@
 module grant/connection
 
 import grant/adapter/base::{Base}
-import grant/adapter/sqlite_connection::{Value, Mutation, ResultSet}
-alias RawConnection = ::Grant::Adapter::SqliteConnection::Connection
+import grant/adapter/driver::{Value, Mutation, ResultSet}
+alias RawConnection = ::Grant::Adapter::Driver::Connection
 
 import grant/result::{Result}
 import grant/settings

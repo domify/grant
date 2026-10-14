@@ -1,11 +1,9 @@
 # Port hints
 
-The native structural spike passes. Read doc/PORTING.md for deferred macro bodies, generic named argument assignment, public module re-exports, and Base-owned transaction state.
+Scope is SQLite and PostgreSQL (2026-10-14). Only MySQL-only examples are excluded. `bin/port-check` runs every `*_test.iyi` with `CURRENT_ADAPTER=sqlite` and `CURRENT_ADAPTER=pg`; `PORT_ADAPTERS=sqlite` limits a local run. PostgreSQL runs in docker: `docker start grant-pg` (postgres:17, user grant/password, 127.0.0.1:5433); each checkout gets its own database `grant_<hash>`.
 
-Start with transactions. Stage A owns shared base, columns, SQLite adapter, query builder, transactions, callbacks and validations. Stage B owns query, associations, and dirty_state+other in separate worktrees.
+Drivers sit under the abstract `grant/adapter/driver` (`Connection`, `ResultSet`, `Value`, `Row`, `Mutation`); `grant/adapter/drivers` picks the driver from the URL scheme. Core code references only the driver types.
 
-Use `ruby port/manifest.rb generate` to refresh generated metadata while retaining progress. Use `ruby port/manifest.rb stats` for totals. Do not modify generated source/area/example counts or exclusions.
+Use `ruby port/manifest.rb generate` to refresh generated metadata while retaining progress. Use `ruby port/manifest.rb stats` for totals. Use `bin/port-check --integrate` for merges; only full `bin/port-check` establishes completion.
 
-Use `bin/port-check --integrate` for Stage B merges and the Stage A stop condition. It runs the full regression checks while allowing todo entries; its OK means no regression. Only full `bin/port-check` establishes completion and lets the loop exit 0.
-
-An unfinished port of the transactions create spec (grant_transactions_create_test.iyi, transaction_crud_*.iyi, base/errors edits) was interrupted by a Codex usage limit and saved with `git stash` (message "core worker WIP ..."). Run `git stash pop` first and finish it.
+In iyi, a panic is `raise "message"`; `select` inside a method body parses as the select statement, so call `self.select`.

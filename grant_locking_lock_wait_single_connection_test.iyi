@@ -24,7 +24,7 @@ end
 LockWaitSpecJob.clear.or_panic
 {
   LockMode::UpdateNoWait => "FOR UPDATE NOWAIT",
-  LockMode::UpdateSkipLocked => "FOR UPDATE \u0053KIP LOCKED",
+  LockMode::UpdateSkipLocked => "FOR UPDATE SKIP LOCKED",
 }.each do |mode, expected|
   sql = LockWaitSpecJob.where(id: 1_i64).lock(mode).to_sql
   if lock_wait_spec_real_locks?
@@ -32,7 +32,7 @@ LockWaitSpecJob.clear.or_panic
   else
     assert !sql.includes?("FOR ")
     assert !sql.includes?("NOWAIT")
-    assert !sql.includes?("\u0053KIP LOCKED")
+    assert !sql.includes?("SKIP LOCKED")
   end
 end
 

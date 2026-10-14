@@ -1,6 +1,6 @@
 module grant/connections
 
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/adapter/base::{Base}
 import grant/errors::{DatabaseError}
 

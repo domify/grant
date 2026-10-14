@@ -1,0 +1,10 @@
+module grant/adapter/drivers
+
+import grant/adapter/driver::{Connection}
+import grant/adapter/sqlite_connection
+import grant/errors::{DatabaseError}
+
+# The URL scheme chooses the native driver, as crystal-db's driver registry does.
+pub def open_connection(url : String, busy_timeout_ms : Int32 = 5000) : Connection | DatabaseError
+  ::Grant::Adapter::SqliteConnection::Connection.open(url, busy_timeout_ms)
+end

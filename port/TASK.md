@@ -43,8 +43,9 @@ Native iyi (no --crystal) supports class inheritance, `macro inherited`,
   `# it: <exact original description>` comment above its assertions. Keep
   every assertion; `x.should eq(y)` -> `assert x == y`, `expect_raises(E)` ->
   assert the call returns an `E`.
-- Scope: SQLite only. PostgreSQL/MySQL files and adapter-specific examples are
-  excluded with reason adapter-out-of-scope; nothing else may be excluded.
+- Scope: SQLite and PostgreSQL (revised 2026-10-14). Only MySQL-only files and
+  examples are excluded with reason adapter-out-of-scope; nothing else may be
+  excluded. bin/port-check runs every test under both adapters.
 
 ## Phase 0: Spike (time-box 90 minutes)
 An UNVERIFIED supervisor draft exists (uncommitted): iyi.mod, grant/errors.iyi,

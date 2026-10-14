@@ -1,6 +1,6 @@
 module grant/result
 
-import grant/adapter/sqlite_connection::{Value, ResultSet}
+import grant/adapter/driver::{Value, ResultSet}
 import grant/errors::{DatabaseError}
 
 pub class Result

@@ -6,7 +6,7 @@ import std/enumerable
 pub import grant/callbacks
 import grant/callbacks::{CommitCallback}
 
-import grant/adapter/sqlite::{Connection, Mutation}
+import grant/adapter/driver::{Connection, Mutation}
 import grant/adapter/base::{Base}
 import grant/errors::{DatabaseError, Rollback, ErrorBase, TransactionIsolationError, NotOpenError, InvalidSavepointNameError}
 pub import grant/errors
@@ -234,9 +234,22 @@ pub def queue_record_callbacks(connection : Connection, record_id : UInt64, oper
 end
 
 pub def run(adapter : Base, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ErrorBase forall T
-  connection = adapter.pinned_connection? || adapter.database!.checkout!
+  pinned = adapter.pinned_connection?
+  unless pinned.nil?
+    pinned.name = adapter.name
+    return run(pinned, options, savepoint_name) { yield }
+  end
+  # As upstream, the transaction pins its connection to the running fiber, so
+  # another fiber's checkout never joins it.
+  pool = adapter.database!.pool
+  connection = pool.checkout!
   connection.name = adapter.name
-  run(connection, options, savepoint_name) { yield }
+  pool.reserve(connection)
+  adapter.pin_connection(connection)
+  result = run(connection, options, savepoint_name) { yield }
+  adapter.unpin_connection
+  pool.release(connection)
+  result
 end
 
 pub def run(adapter : Connection, options : Options, savepoint_name : String? = nil, &block : -> T) : T | Nil | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase forall T

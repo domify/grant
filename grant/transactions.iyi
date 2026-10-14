@@ -1,6 +1,6 @@
 module grant/transactions
 
-import grant/adapter/sqlite::{Connection, Value}
+import grant/adapter/driver::{Connection, Value}
 import grant/errors::{DatabaseError}
 import grant/error::{ErrorBase}
 

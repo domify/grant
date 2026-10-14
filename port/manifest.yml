@@ -3,8 +3,8 @@
 - source: crystal-upstream/spec/adapter/test_helpers_spec.cr
   target: adapter_test_helpers_test.iyi
   area: transactions
-  examples: 10
-  status: done
+  examples: 11
+  status: todo
 - source: crystal-upstream/spec/grant/callbacks/abort_spec.cr
   target: grant_callbacks_abort_test.iyi
   area: transactions
@@ -38,8 +38,8 @@
 - source: crystal-upstream/spec/grant/connection/reconnect_spec.cr
   target: grant_connection_reconnect_test.iyi
   area: transactions
-  examples: 13
-  status: done
+  examples: 14
+  status: todo
   children:
   - target: grant_connection_reconnect_policy_test.iyi
     status: done
@@ -66,11 +66,15 @@
     - T-e394021106
     - T-f5457cca4c
     - T-f67ffead40
+  - target: grant_connection_reconnect_pg_test.iyi
+    status: todo
+    examples:
+    - T-c42e685dfd
 - source: crystal-upstream/spec/grant/connection/w6_reconnect_idle_spec.cr
   target: grant_connection_w6_reconnect_idle_test.iyi
   area: transactions
-  examples: 9
-  status: done
+  examples: 10
+  status: todo
   children:
   - target: grant_connection_w6_reconnect_idle_policy_test.iyi
     status: done
@@ -87,6 +91,10 @@
     - T-5c2899bd68
     - T-ad3d9196ef
     - T-b555f2332b
+  - target: grant_connection_w6_reconnect_idle_pg_test.iyi
+    status: todo
+    examples:
+    - T-9f4ef19b45
 - source: crystal-upstream/spec/grant/connection/w6_statement_invalid_sql_spec.cr
   target: grant_connection_w6_statement_invalid_sql_test.iyi
   area: transactions
@@ -206,7 +214,7 @@
 - source: crystal-upstream/spec/grant/errors/constraint_translation_spec.cr
   target: grant_errors_constraint_translation_test.iyi
   area: transactions
-  examples: 19
+  examples: 29
   status: todo
   children:
   - target: grant_errors_constraint_translation_classification_test.iyi
@@ -240,11 +248,24 @@
     examples:
     - T-1a819b94ff
     - T-6304cdbf37
+  - target: grant_errors_constraint_translation_pg_test.iyi
+    status: todo
+    examples:
+    - T-02d27e7c5e
+    - T-a8d0c2a187
+    - T-5091d75500
+    - T-aee8eeb5f9
+    - T-eb811dcd65
+    - T-5e53730aae
+    - T-56179a5474
+    - T-80a36f7edc
+    - T-ed5acd3332
+    - T-36a8f8dfd5
 - source: crystal-upstream/spec/grant/locking/lock_wait_spec.cr
   target: grant_locking_lock_wait_test.iyi
   area: transactions
   examples: 12
-  status: todo
+  status: done
   children:
   - target: grant_locking_lock_wait_single_connection_test.iyi
     status: done
@@ -252,7 +273,7 @@
     - T-9febc1c8f8
     - T-8fdbf68cc1
   - target: grant_locking_lock_wait_test.iyi
-    status: todo
+    status: done
     examples:
     - T-e1e9f87a90
     - T-8f1ab401e4
@@ -267,8 +288,8 @@
 - source: crystal-upstream/spec/grant/locking/pessimistic_spec.cr
   target: grant_locking_pessimistic_test.iyi
   area: transactions
-  examples: 11
-  status: done
+  examples: 12
+  status: todo
 - source: crystal-upstream/spec/grant/locking/with_lock_spec.cr
   target: grant_locking_with_lock_test.iyi
   area: transactions
@@ -337,8 +358,8 @@
 - source: crystal-upstream/spec/grant/persistence/read_only_transaction_create_spec.cr
   target: grant_persistence_read_only_transaction_create_test.iyi
   area: transactions
-  examples: 1
-  status: done
+  examples: 4
+  status: todo
 - source: crystal-upstream/spec/grant/persistence/transaction_lifecycle_spec.cr
   target: grant_persistence_transaction_lifecycle_test.iyi
   area: transactions
@@ -364,12 +385,12 @@
 - source: crystal-upstream/spec/grant/scale/schema_tenant_spec.cr
   target: grant_scale_schema_tenant_test.iyi
   area: transactions
-  examples: 12
+  examples: 14
   status: todo
 - source: crystal-upstream/spec/grant/schema/advisory_lock_spec.cr
   target: grant_schema_advisory_lock_test.iyi
   area: transactions
-  examples: 7
+  examples: 9
   status: todo
 - source: crystal-upstream/spec/grant/schema/ddl_transaction_spec.cr
   target: grant_schema_ddl_transaction_test.iyi
@@ -379,7 +400,7 @@
 - source: crystal-upstream/spec/grant/schema/indexes_spec.cr
   target: grant_schema_indexes_test.iyi
   area: transactions
-  examples: 12
+  examples: 14
   status: todo
 - source: crystal-upstream/spec/grant/schema/w6b_advisory_lock_mysql_spec.cr
   target: grant_schema_w6b_advisory_lock_mysql_test.iyi
@@ -425,8 +446,8 @@
 - source: crystal-upstream/spec/grant/transaction/error_translation_spec.cr
   target: grant_transaction_error_translation_test.iyi
   area: transactions
-  examples: 2
-  status: done
+  examples: 4
+  status: todo
 - source: crystal-upstream/spec/grant/transaction/handle_spec.cr
   target: grant_transaction_handle_test.iyi
   area: transactions
@@ -435,8 +456,8 @@
 - source: crystal-upstream/spec/grant/transaction/isolation_sql_spec.cr
   target: grant_transaction_isolation_sql_test.iyi
   area: transactions
-  examples: 7
-  status: done
+  examples: 8
+  status: todo
 - source: crystal-upstream/spec/grant/transaction/replica_routing_spec.cr
   target: grant_transaction_replica_routing_test.iyi
   area: transactions
@@ -455,8 +476,8 @@
 - source: crystal-upstream/spec/grant/transaction/savepoint_failure_spec.cr
   target: grant_transaction_savepoint_failure_test.iyi
   area: transactions
-  examples: 7
-  status: done
+  examples: 8
+  status: todo
 - source: crystal-upstream/spec/grant/transaction_atomicity_spec.cr
   target: grant_transaction_atomicity_test.iyi
   area: transactions
@@ -820,7 +841,7 @@
 - source: crystal-upstream/spec/grant/locking/lock_clause_spec.cr
   target: grant_locking_lock_clause_test.iyi
   area: query
-  examples: 17
+  examples: 18
   status: todo
 - source: crystal-upstream/spec/grant/middleware/database_selector_databases_spec.cr
   target: grant_middleware_database_selector_databases_test.iyi
@@ -840,7 +861,7 @@
 - source: crystal-upstream/spec/grant/perf/w6_sqlite_time_parse_spec.cr
   target: grant_perf_w6_sqlite_time_parse_test.iyi
   area: query
-  examples: 4
+  examples: 5
   status: todo
 - source: crystal-upstream/spec/grant/persistence/bulk_timestamps_spec.cr
   target: grant_persistence_bulk_timestamps_test.iyi
@@ -911,9 +932,8 @@
 - source: crystal-upstream/spec/grant/query/assemblers/pg_spec.cr
   target: grant_query_assemblers_pg_test.iyi
   area: query
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 17
+  status: todo
 - source: crystal-upstream/spec/grant/query/assemblers/sqlite_spec.cr
   target: grant_query_assemblers_sqlite_test.iyi
   area: query
@@ -1007,7 +1027,7 @@
 - source: crystal-upstream/spec/grant/query/in_order_of_spec.cr
   target: grant_query_in_order_of_test.iyi
   area: query
-  examples: 15
+  examples: 16
   status: todo
 - source: crystal-upstream/spec/grant/query/joins_integration_spec.cr
   target: grant_query_joins_integration_test.iyi
@@ -1082,7 +1102,7 @@
 - source: crystal-upstream/spec/grant/query/query_regressions_spec.cr
   target: grant_query_query_regressions_test.iyi
   area: query
-  examples: 14
+  examples: 15
   status: todo
 - source: crystal-upstream/spec/grant/query/readonly_relation_spec.cr
   target: grant_query_readonly_relation_test.iyi
@@ -1257,7 +1277,7 @@
 - source: crystal-upstream/spec/grant/querying/query_builder_spec.cr
   target: grant_querying_query_builder_test.iyi
   area: query
-  examples: 11
+  examples: 12
   status: todo
 - source: crystal-upstream/spec/grant/querying/relation_calculations_spec.cr
   target: grant_querying_relation_calculations_test.iyi
@@ -1282,7 +1302,7 @@
 - source: crystal-upstream/spec/grant/raw_sql_spec.cr
   target: grant_raw_sql_test.iyi
   area: query
-  examples: 14
+  examples: 15
   status: todo
 - source: crystal-upstream/spec/grant/sanitization_spec.cr
   target: grant_sanitization_test.iyi
@@ -1292,7 +1312,7 @@
 - source: crystal-upstream/spec/grant/scale/large_table_toolkit_spec.cr
   target: grant_scale_large_table_toolkit_test.iyi
   area: query
-  examples: 28
+  examples: 29
   status: todo
 - source: crystal-upstream/spec/grant/scale/multitenant_scoping_spec.cr
   target: grant_scale_multitenant_scoping_test.iyi
@@ -1302,17 +1322,17 @@
 - source: crystal-upstream/spec/grant/schema/alter_table_spec.cr
   target: grant_schema_alter_table_test.iyi
   area: query
-  examples: 12
+  examples: 13
   status: todo
 - source: crystal-upstream/spec/grant/schema/check_unique_constraints_spec.cr
   target: grant_schema_check_unique_constraints_test.iyi
   area: query
-  examples: 7
+  examples: 12
   status: todo
 - source: crystal-upstream/spec/grant/schema/column_defaults_spec.cr
   target: grant_schema_column_defaults_test.iyi
   area: query
-  examples: 5
+  examples: 6
   status: todo
 - source: crystal-upstream/spec/grant/schema/comments_spec.cr
   target: grant_schema_comments_test.iyi
@@ -1327,12 +1347,12 @@
 - source: crystal-upstream/spec/grant/schema/create_table_spec.cr
   target: grant_schema_create_table_test.iyi
   area: query
-  examples: 10
+  examples: 11
   status: todo
 - source: crystal-upstream/spec/grant/schema/dumper_spec.cr
   target: grant_schema_dumper_test.iyi
   area: query
-  examples: 10
+  examples: 11
   status: todo
 - source: crystal-upstream/spec/grant/schema/introspection_spec.cr
   target: grant_schema_introspection_test.iyi
@@ -1357,9 +1377,8 @@
 - source: crystal-upstream/spec/grant/schema/pg_enum_extension_spec.cr
   target: grant_schema_pg_enum_extension_test.iyi
   area: query
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 8
+  status: todo
 - source: crystal-upstream/spec/grant/schema/references_join_table_spec.cr
   target: grant_schema_references_join_table_test.iyi
   area: query
@@ -1373,7 +1392,7 @@
 - source: crystal-upstream/spec/grant/schema/timestamps_ddl_spec.cr
   target: grant_schema_timestamps_ddl_test.iyi
   area: query
-  examples: 7
+  examples: 8
   status: todo
 - source: crystal-upstream/spec/grant/schema/w6b_change_column_default_sqlite_spec.cr
   target: grant_schema_w6b_change_column_default_sqlite_test.iyi
@@ -1503,7 +1522,7 @@
 - source: crystal-upstream/spec/grant/tasks/truncate_all_spec.cr
   target: grant_tasks_truncate_all_test.iyi
   area: query
-  examples: 5
+  examples: 6
   status: todo
 - source: crystal-upstream/spec/grant/token_for_spec.cr
   target: grant_token_for_test.iyi
@@ -1518,20 +1537,18 @@
 - source: crystal-upstream/spec/grant/types/pg_array_spec.cr
   target: grant_types_pg_array_test.iyi
   area: query
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 8
+  status: todo
 - source: crystal-upstream/spec/grant/types/uuid_spec.cr
   target: grant_types_uuid_test.iyi
   area: query
-  examples: 6
+  examples: 7
   status: todo
 - source: crystal-upstream/spec/grant/types/w6b_pg_array_helpers_spec.cr
   target: grant_types_w6b_pg_array_helpers_test.iyi
   area: query
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 13
+  status: todo
 - source: crystal-upstream/spec/grant/validations/contexts_spec.cr
   target: grant_validations_contexts_test.iyi
   area: query
@@ -1645,12 +1662,12 @@
 - source: crystal-upstream/spec/adapter/capabilities_spec.cr
   target: adapter_capabilities_test.iyi
   area: associations
-  examples: 16
+  examples: 20
   status: todo
 - source: crystal-upstream/spec/adapter/placeholder_rewrite_spec.cr
   target: adapter_placeholder_rewrite_test.iyi
   area: associations
-  examples: 13
+  examples: 21
   status: todo
 - source: crystal-upstream/spec/grant/associations/additional_options_spec.cr
   target: grant_associations_additional_options_test.iyi
@@ -2065,12 +2082,12 @@
 - source: crystal-upstream/spec/grant/result_types_spec.cr
   target: grant_result_types_test.iyi
   area: associations
-  examples: 3
+  examples: 6
   status: todo
 - source: crystal-upstream/spec/grant/schema/foreign_keys_spec.cr
   target: grant_schema_foreign_keys_test.iyi
   area: associations
-  examples: 10
+  examples: 12
   status: todo
 - source: crystal-upstream/spec/grant/schema/generator_spec.cr
   target: grant_schema_generator_test.iyi
@@ -2090,7 +2107,7 @@
 - source: crystal-upstream/spec/grant/schema/type_mapping_spec.cr
   target: grant_schema_type_mapping_test.iyi
   area: associations
-  examples: 7
+  examples: 8
   status: todo
 - source: crystal-upstream/spec/grant/schema/w6b_add_timestamps_sqlite_spec.cr
   target: grant_schema_w6b_add_timestamps_sqlite_test.iyi
@@ -2105,7 +2122,7 @@
 - source: crystal-upstream/spec/grant/schema/w6b_migrator_foreign_keys_spec.cr
   target: grant_schema_w6b_migrator_foreign_keys_test.iyi
   area: associations
-  examples: 7
+  examples: 8
   status: todo
 - source: crystal-upstream/spec/grant/schema/w6b_migrator_unique_spec.cr
   target: grant_schema_w6b_migrator_unique_test.iyi
@@ -2120,7 +2137,7 @@
 - source: crystal-upstream/spec/grant/schema/w6b_type_catalog_spec.cr
   target: grant_schema_w6b_type_catalog_test.iyi
   area: associations
-  examples: 6
+  examples: 10
   status: todo
 - source: crystal-upstream/spec/grant/secure_password_spec.cr
   target: grant_secure_password_test.iyi
@@ -2155,9 +2172,8 @@
 - source: crystal-upstream/spec/grant/types/jsonb_spec.cr
   target: grant_types_jsonb_test.iyi
   area: associations
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 9
+  status: todo
 - source: crystal-upstream/spec/grant/validations/message_generation_spec.cr
   target: grant_validations_message_generation_test.iyi
   area: associations
@@ -2211,7 +2227,7 @@
 - source: crystal-upstream/spec/grant/dirty/dirty_control_spec.cr
   target: grant_dirty_dirty_control_test.iyi
   area: dirty_state
-  examples: 7
+  examples: 8
   status: todo
 - source: crystal-upstream/spec/grant/dirty/dirty_tracking_spec.cr
   target: grant_dirty_dirty_tracking_test.iyi
@@ -2221,7 +2237,7 @@
 - source: crystal-upstream/spec/grant/dirty/mutation_detection_spec.cr
   target: grant_dirty_mutation_detection_test.iyi
   area: dirty_state
-  examples: 11
+  examples: 13
   status: todo
 - source: crystal-upstream/spec/grant/dirty/saved_changes_spec.cr
   target: grant_dirty_saved_changes_test.iyi
@@ -2231,7 +2247,7 @@
 - source: crystal-upstream/spec/grant/dirty/w6_mutation_watch_spec.cr
   target: grant_dirty_w6_mutation_watch_test.iyi
   area: dirty_state
-  examples: 6
+  examples: 8
   status: todo
 - source: crystal-upstream/spec/grant/encryption_database_spec.cr
   target: grant_encryption_database_test.iyi
@@ -2286,7 +2302,7 @@
 - source: crystal-upstream/spec/grant/persistence/partial_updates_spec.cr
   target: grant_persistence_partial_updates_test.iyi
   area: dirty_state
-  examples: 11
+  examples: 13
   status: todo
 - source: crystal-upstream/spec/grant/persistence/touch_options_spec.cr
   target: grant_persistence_touch_options_test.iyi
@@ -2337,15 +2353,13 @@
 - source: crystal-upstream/spec/adapter/pg_placeholder_spec.cr
   target: adapter_pg_placeholder_test.iyi
   area: other
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 7
+  status: todo
 - source: crystal-upstream/spec/adapter/pg_spec.cr
   target: adapter_pg_test.iyi
   area: other
   examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  status: todo
 - source: crystal-upstream/spec/adapter/sqlite_spec.cr
   target: adapter_sqlite_test.iyi
   area: other
@@ -2444,7 +2458,7 @@
 - source: crystal-upstream/spec/grant/converters/converters_spec.cr
   target: grant_converters_converters_test.iyi
   area: other
-  examples: 12
+  examples: 8
   status: todo
 - source: crystal-upstream/spec/grant/converters/enum_spec.cr
   target: grant_converters_enum_test.iyi
@@ -2459,9 +2473,8 @@
 - source: crystal-upstream/spec/grant/converters/pg_numeric_spec.cr
   target: grant_converters_pg_numeric_test.iyi
   area: other
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 2
+  status: todo
 - source: crystal-upstream/spec/grant/encryption/context_spec.cr
   target: grant_encryption_context_test.iyi
   area: other
@@ -2545,12 +2558,12 @@
 - source: crystal-upstream/spec/grant/schema/multi_db_migration_spec.cr
   target: grant_schema_multi_db_migration_test.iyi
   area: other
-  examples: 5
+  examples: 6
   status: todo
 - source: crystal-upstream/spec/grant/schema/rename_spec.cr
   target: grant_schema_rename_test.iyi
   area: other
-  examples: 5
+  examples: 7
   status: todo
 - source: crystal-upstream/spec/grant/schema/reversible_spec.cr
   target: grant_schema_reversible_test.iyi
@@ -2565,9 +2578,8 @@
 - source: crystal-upstream/spec/grant/schema_tenant_reset_error_spec.cr
   target: grant_schema_tenant_reset_error_test.iyi
   area: other
-  examples: 0
-  status: excluded
-  exclusion_reason: adapter-out-of-scope
+  examples: 2
+  status: todo
 - source: crystal-upstream/spec/grant/secure_features_integration_spec.cr
   target: grant_secure_features_integration_test.iyi
   area: other

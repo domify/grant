@@ -23,7 +23,7 @@ pub macro model_methods(model)
     ::Grant::Query::Builder::Builder({{ model }}).new.lock(mode)
   end
 
-  def self.with_lock(id : ::Grant::Adapter::Sqlite::Value, mode : ::Grant::Locking::LockMode = ::Grant::Locking::LockMode::Update, requires_new : Bool = false, isolation : ::Grant::Transaction::IsolationLevel? = nil, &block : {{ model }} -> U) : U | ::Grant::Error::ErrorBase | ::Grant::Errors::RecordNotFound forall U
+  def self.with_lock(id : ::Grant::Adapter::Driver::Value, mode : ::Grant::Locking::LockMode = ::Grant::Locking::LockMode::Update, requires_new : Bool = false, isolation : ::Grant::Transaction::IsolationLevel? = nil, &block : {{ model }} -> U) : U | ::Grant::Error::ErrorBase | ::Grant::Errors::RecordNotFound forall U
     outcomes = [] of U
     result = transaction(requires_new: requires_new, isolation: isolation) do
       record = where("#{::Grant::Base.quote_identifier(primary_name)} = ?", id).lock(mode).first_strict

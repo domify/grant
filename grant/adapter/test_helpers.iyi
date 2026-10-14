@@ -1,6 +1,6 @@
 module grant/adapter/test_helpers
 
-import grant/adapter/sqlite::{Connection}
+import grant/adapter/driver::{Connection}
 import grant/adapter/sqlite_test_helpers::{SqliteTestHelpers}
 import grant/transaction::{ConnectionTransactions}
 import grant/errors::{DatabaseError, ErrorBase, TransactionIsolationError}
