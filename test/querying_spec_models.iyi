@@ -1,4 +1,4 @@
-module querying_spec_models
+module test/querying_spec_models
 pub import grant/base
 import grant/base::{Base}
 import std/time::{Time}

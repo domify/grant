@@ -1,7 +1,8 @@
+module test/grant_querying_relation_calculations_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-class RelationCalculationModel < Base
+pub class RelationCalculationModel < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table relation_calculation_models
   column id : Int64, primary: true

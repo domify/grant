@@ -1,6 +1,7 @@
+module test/grant_querying_select_projection_test
 import std/text
-import querying_spec_models::{Review}
-import spec_helper::{register_spec_connections}
+import test/querying_spec_models::{Review}
+import test/spec_helper::{register_spec_connections}
 
 register_spec_connections
 Review.migrator.drop_and_create.or_panic

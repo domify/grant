@@ -1,8 +1,9 @@
+module test/grant_querying_find_by_test
 import std/regex::{Regex}
-import transaction_crud_models::{Parent, ReservedWord}
-import querying_spec_models::{Review, Student}
+import test/transaction_crud_models::{Parent, ReservedWord}
+import test/querying_spec_models::{Review, Student}
 import grant/querying::{NotFound}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
 register_spec_connections
 Parent.migrator.drop_and_create.or_panic
