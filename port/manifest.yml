@@ -2629,7 +2629,7 @@
   target: grant_validation_helpers_nil_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/uniqueness_spec.cr
   target: grant_validation_helpers_uniqueness_test.iyi
   area: other
