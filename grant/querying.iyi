@@ -1,6 +1,6 @@
 module grant/querying
 
-import grant/errors::{RecordNotFound}
+import grant/errors::{RecordNotFound, ErrorBase}
 
 pub class NotFound < RecordNotFound
 end
@@ -21,5 +21,15 @@ pub macro model_methods(model)
     record = first(clause)!
     return ::Grant::Querying::NotFound.new("No " + {{ model.stringify }} + " found with first(#{clause})") if record.nil?
     record
+  end
+end
+
+# Uniqueness error from upstream Grant::Querying.
+pub class NotUnique < ErrorBase
+end
+
+impl ::Error for NotUnique
+  def message : String
+    @message
   end
 end

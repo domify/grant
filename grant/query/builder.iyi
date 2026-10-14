@@ -16,6 +16,8 @@ import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
 import grant/query/relation_merging::{RelationMerging}
+import grant/query/existence_enumerable::{ExistenceEnumerable}
+import grant/querying::{NotFound, NotUnique}
 
 # Native counterpart of Grant::Query::Builder(Model)
 # (crystal-upstream/src/grant/query/builder.cr).
@@ -965,9 +967,9 @@ pub class Builder(Model)
 
   def last(n : Int32) : Array(Model) | ErrorBase
     memoized = @records
-    return memoized.last(n) unless memoized.nil?
-    return ordered_copy(false).select!.last(n) if limit_or_offset?
-    ordered_copy(true).limit_in_place(n).select!.reverse
+    return memoized.reversed.first(n).reversed unless memoized.nil?
+    return ordered_copy(false).select!.reversed.first(n).reversed if limit_or_offset?
+    ordered_copy(true).limit_in_place(n).select!.reversed
   end
 
   def last_strict : Model | RecordNotFound | ErrorBase
@@ -1094,8 +1096,8 @@ pub class Builder(Model)
   def sole : Model | RecordNotFound | ErrorBase
     memoized = @records
     results = memoized.nil? ? chain_copy.limit_in_place(2).select! : memoized
-    return RecordNotFound.new("No record found") if results.empty?
-    return ErrorBase.new("Multiple records found (expected exactly one)") if results.size > 1
+    return NotFound.new("No record found") if results.empty?
+    return NotUnique.new("Multiple records found (expected exactly one)") if results.size > 1
     results.first
   end
 
@@ -1156,6 +1158,11 @@ pub class Builder(Model)
   def each(&block : Model -> T) : Nil | ErrorBase forall T
     records!.each { |record| yield record }
     nil
+  end
+
+  # Enumerable projection over the memoized relation records.
+  def map(&block : Model -> T) : Array(T) | ErrorBase forall T
+    records!.map { |record| yield record }
   end
 
   def ids : Array(Value) | ErrorBase
@@ -1264,4 +1271,7 @@ impl Grouping(Model) for Builder(Model) forall Model
 end
 
 impl RelationMerging(Model) for Builder(Model) forall Model
+end
+
+impl ExistenceEnumerable(Model) for Builder(Model) forall Model
 end

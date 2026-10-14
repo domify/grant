@@ -983,7 +983,7 @@
   target: test/grant_query_existence_predicates_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/extract_associated_spec.cr
   target: test/grant_query_extract_associated_test.iyi
   area: query
@@ -1063,7 +1063,7 @@
   target: test/grant_query_modifiers_test.iyi
   area: query
   examples: 18
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/named_binds_spec.cr
   target: test/grant_query_named_binds_test.iyi
   area: query
@@ -1123,7 +1123,7 @@
   target: test/grant_query_relation_load_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/relation_update_spec.cr
   target: test/grant_query_relation_update_test.iyi
   area: query

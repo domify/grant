@@ -1,0 +1,22 @@
+module grant/query/existence_enumerable
+
+import grant/error::{ErrorBase}
+
+# Enumerable fallback alongside builder.cr's bounded existence probes.
+pub trait ExistenceEnumerable(Model)
+  def any?(&block : Model -> Bool) : Bool | ErrorBase
+    records!.any? { |record| yield record }
+  end
+
+  def none?(&block : Model -> Bool) : Bool | ErrorBase
+    !records!.any? { |record| yield record }
+  end
+
+  def one?(&block : Model -> Bool) : Bool | ErrorBase
+    records!.count { |record| yield record } == 1
+  end
+
+  def many?(&block : Model -> Bool) : Bool | ErrorBase
+    records!.count { |record| yield record } > 1
+  end
+end
