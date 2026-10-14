@@ -44,6 +44,24 @@ end
 pub class InvalidForeignKey < StatementInvalid
 end
 
+pub class RecordNotUnique < StatementInvalid
+end
+
+impl ::Error for RecordNotUnique
+  def message : String
+    @message
+  end
+end
+
+pub class NotNullViolation < StatementInvalid
+end
+
+impl ::Error for NotNullViolation
+  def message : String
+    @message
+  end
+end
+
 impl ::Error for InvalidForeignKey
   def message : String
     @message

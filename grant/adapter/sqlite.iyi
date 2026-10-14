@@ -6,9 +6,10 @@ pub alias Value = ::Grant::Adapter::SqliteConnection::Value
 pub alias Row = ::Grant::Adapter::SqliteConnection::Row
 pub alias Mutation = ::Grant::Adapter::SqliteConnection::Mutation
 import std/dir::{Dir}
+import std/text
 import std/file::{File}
 import grant/adapter/base::{Base}
-import grant/errors::{DatabaseError}
+import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{NoDatabaseError}
 import grant/adapter/error_translator::{Kind}
 
@@ -43,6 +44,25 @@ pub class Sqlite < Base
 
   def initialize(name : String, url : String)
     super(name, url)
+  end
+
+  def insert(table_name : String, fields : Array(String), params : Array(Value), lastval : String?) : Int64 | ErrorBase | Cancelled
+    quoted_fields = fields.map { |name| quote(name) }.join(", ")
+    placeholders = fields.map { "?" }.join(", ")
+    statement = "INSERT INTO #{quote(table_name)} (#{quoted_fields}) VALUES (#{placeholders})"
+    open(statement, params) do |db|
+      result = db.exec(statement, params)!
+      lastval.nil? ? -1_i64 : result.last_insert_id
+    end
+  end
+
+  def delete(table_name : String, primary_name : String, value : Value) : Mutation | ErrorBase | Cancelled
+    statement = "DELETE FROM #{quote(table_name)} WHERE #{quote(primary_name)}=?"
+    open(statement) { |db| db.exec(statement, [value] of Value) }
+  end
+
+  def quote(name : String) : String
+    "\"#{name.gsub("\"", "\"\"")}\""
   end
 
   protected def database_path : String

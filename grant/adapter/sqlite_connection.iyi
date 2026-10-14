@@ -3,7 +3,7 @@ module grant/adapter/sqlite_connection
 import grant/cstring::{cstring}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
-import grant/error_taxonomy::{InvalidForeignKey}
+import grant/error_taxonomy::{InvalidForeignKey, RecordNotUnique, NotNullViolation}
 import grant/error::{ErrorBase}
 
 # The native SQLite C driver has no exception object; retain its error code
@@ -161,8 +161,12 @@ pub class Connection
   def failure(code : Int32, operation : String, sql : String? = nil) : DatabaseError
     detail = @closed ? "connection is closed" : cstring(SQLite.errmsg(@handle))
     cause = SQLiteError.new(code, detail)
-    if !@closed && SQLite.extended_errcode(@handle) == 787
-      return InvalidForeignKey.new(code, operation, detail, sql, cause)
+    unless @closed
+      case SQLite.extended_errcode(@handle)
+      when 2067, 1555 then return RecordNotUnique.new(code, operation, detail, sql, cause)
+      when 787        then return InvalidForeignKey.new(code, operation, detail, sql, cause)
+      when 1299       then return NotNullViolation.new(code, operation, detail, sql, cause)
+      end
     end
     DatabaseError.new(code, operation, detail, sql, cause)
   end

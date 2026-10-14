@@ -4,11 +4,18 @@ import std/time::{Span}
 import grant/database::{Database, PoolResourceRefused, ConnectionRefused, ConnectionLost}
 import grant/pool_stat::{PoolStat}
 import grant/adapter/pool_support::{backoff, idempotent_read?, ticks}
-import grant/adapter/sqlite_connection::{Connection}
+import grant/adapter/sqlite_connection::{Connection, Value, Mutation}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError, ConnectionTimeoutError}
 
 pub abstract class Base
+  abstract def insert(table_name : String, fields : Array(String), params : Array(Value), lastval : String?) : Int64 | ErrorBase | Cancelled
+  abstract def delete(table_name : String, primary_name : String, value : Value) : Mutation | ErrorBase | Cancelled
+
+  def ensure_clause_template(clause : String) : String
+    clause
+  end
+
   getter name : String
   getter url : String
   @_database : Database? = nil
@@ -191,7 +198,7 @@ pub abstract class Base
     end
   end
 
-  def open(sql : String? = nil, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
+  def open(sql : String? = nil, binds : Array(Value)? = nil, &block : Connection -> T) : T | ErrorBase | Cancelled forall T
     lost_retries = idempotent_read?(sql) && @retry_attempts > 0 ? 1 : 0
     attempt = 0
     loop do
@@ -213,6 +220,7 @@ pub abstract class Base
         # An explicit caller statement wins over driver-recorded SQL. Helpers
         # without one retain the last statement executed on this connection.
         result.sql = sql || result.sql || connection.last_statement
+        result.binds = DatabaseError.describe_binds(binds) unless binds.nil?
         return result
       else
         return result

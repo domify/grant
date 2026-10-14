@@ -1257,7 +1257,10 @@ pub abstract class Base
       end
       placeholders = names.map { "?" }.join(", ")
       result = __adapter.execute("INSERT INTO #{::Grant::Base.quote_identifier(__table_name)} (#{names.map { |name| ::Grant::Base.quote_identifier(name) }.join(", ")}) VALUES (#{placeholders})", values)
-      return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
+      if result.is_a?(DatabaseError)
+        errors << ::Grant::Error::Error.new(:base, result.message)
+        return RecordNotSaved.new(__table_name, result)
+      end
       __set_primary_value(result.last_insert_id) if __primary_auto? && __primary_value.nil?
     else
       changed = __changed_column_names
@@ -1269,7 +1272,10 @@ pub abstract class Base
         assignments = changed.map { |name| "#{::Grant::Base.quote_identifier(name)} = ?" }.join(", ")
         changed_values << __primary_value
         result = __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", changed_values)
-        return RecordNotSaved.new(__table_name, result) if result.is_a?(DatabaseError)
+        if result.is_a?(DatabaseError)
+          errors << ::Grant::Error::Error.new(:base, result.message)
+          return RecordNotSaved.new(__table_name, result)
+        end
       end
     end
     __mark_persisted
