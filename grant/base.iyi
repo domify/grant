@@ -9,6 +9,7 @@ pub import grant/columns
 pub import grant/columns_helpers
 pub import grant/attributes
 pub import grant/record_copy
+pub import grant/validators
 pub import grant/callbacks
 pub import grant/transactions
 pub import grant/integrators
@@ -148,6 +149,7 @@ pub abstract class Base
   end
 
   macro inherited
+    ::Grant::Validators.model_methods({{ @type }})
     @@table_name : String = {{ @type.name.split("::").last.underscore.stringify }} + "s"
     @@connection_name : String = "sqlite"
     @@own_connection_config : Hash(Symbol, String)? = nil
@@ -438,14 +440,30 @@ pub abstract class Base
     end
   end
 
-  macro validate(field, message, &block)
+  macro validate(field, message = nil, &block)
     def __validate_{{ @type.methods.size }} : Nil
-      {{ block.args[0] }} = self
-      unless begin
+      {% if block %}
+        {{ block.args[0] }} = self
+        unless begin
+          {{ block.body }}
+        end
+          errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
+        end
+      {% else %}
+        {{ field.id }}
+      {% end %}
+      nil
+    end
+  end
+
+  macro around_validation(method = nil, &block)
+    def __callback_around_validation_{{ @type.methods.size }}(continuation : Proc(Nil)) : Nil
+      {% if block %}
+        {{ block.args[0] }} = continuation
         {{ block.body }}
-      end
-        errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
-      end
+      {% else %}
+        {{ method.id }}(continuation)
+      {% end %}
       nil
     end
   end
@@ -674,6 +692,21 @@ pub abstract class Base
         \{{ m.name }}
       \{% end %}
       nil
+    end
+
+    def __run_around_validation(&action : -> T) : T | Bool forall T
+      result = true.as(T | Bool)
+      continuation = -> { result = action.call; nil }
+      \{% begin %}
+      \{% callbacks = @type.methods.select { |m| m.name.starts_with?("__callback_around_validation_") } %}
+      \{% for i in (0...callbacks.size) %}
+        \{% m = callbacks[callbacks.size - 1 - i] %}
+        previous_\{{ m.name }} = continuation
+        continuation = -> { \{{ m.name }}(previous_\{{ m.name }}) }
+      \{% end %}
+      \{% end %}
+      continuation.call
+      result
     end
 
     def __run_around_save(&action : -> T) : T | ::Grant::Errors::RecordNotSaved forall T
@@ -1548,6 +1581,10 @@ pub abstract class Base
 
   def valid? : Bool | ::Grant::Callbacks::Abort
     errors.clear_validations
+    __run_around_validation { __validation_phase }
+  end
+
+  def __validation_phase : Bool | ::Grant::Callbacks::Abort
     self.before_validation!
     __run_validations
     self.after_validation!
