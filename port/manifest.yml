@@ -427,7 +427,7 @@
   target: grant_tasks_seeds_test.iyi
   area: transactions
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/test_fixtures_spec.cr
   target: grant_test_fixtures_test.iyi
   area: transactions

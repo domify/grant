@@ -13,3 +13,5 @@ Crystal names that are iyi keywords receive documented aliases: `import` becomes
 The native prelude has no `same?`; preserve identity assertions by comparing `object_id`.
 
 Typed lazy encryption strict readers follow the same raising-variant rule: `email!` becomes `email_strict`, returning `String | ErrorBase` (including `NilAssertionError` for an absent value); ordinary and question-mark readers also return codec errors when decryption fails.
+
+Seed registry `clear_definitions!` becomes `clear_definitions_in_place`.
