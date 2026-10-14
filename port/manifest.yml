@@ -177,9 +177,12 @@
   - target: grant_encryption_w6b_lazy_decrypt_test.iyi
     status: todo
     examples:
-    - T-5f392d9b90
     - T-b14edc42d6
     - T-246a479be1
+  - target: grant_encryption_w6b_lazy_decrypt_changes_test.iyi
+    status: done
+    examples:
+    - T-5f392d9b90
   - target: grant_encryption_w6b_lazy_decrypt_eager_test.iyi
     status: done
     examples:

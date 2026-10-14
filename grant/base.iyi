@@ -134,7 +134,11 @@ pub abstract class Base
       def __unseal_{{decl.var}} : String? | ::Grant::Error::ErrorBase
         current = @{{decl.var}}
         return current unless current && ::Grant::Encryption::Sealed.sealed?(current)
-        @{{decl.var}} = self.class.{{decl.var}}_encrypted_attribute.open_with_index(::Grant::Encryption::Sealed.stored(current))![0]
+        plain = self.class.{{decl.var}}_encrypted_attribute.open_with_index(::Grant::Encryption::Sealed.stored(current))![0]
+        # Unsealing is a read: retain the clean baseline when this was the
+        # stored value, without opening any unrelated encrypted attribute.
+        @__persisted_{{decl.var}} = plain if @__persisted_{{decl.var}} == current
+        @{{decl.var}} = plain
       end
 
       def {{decl.var}} : String? | ::Grant::Error::ErrorBase
@@ -185,7 +189,17 @@ pub abstract class Base
     end
 
     def {{decl.var}}_changed? : Bool
-      @{{decl.var}} != @__persisted_{{decl.var}}
+      return false if @{{decl.var}} == @__persisted_{{decl.var}}
+      {% if options[:encrypted] %}
+        # The Symbol/database reader in the upstream setter compares stored
+        # values. A deterministic assignment can equal a sealed baseline.
+        current = {{ options[:converter] }}.to_db(@{{decl.var}})
+        baseline = {{ options[:converter] }}.to_db(@__persisted_{{decl.var}})
+        return true if current.is_a?(::Error) || baseline.is_a?(::Error)
+        current != baseline
+      {% else %}
+        true
+      {% end %}
     end
 
     def {{decl.var}}=(value : {{decl.type}} | Nil) : Nil {% if options[:guarded] %}| ::Grant::Encryption::Sealed::ArgumentError{% end %}
@@ -502,7 +516,7 @@ pub abstract class Base
     def changed : Array(String)
       names = [] of String
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-        names << \{{ v.name.stringify }} if @\{{ v.name }} != @__persisted_\{{ v.name }}
+        names << \{{ v.name.stringify }} if \{{ v.name }}_changed?
       \{% end %}
       names
     end
@@ -513,7 +527,7 @@ pub abstract class Base
 
     def changed? : Bool
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-        return true if @\{{ v.name }} != @__persisted_\{{ v.name }}
+        return true if \{{ v.name }}_changed?
       \{% end %}
       false
     end
@@ -1118,7 +1132,7 @@ pub abstract class Base
     def __changed_column_names : Array(String)
       names = [] of String
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && !v.annotation(::Grant::Base::Column)[:primary] } %}
-        names << \{{ v.name.stringify }} if @\{{ v.name }} != @__persisted_\{{ v.name }}
+        names << \{{ v.name.stringify }} if \{{ v.name }}_changed?
       \{% end %}
       names
     end
