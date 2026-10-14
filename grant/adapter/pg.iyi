@@ -1,0 +1,122 @@
+module grant/adapter/pg
+
+pub import grant/adapter/pg_connection
+import grant/adapter/base::{Base}
+import std/time::{Span}
+import grant/adapter/driver::{Value, Mutation}
+import grant/locking::{LockMode}
+import grant/errors::{DatabaseError, ErrorBase}
+import grant/adapter/error_translator::{Kind}
+
+pub class Pg < Base
+  QUOTING_CHAR = '"'
+
+  def postgres? : Bool
+    true
+  end
+
+  # Classifies a server error by SQLSTATE. `57014` covers both a user cancel and
+  # `statement_timeout`; the server's message is the only thing that tells them
+  # apart, so it is consulted for that one code.
+  def self.error_kind(sqlstate : String?, message : String? = nil) : Kind?
+    return nil unless sqlstate
+    kind = case sqlstate
+           when "23505" then Kind::Unique
+           when "23503" then Kind::ForeignKey
+           when "23502" then Kind::NotNull
+           when "22001" then Kind::ValueTooLong
+           when "40P01" then Kind::Deadlock
+           when "40001" then Kind::SerializationFailure
+           when "55P03" then Kind::LockWaitTimeout
+           when "57014" then Kind::QueryCanceled
+           when "25006" then Kind::ReadOnly
+           when "3D000" then Kind::NoDatabase
+           end
+    if kind == Kind::QueryCanceled && !message.nil? && message.includes?("statement timeout")
+      return Kind::StatementTimeout
+    end
+    kind
+  end
+
+  def initialize(name : String, url : String)
+    super(name, url)
+    query = url.split('?')[1]?
+    unless query.nil?
+      query.split('&').each do |part|
+        pair = part.split('=')
+        value = pair[1]?
+        next if value.nil?
+        case pair.first
+        when "max_pool_size" then @pool_size = value.to_i
+        when "checkout_timeout" then @checkout_timeout = Span.milliseconds((value.to_f * 1000).to_i64)
+        end
+      end
+    end
+  end
+
+  def insert(table_name : String, fields : Array(String), params : Array(Value), lastval : String?) : Int64 | ErrorBase | Cancelled
+    quoted_fields = fields.map { |name| quote(name) }.join(", ")
+    placeholders = fields.map { "?" }.join(", ")
+    statement = "INSERT INTO #{quote(table_name)} (#{quoted_fields}) VALUES (#{placeholders})"
+    open(statement, params) do |db|
+      result = db.insert(statement, params, lastval)!
+      lastval.nil? ? -1_i64 : result.last_insert_id
+    end
+  end
+
+  def delete(table_name : String, primary_name : String, value : Value) : Mutation | ErrorBase | Cancelled
+    statement = "DELETE FROM #{quote(table_name)} WHERE #{quote(primary_name)}=?"
+    open(statement) { |db| db.exec(statement, [value] of Value) }
+  end
+
+  def quote(name : String) : String
+    "\"#{name.gsub("\"", "\"\"")}\""
+  end
+
+  def quote_boolean(value : Bool) : String
+    value ? "TRUE" : "FALSE"
+  end
+
+  def parameter_placeholder(index : Int32) : String
+    "$#{index}"
+  end
+
+  def supports_lock_mode?(mode : LockMode) : Bool
+    true
+  end
+
+  def lock_clause(mode : LockMode) : String
+    case mode
+    when LockMode::Update           then "FOR UPDATE"
+    when LockMode::Share            then "FOR SHARE"
+    when LockMode::UpdateNoWait     then "FOR UPDATE NOWAIT"
+    when LockMode::UpdateSkipLocked then "FOR UPDATE SKIP LOCKED"
+    when LockMode::ShareNoWait      then "FOR SHARE NOWAIT"
+    else                                 "FOR SHARE SKIP LOCKED"
+    end
+  end
+
+  def supports_savepoints? : Bool
+    true
+  end
+
+  def supports_insert_returning? : Bool
+    true
+  end
+
+  def supports_ddl_transactions? : Bool
+    true
+  end
+
+  def supports_advisory_locks? : Bool
+    true
+  end
+
+  def supports_concurrent_connections? : Bool
+    true
+  end
+
+  def adapter_name : String
+    "PostgreSQL"
+  end
+end

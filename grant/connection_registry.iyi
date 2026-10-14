@@ -6,7 +6,7 @@ import grant/settings
 import grant/connections::{Connections}
 import grant/errors::{ErrorBase}
 
-# The eager SQLite registration slice of Grant::ConnectionRegistry.
+# The eager registration slice of Grant::ConnectionRegistry.
 pub class ConnectionRegistry
   pub struct ConnectionSpec
     property database : String
@@ -56,6 +56,11 @@ pub class ConnectionRegistry
       return writer unless writer.nil?
     end
     role == :primary ? nil : @@adapters[key_for(database, :primary)]?
+  end
+
+  def self.connection_exists?(database : String, role : Symbol = :primary, shard : Symbol? = nil) : Bool
+    key = key_for(database, normalize_role(role), shard)
+    @@adapters.has_key?(key) || @@specifications.has_key?(key)
   end
 
   def self.get_adapter(database : String, role : Symbol = :primary) : Base

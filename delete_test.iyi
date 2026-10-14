@@ -1,10 +1,13 @@
 import grant/base::{Base}
-import grant/connections::{Connections}
-import grant/adapter/sqlite::{Connection}
 import grant/errors::{Rollback}
+import spec_helper::{register_spec_connections}
 
+register_spec_connections
+
+{% begin %}
+{% adapter_literal = (env("CURRENT_ADAPTER") || "sqlite").id %}
 class T6DeleteRecord < Base
-  connection sqlite
+  connection {{ adapter_literal }}
   table t6_delete_records
   column id : Int64, primary: true
   column name : String
@@ -15,8 +18,8 @@ class T6DeleteRecord < Base
     @has_destroy_callback_run = true
   end
 end
+{% end %}
 
-Connections.register("sqlite", Connection.open(":memory:").or_panic)
 T6DeleteRecord.migrator.drop_and_create.or_panic
 
 # it: deletes without callbacks and marks the instance destroyed

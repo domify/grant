@@ -41,17 +41,81 @@ pub struct TransactionState
   end
 end
 
-pub class Migrator
-  getter table : String
-  getter columns : Array(String)
-  getter connection : Connection
+# One column of a model as the migrator sees it: the Crystal type name and
+# the column annotation's options.
+pub struct MigratorColumn
+  getter name : String
+  getter type_name : String
+  getter column_type : String?
+  getter primary : Bool
+  getter auto : Bool
 
-  def initialize(@connection : Connection, @table : String, @columns : Array(String))
+  def initialize(@name : String, @type_name : String, @column_type : String?, @primary : Bool, @auto : Bool)
+  end
+
+  def nilable? : Bool
+    @type_name.includes?("?") || @type_name.includes?("Nil")
+  end
+
+  def base_type : String
+    @type_name.gsub("?", "").gsub(" | Nil", "").gsub("::", "").strip
+  end
+end
+
+pub class Migrator
+  # Grant::Adapter::Pg::Schema::TYPES over Grant::Adapter::Base::Schema::TYPES.
+  PG_TYPES = {
+    "Bool"       => "BOOL",
+    "Float32"    => "REAL",
+    "Float64"    => "DOUBLE PRECISION",
+    "Int32"      => "INT",
+    "Int64"      => "BIGINT",
+    "String"     => "TEXT",
+    "Time"       => "TIMESTAMP",
+    "StdTimeTime" => "TIMESTAMP",
+    "AUTO_Int32" => "SERIAL",
+    "AUTO_Int64" => "BIGSERIAL",
+    "UUID"       => "UUID",
+    "created_at" => "TIMESTAMP",
+    "updated_at" => "TIMESTAMP",
+  }
+
+  getter table : String
+  getter connection : Connection
+  @specs : Array(MigratorColumn)
+
+  def initialize(@connection : Connection, @table : String, @specs : Array(MigratorColumn))
+  end
+
+  def columns : Array(String)
+    @specs.map { |spec| column_sql(spec) }
+  end
+
+  def native_type(spec : MigratorColumn) : String
+    explicit = spec.column_type
+    return explicit unless explicit.nil?
+    key = spec.base_type
+    if @connection.postgres?
+      return PG_TYPES["AUTO_#{key}"]? || "BIGSERIAL" if spec.primary && spec.auto
+      return PG_TYPES[spec.name]? || "TIMESTAMP" if spec.name == "created_at" || spec.name == "updated_at"
+      return PG_TYPES[key]? || "TEXT"
+    end
+    key.includes?("Int") ? "INTEGER" : (key.includes?("Bool") ? "BOOLEAN" : (key.includes?("Float") ? "REAL" : "TEXT"))
+  end
+
+  private def column_sql(spec : MigratorColumn) : String
+    name = ::Grant::Base.quote_identifier(spec.name)
+    if spec.primary
+      "#{name} #{native_type(spec)} PRIMARY KEY#{spec.auto ? "" : " NOT NULL"}"
+    else
+      "#{name} #{native_type(spec)}#{spec.nilable? ? "" : " NOT NULL"}"
+    end
   end
 
   def drop_and_create : Nil | DatabaseError
-    @connection.execute("DROP TABLE IF EXISTS #{::Grant::Base.quote_identifier(@table)}")!
-    @connection.execute("CREATE TABLE #{::Grant::Base.quote_identifier(@table)} (#{@columns.join(", ")})")!
+    cascade = @connection.postgres? ? " CASCADE" : ""
+    @connection.execute("DROP TABLE IF EXISTS #{::Grant::Base.quote_identifier(@table)}#{cascade}")!
+    @connection.execute("CREATE TABLE #{::Grant::Base.quote_identifier(@table)} (#{columns.join(", ")})")!
     nil
   end
 end
@@ -851,15 +915,10 @@ pub abstract class Base
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       ::Grant::Base::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
-          \{% type = v.annotation(::Grant::Base::Column)[:type] %}
-          \{% sql = v.annotation(::Grant::Base::Column)[:column_type] || (type.includes?("Int") ? "INTEGER" : (type.includes?("Bool") ? "BOOLEAN" : (type.includes?("Float") ? "REAL" : "TEXT"))) %}
-          \{% if v == primary %}
-            "#{::Grant::Base.quote_identifier(\{{ v.name.stringify }})} \{{ sql.id }} PRIMARY KEY\{{ v.annotation(::Grant::Base::Column)[:auto] ? "".id : " NOT NULL".id }}",
-          \{% else %}
-            "#{::Grant::Base.quote_identifier(\{{ v.name.stringify }})} \{{ sql.id }}\{{ type.includes?("?") || type.includes?("Nil") ? "".id : " NOT NULL".id }}",
-          \{% end %}
+          \{% ann = v.annotation(::Grant::Base::Column) %}
+          ::Grant::Base::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}),
         \{% end %}
-      ] of String)
+      ] of ::Grant::Base::MigratorColumn)
       \{% end %}
     end
 
@@ -1468,7 +1527,7 @@ pub abstract class Base
         values << primary_value
       end
       placeholders = names.map { "?" }.join(", ")
-      result = __adapter.execute("INSERT INTO #{::Grant::Base.quote_identifier(__table_name)} (#{names.map { |name| ::Grant::Base.quote_identifier(name) }.join(", ")}) VALUES (#{placeholders})", values)
+      result = __adapter.insert("INSERT INTO #{::Grant::Base.quote_identifier(__table_name)} (#{names.map { |name| ::Grant::Base.quote_identifier(name) }.join(", ")}) VALUES (#{placeholders})", values, __primary_auto? && __primary_value.nil? ? __primary_name : nil)
       if result.is_a?(DatabaseError)
         errors << ::Grant::Error::Error.new(:base, result.message)
         return RecordNotSaved.new(__table_name, result)

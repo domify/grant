@@ -16,6 +16,18 @@ pub abstract class Base
   abstract def lock_clause(mode : LockMode) : String
   abstract def supports_lock_mode?(mode : LockMode) : Bool
 
+  def sqlite? : Bool
+    false
+  end
+
+  def postgres? : Bool
+    false
+  end
+
+  def mysql? : Bool
+    false
+  end
+
   def ensure_clause_template(clause : String) : String
     clause
   end
