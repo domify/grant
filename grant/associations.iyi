@@ -1,0 +1,49 @@
+module grant/associations
+
+pub import grant/association_collection
+
+pub annotation Relationship
+end
+
+pub macro has_many(model, scope = nil, **options)
+  {% method_name = model.id %}
+  {% class_name = options[:class_name] %}
+  {% foreign_key = options[:foreign_key] %}
+  {% primary_key = options[:primary_key] || "id" %}
+  @[::Grant::Associations::Relationship(target: {{ class_name }}, through: nil, type: :has_many,
+    primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }},
+    owner_primary_key: {{ primary_key.id }}, scope: {{ scope }})]
+  def {{ method_name }} : ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }})
+    loaded = get_loaded_association({{ method_name.stringify }})
+    records = loaded.nil? ? nil : loaded.map { |record| record.as({{ class_name }}) }
+    {% if scope %}
+      {% if scope.args.empty? %}
+        scope_proc = ->(q : ::Grant::Query::Builder::Builder({{ class_name }})) { q.{{ scope.body }} }
+      {% else %}
+        scope_proc = {{ scope }}
+      {% end %}
+    {% else %}
+      scope_proc = nil
+    {% end %}
+    ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }}).new(
+      self, {{ foreign_key.id.stringify }}, primary_key: {{ primary_key.id.stringify }},
+      scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
+  end
+end
+
+pub macro model_methods(model)
+  @__loaded_associations = {} of String => Array(::Grant::Base::Base)
+
+  def set_loaded_association(name : String, records : Array(T)) : Nil forall T
+    @__loaded_associations[name] = records.map { |record| record.as(::Grant::Base::Base) }
+    nil
+  end
+
+  def get_loaded_association(name : String) : Array(::Grant::Base::Base)?
+    @__loaded_associations[name]?
+  end
+
+  def association_loaded?(name : String) : Bool
+    @__loaded_associations.has_key?(name)
+  end
+end

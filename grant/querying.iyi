@@ -11,7 +11,7 @@ impl ::Error for NotFound
   end
 end
 
-# ClassMethods raw-clause overloads from upstream querying.cr.
+# ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
   def self.first(clause : String) : {{ model }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
     first(clause, [] of ::Grant::Adapter::Driver::Value)
@@ -44,6 +44,17 @@ pub macro model_methods(model)
     record
   end
 
+  def self.query(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, &block : ::Grant::Adapter::Driver::ResultSet -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
+    connection.with_result_set(clause, params) { |rs| yield rs }
+  end
+
+  def self.scalar(clause : String = "", binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : ::Grant::Adapter::Driver::Value | ::Grant::Error::ErrorBase | Cancelled
+    connection.select_value(clause, binds)
+  end
+
+  def self.scalar(clause : String, &block : ::Grant::Adapter::Driver::Value -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
+    yield scalar(clause)!
+  end
 end
 
 # Uniqueness error from upstream Grant::Querying.

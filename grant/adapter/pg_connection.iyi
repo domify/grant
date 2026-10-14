@@ -86,7 +86,7 @@ pub class ResultSet < ::Grant::Adapter::Driver::ResultSet
 
   def each(&block : -> T) : Nil | T | DatabaseError forall T
     count = PQ.ntuples(@result)
-    while @row + 1 < count
+    while !closed? && @row + 1 < count
       @row += 1
       @column = 0
       result = yield
