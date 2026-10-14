@@ -1063,7 +1063,7 @@
   target: grant_query_modifiers_test.iyi
   area: query
   examples: 18
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/named_binds_spec.cr
   target: grant_query_named_binds_test.iyi
   area: query
