@@ -10,6 +10,7 @@ pub import grant/migrator
 pub import grant/columns_helpers
 pub import grant/attributes
 pub import grant/record_copy
+pub import grant/validation_helpers/blank
 pub import grant/validators
 pub import grant/callbacks
 pub import grant/transactions
@@ -75,6 +76,7 @@ pub abstract class Base
   end
 
   macro inherited
+    ::Grant::ValidationHelpers::Blank.model_methods({{ @type }})
     ::Grant::Validators.model_methods({{ @type }})
     @@table_name : String = {{ @type.name.split("::").last.underscore }}
     @@connection_name : String = "sqlite"

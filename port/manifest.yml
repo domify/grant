@@ -2604,7 +2604,7 @@
   target: grant_validation_helpers_blank_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/choice_spec.cr
   target: grant_validation_helpers_choice_test.iyi
   area: other

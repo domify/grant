@@ -121,6 +121,10 @@ pub class Errors
     @errors.map { |error| yield error }
   end
 
+  def [](index : Int32) : ::Grant::Error::Error
+    @errors[index]
+  end
+
   def first : ::Grant::Error::Error
     @errors.first
   end
