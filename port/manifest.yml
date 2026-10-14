@@ -1423,7 +1423,7 @@
   target: grant_secure_token_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/select/select_spec.cr
   target: grant_select_select_test.iyi
   area: query

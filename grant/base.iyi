@@ -11,6 +11,7 @@ pub import grant/attributes
 pub import grant/record_copy
 pub import grant/validators
 pub import grant/callbacks
+pub import grant/secure_token
 pub import grant/transactions
 pub import grant/integrators
 pub import grant/encryption
@@ -454,6 +455,10 @@ pub abstract class Base
       {% end %}
       nil
     end
+  end
+
+  macro has_secure_token(name, length = 24, alphabet = :base58, on = :create)
+    ::Grant::SecureToken.has_secure_token({{ name }}, {{ length }}, {{ alphabet }}, {{ on }})
   end
 
   macro around_validation(method = nil, &block)
