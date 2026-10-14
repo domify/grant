@@ -30,6 +30,7 @@ import grant/errors::{TransactionIsolationError}
 pub import grant/errors
 import grant/errors::{DatabaseError, RecordNotFound, RecordNotSaved, Rollback}
 import grant/database
+import std/uuid::{UUID}
 
 pub alias Migrator = ::Grant::Migrator::Migrator
 pub alias MigratorColumn = ::Grant::Migrator::MigratorColumn
@@ -1153,7 +1154,7 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      self.\{{ primary.name }}
+      ::Grant::Base.sqlite_value(self.\{{ primary.name }})
       \{% end %}
     end
 
@@ -1162,7 +1163,7 @@ pub abstract class Base
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       \{% if primary.annotation(::Grant::Base::Column)[:auto] %}
-      self.\{{ primary.name }} = value
+      self.\{{ primary.name }} = \{% if primary.annotation(::Grant::Base::Column)[:type].includes?("Int32") %} value.to_i32 \{% else %} value \{% end %}
       \{% end %}
       \{% end %}
     end
@@ -1618,5 +1619,23 @@ impl ::Grant::Errors::ValidationRecord for Base
 
   def __table_name : String
     self.__table_name
+  end
+end
+
+# Driver values retain UUIDs and PostgreSQL arrays as their native text form.
+pub def sqlite_value(value : UUID) : Value
+  value.to_s
+end
+
+pub def sqlite_value(value : Array(T)) : Value forall T
+  "{" + value.map { |item| postgres_array_item(item) }.join(",") + "}"
+end
+
+pub def postgres_array_item(value : T) : String forall T
+  case value
+  when Nil then "NULL"
+  when Bool then value ? "t" : "f"
+  when String then "\"#{value.gsub("\\", "\\\\").gsub("\"", "\\\"")}\""
+  else value.to_s
   end
 end

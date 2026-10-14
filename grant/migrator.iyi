@@ -80,18 +80,23 @@ pub class Migrator
     explicit = spec.column_type
     return explicit unless explicit.nil?
     key = spec.base_type
+    key = "UUID" if key == "StdUuidUUID"
     if @connection.postgres?
+      arrays = {"Array(String)" => "TEXT[]", "Array(Int16)" => "SMALLINT[]", "Array(Int32)" => "INT[]", "Array(Int64)" => "BIGINT[]", "Array(Float32)" => "REAL[]", "Array(Float64)" => "DOUBLE PRECISION[]", "Array(Bool)" => "BOOLEAN[]"}
+      if array_type = arrays[key]?
+        return array_type
+      end
       return PG_TYPES["AUTO_#{key}"]? || "BIGSERIAL" if spec.primary && spec.auto
       return PG_TYPES[spec.name]? || "TIMESTAMP" if spec.name == "created_at" || spec.name == "updated_at"
       return PG_TYPES[key]? || "TEXT"
     end
     case key
     when "String" then "VARCHAR(255)"
-    when "Time", "StdTimeTime" then "TIMESTAMP"
+    when "Time", "StdTimeTime" then spec.name == "created_at" || spec.name == "updated_at" ? "VARCHAR" : "TIMESTAMP"
     when "Bool" then "BOOL"
     when "Float32" then "FLOAT"
     when "Float64" then "REAL"
-    when "UUID" then "CHAR(36)"
+    when "UUID", "StdUuidUUID" then "CHAR(36)"
     else "INTEGER"
     end
   end
