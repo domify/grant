@@ -27,6 +27,9 @@ prompt="Your owner name is $owner. Read port/STAGE_B.md and follow it exactly, t
 feedback="Reviewer feedback lives in $root/port/feedback/all.md and $root/port/feedback/$owner.md. Read both first when they exist and follow them; fix what they flag in your earlier commits before porting new files."
 flat=0
 for ((round = 1; round <= max_rounds; round++)); do
+  # The Codex sandbox cannot write the worktree's own index, so workers commit through
+  # commit-tree with a private index; resync the real index to HEAD before looking.
+  git -C "$directory" reset -q
   if [[ -z $(git -C "$directory" status --porcelain --untracked-files=no) ]]; then
     if ! git -C "$directory" merge --no-edit "$base" > /dev/null 2>&1; then
       git -C "$directory" merge --abort
@@ -47,6 +50,7 @@ for ((round = 1; round <= max_rounds; round++)); do
     fi
     break
   done
+  git -C "$directory" reset -q
   after=$(git -C "$directory" rev-parse HEAD)
   commits=$(git -C "$directory" rev-list --count "$before..$after")
   echo "$(date -Iseconds) round=$round status=$status commits=$commits head=$(git -C "$directory" log --oneline -1)" >> "$log"
