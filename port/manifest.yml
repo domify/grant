@@ -2078,7 +2078,7 @@
   target: grant_querying_passthrough_test.iyi
   area: associations
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/result_types_spec.cr
   target: grant_result_types_test.iyi
   area: associations

@@ -571,6 +571,7 @@ pub abstract class Base
   end
 
   macro __process_columns
+    ::Grant::Querying.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})

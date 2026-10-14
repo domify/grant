@@ -20,6 +20,22 @@ end
 
 # Live driver result set: statement ownership stays with Connection#query.
 pub abstract class ResultSet
+  @result_closed : Bool = false
+
+  def column_name(index : Int32) : String
+    column_names[index]
+  end
+
+  # The query block owns finalization; closing stops further cursor reads.
+  def close : Nil
+    @result_closed = true
+    nil
+  end
+
+  def closed? : Bool
+    @result_closed
+  end
+
   abstract def column_names : Array(String)
   abstract def each(&block : -> T) : Nil | T | DatabaseError forall T
   abstract def read : Value | DatabaseError

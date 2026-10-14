@@ -71,11 +71,13 @@ pub class ResultSet < ::Grant::Adapter::Driver::ResultSet
   end
 
   def each(&block : -> T) : Nil | T | DatabaseError forall T
+    return nil if closed?
     code = SQLite.step(@statement)
     while code == 100
       @column = 0
       result = yield
       return result if result.is_a?(::Error)
+      return nil if closed?
       code = SQLite.step(@statement)
     end
     return @connection.failure(code, "query", @sql) unless code == 101

@@ -10,3 +10,18 @@ impl ::Error for NotFound
     @message
   end
 end
+
+# Raw SQL passthroughs from upstream Querying::ClassMethods.
+pub macro model_methods(model)
+  def self.query(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, &block : ::Grant::Adapter::Driver::ResultSet -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
+    connection.with_result_set(clause, params) { |rs| yield rs }
+  end
+
+  def self.scalar(clause : String = "", binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : ::Grant::Adapter::Driver::Value | ::Grant::Error::ErrorBase | Cancelled
+    connection.select_value(clause, binds)
+  end
+
+  def self.scalar(clause : String, &block : ::Grant::Adapter::Driver::Value -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
+    yield scalar(clause)!
+  end
+end
