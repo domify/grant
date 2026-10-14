@@ -2449,7 +2449,7 @@
   target: grant_connection_management_simple_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/conventions_regressions_spec.cr
   target: grant_conventions_regressions_test.iyi
   area: other
