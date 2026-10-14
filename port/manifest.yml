@@ -2359,7 +2359,7 @@
   target: adapter_pg_test.iyi
   area: other
   examples: 0
-  status: todo
+  status: done
 - source: crystal-upstream/spec/adapter/sqlite_spec.cr
   target: adapter_sqlite_test.iyi
   area: other
