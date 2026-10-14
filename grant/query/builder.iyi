@@ -16,6 +16,8 @@ import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
 import grant/query/relation_merging::{RelationMerging}
+import grant/query/existence_enumerable::{ExistenceEnumerable}
+import grant/querying::{NotFound, NotUnique}
 
 # Native counterpart of Grant::Query::Builder(Model)
 # (crystal-upstream/src/grant/query/builder.cr).
@@ -1094,8 +1096,8 @@ pub class Builder(Model)
   def sole : Model | RecordNotFound | ErrorBase
     memoized = @records
     results = memoized.nil? ? chain_copy.limit_in_place(2).select! : memoized
-    return RecordNotFound.new("No record found") if results.empty?
-    return ErrorBase.new("Multiple records found (expected exactly one)") if results.size > 1
+    return NotFound.new("No record found") if results.empty?
+    return NotUnique.new("Multiple records found (expected exactly one)") if results.size > 1
     results.first
   end
 
@@ -1269,4 +1271,7 @@ impl Grouping(Model) for Builder(Model) forall Model
 end
 
 impl RelationMerging(Model) for Builder(Model) forall Model
+end
+
+impl ExistenceEnumerable(Model) for Builder(Model) forall Model
 end

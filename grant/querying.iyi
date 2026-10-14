@@ -1,11 +1,21 @@
 module grant/querying
 
-import grant/errors::{RecordNotFound}
+import grant/errors::{RecordNotFound, ErrorBase}
 
 pub class NotFound < RecordNotFound
 end
 
 impl ::Error for NotFound
+  def message : String
+    @message
+  end
+end
+
+# Uniqueness error from upstream Grant::Querying.
+pub class NotUnique < ErrorBase
+end
+
+impl ::Error for NotUnique
   def message : String
     @message
   end
