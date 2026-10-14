@@ -1,7 +1,8 @@
+module test/grant_associations_collection_query_methods_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-class CollectionMetricOwner < Base
+pub class CollectionMetricOwner < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table collection_metric_owners
 
@@ -11,7 +12,7 @@ class CollectionMetricOwner < Base
   has_many :posts, class_name: CollectionMetricPost, foreign_key: :collection_metric_owner_id
 end
 
-class CollectionMetricPost < Base
+pub class CollectionMetricPost < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table collection_metric_posts
 

@@ -1,7 +1,8 @@
+module test/grant_associations_has_many_foreign_key_forms_test
 import grant/base::{Base}
-import spec_helper::{register_spec_connections}
+import test/spec_helper::{register_spec_connections}
 
-class FkFormOwner < Base
+pub class FkFormOwner < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table fk_form_owners
   column id : Int64, primary: true
@@ -10,7 +11,7 @@ class FkFormOwner < Base
   has_many :bare_children, class_name: FkFormChild, foreign_key: fk_form_owner_id
 end
 
-class FkFormChild < Base
+pub class FkFormChild < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table fk_form_children
   column id : Int64, primary: true
