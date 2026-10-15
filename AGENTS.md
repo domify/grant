@@ -14,6 +14,10 @@ weaken, delete, skip, mark pending, or replace assertions just to pass a gate. N
 Port structurally, 1:1: `src/grant/x.cr` to `grant/x.iyi`, preserving class inheritance, names,
 modules where iyi permits, `macro inherited`, `macro finished`, annotations, `column`, `table`,
 `connection`, associations, and the public API. Do not redesign around repositories or mappings.
+The first port did exactly that, so every spec became a design question and it reached under 1%
+upstream coverage. Idiomatic iyi refactors (derive instead of `__process_columns`, precise error
+unions, traits) wait until a full `bin/port-check` exits 0, and even then keep translated tests
+and the public API unchanged, one area at a time.
 SQLite and PostgreSQL are in scope; only MySQL-only files and examples may be excluded, solely as
 `adapter-out-of-scope`. Every test runs under both `CURRENT_ADAPTER=sqlite` and `CURRENT_ADAPTER=pg`
 (PostgreSQL 17 in the `grant-pg` docker container on 127.0.0.1:5433); keep upstream adapter branches
