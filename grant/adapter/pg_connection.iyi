@@ -1,8 +1,16 @@
 module grant/adapter/pg_connection
 
 import std/text
+import std/time::{Time}
 
-import grant/cstring::{cstring}
+import pg/pg/core::{PGConnection}
+import pg/pg/numeric::{Numeric}
+import pg/pg/pq/errors
+import pg/pg/pq/conninfo::{ConnInfo}
+import db/db/errors::{DBError}
+import db/db/core::{ConnectionLost}
+import db/db/value::{DBValue}
+
 import grant/locking::{LockMode}
 import grant/adapter/pool_support::{ticks}
 import grant/adapter/placeholder_scanner::{PlaceholderScanner}
@@ -12,9 +20,8 @@ import grant/adapter/error_translator
 import grant/error::{ErrorBase}
 pub import grant/adapter/driver
 
-# libpq reports failures through result objects rather than exceptions; keep
-# the server's SQLSTATE and message as the driver error beneath Grant's
-# translated error, as crystal-pg's PQ::PQError does.
+# Retain Grant's public driver error and SQLSTATE while iyilang/pg owns the
+# protocol, connection, statements, decoding and ReadyForQuery state.
 pub class PQError < ErrorBase
   getter sqlstate : String?
 
@@ -37,83 +44,14 @@ alias Value = ::Grant::Adapter::Driver::Value
 alias Row = ::Grant::Adapter::Driver::Row
 alias Mutation = ::Grant::Adapter::Driver::Mutation
 
-@[Link("pq")]
-lib PQ
-  fun connectdb = PQconnectdb(conninfo : UInt8*) : Void*
-  fun status = PQstatus(conn : Void*) : Int32
-  fun error_message = PQerrorMessage(conn : Void*) : UInt8*
-  fun exec_params = PQexecParams(conn : Void*, command : UInt8*, n : Int32, types : Void*, values : UInt8**, lengths : Int32*, formats : Int32*, result_format : Int32) : Void*
-  fun result_status = PQresultStatus(res : Void*) : Int32
-  fun result_error_field = PQresultErrorField(res : Void*, field : Int32) : UInt8*
-  fun result_error_message = PQresultErrorMessage(res : Void*) : UInt8*
-  fun ntuples = PQntuples(res : Void*) : Int32
-  fun nfields = PQnfields(res : Void*) : Int32
-  fun fname = PQfname(res : Void*, col : Int32) : UInt8*
-  fun ftype = PQftype(res : Void*, col : Int32) : UInt32
-  fun getvalue = PQgetvalue(res : Void*, row : Int32, col : Int32) : UInt8*
-  fun getlength = PQgetlength(res : Void*, row : Int32, col : Int32) : Int32
-  fun getisnull = PQgetisnull(res : Void*, row : Int32, col : Int32) : Int32
-  fun cmd_tuples = PQcmdTuples(res : Void*) : UInt8*
-  fun clear = PQclear(res : Void*) : Nil
-  fun finish = PQfinish(conn : Void*) : Nil
-  fun transaction_status = PQtransactionStatus(conn : Void*) : Int32
-  fun set_notice_processor = PQsetNoticeProcessor(conn : Void*, processor : Void*, arg : Void*) : Void*
-  fun send_query_params = PQsendQueryParams(conn : Void*, command : UInt8*, n : Int32, types : Void*, values : UInt8**, lengths : Int32*, formats : Int32*, result_format : Int32) : Int32
-  fun consume_input = PQconsumeInput(conn : Void*) : Int32
-  fun is_busy = PQisBusy(conn : Void*) : Int32
-  fun get_result = PQgetResult(conn : Void*) : Void*
-  fun socket = PQsocket(conn : Void*) : Int32
-  fun request_cancel = PQrequestCancel(conn : Void*) : Int32
-end
-
-PGRES_COMMAND_OK = 1
-PGRES_TUPLES_OK  = 2
-CONNECTION_OK    = 0
-SQLSTATE_FIELD   = 67
-
-# Buffered result set over one PGresult; rows are read in order.
-pub class ResultSet < ::Grant::Adapter::Driver::ResultSet
-  getter column_names : Array(String)
-  @row : Int32 = -1
-  @column : Int32 = 0
-
-  def initialize(@connection : Connection, @result : Void*, @sql : String)
-    @column_names = [] of String
-    PQ.nfields(@result).times do |index|
-      @column_names << cstring(PQ.fname(@result, index))
-    end
-  end
-
-  def each(&block : -> T) : Nil | T | DatabaseError forall T
-    count = PQ.ntuples(@result)
-    while !closed? && @row + 1 < count
-      @row += 1
-      @column = 0
-      result = yield
-      return result if result.is_a?(::Error)
-    end
-    nil
-  end
-
-  def read : Value | DatabaseError
-    value = @connection.read_value(@result, @row, @column)
-    @column += 1
-    value
-  end
-end
-
-pub class Connection < ::Grant::Adapter::Driver::Connection
-  # Grant's own URL options are not libpq connection parameters.
+pub class Connection < ::Grant::Adapter::Driver::LibraryConnection
+  # Grant's pool options are not database connection parameters.
   GRANT_URL_OPTIONS = ["max_pool_size", "initial_pool_size", "max_idle_pool_size", "checkout_timeout", "retry_attempts", "retry_delay", "prepared_statements", "busy_timeout"]
 
-  @handle : Void*
-  @closed : Bool
-  getter last_statement : String?
+  getter native_connection : PGConnection
   getter path : String
 
-  def initialize(@handle : Void*, @path : String)
-    @closed = false
-    @last_statement = nil
+  def initialize(@native_connection : PGConnection, @path : String)
     @name = "pg"
   end
 
@@ -144,21 +82,28 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
     kept.empty? ? parts[0] : "#{parts[0]}?#{kept.join("&")}"
   end
 
+  def statement_sql(sql : String) : String
+    PlaceholderScanner.numbered_parameters?(sql) ? sql : PlaceholderScanner.rewrite(sql, 0, true)
+  end
+
   def self.open(url : String, busy_timeout_ms : Int32 = 5000) : Connection | DatabaseError
     return DatabaseError.new(0, "open", "NUL byte in database URL") if url.includes?("\0")
-    handle = PQ.connectdb(conninfo(url))
-    return DatabaseError.new(0, "open", "out of memory") if handle.address == 0_u64
-    unless PQ.status(handle) == CONNECTION_OK
-      detail = cstring(PQ.error_message(handle)).strip
-      PQ.finish(handle)
-      sqlstate = detail.includes?("does not exist") && detail.includes?("database") ? "3D000" : "08001"
-      cause = PQError.new(sqlstate, detail)
-      return NoDatabaseError.new(0, "open", detail, nil, cause) if sqlstate == "3D000"
+    info = ConnInfo.from_conninfo_string(conninfo(url))
+    return DatabaseError.new(0, "open", info.message) if info.is_a?(DBError)
+    native = PGConnection.open(::Db::Core::Connection::Options.new, info)
+    if native.is_a?(DBError)
+      detail = native.message
+      state = detail.includes?("does not exist") && detail.includes?("database") ? "3D000" : "08001"
+      cause = PQError.new(state, detail)
+      return NoDatabaseError.new(0, "open", detail, nil, cause) if state == "3D000"
       return DatabaseError.new(0, "open", detail, nil, cause)
     end
-    connection = new(handle, url)
-    # Server notices (e.g. "table does not exist, skipping") are not errors.
-    connection.execute("SET client_min_messages TO WARNING")!
+    connection = new(native, url)
+    configured = connection.execute("SET client_min_messages TO WARNING")
+    if configured.is_a?(DatabaseError)
+      connection.close
+      return configured
+    end
     connection
   end
 
@@ -186,236 +131,55 @@ pub class Connection < ::Grant::Adapter::Driver::Connection
     nil
   end
 
-  def failure(result : Void*, operation : String, sql : String? = nil) : DatabaseError
-    detail = @closed ? "connection is closed" : cstring(PQ.error_message(@handle)).strip
-    sqlstate = nil
-    unless result.address == 0_u64
-      message = cstring(PQ.result_error_message(result)).strip
-      detail = message unless message.empty?
-      field = PQ.result_error_field(result, SQLSTATE_FIELD)
-      sqlstate = cstring(field) unless field.address == 0_u64
-    end
-    cause = PQError.new(sqlstate, detail)
-    # 57P01-57P03 (server shutdown, termination) and class 08 (connection
-    # exception) mean the backend is gone even before libpq marks it bad.
-    server_gone = !sqlstate.nil? && (sqlstate.starts_with?("57P") || sqlstate.starts_with?("08"))
-    if !@closed && (server_gone || PQ.status(@handle) != CONNECTION_OK)
-      lost = DatabaseError.new(0, operation, detail, sql, cause)
-      lost.connection_lost = true
-      # The server is gone: the handle can never answer again.
-      @lost = true
-      close
-      return lost
-    end
-    kind = ::Grant::Adapter::ErrorTranslator.pg_error_kind(sqlstate, detail)
-    return DatabaseError.new(0, operation, detail, sql, cause) if kind.nil?
-    translated = ::Grant::Adapter::ErrorTranslator.build(kind, detail, sql, [] of String, cause, 0, operation)
-    return translated if translated.is_a?(StatementInvalid)
-    # ReadOnlyError is not a statement error; the adapter surfaces it.
-    error = DatabaseError.new(0, operation, detail, sql, cause)
-    error.read_only = true
-    error
-  end
-
+  # PostgreSQL has no connection-level last inserted key; INSERT uses RETURNING.
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
-    result = run(sql, parameters, "execute")
-    if result.is_a?(DatabaseError)
-      result.binds = DatabaseError.describe_binds(parameters)
-      return result
-    end
-    changes = cstring(PQ.cmd_tuples(result)).to_i64? || 0_i64
-    PQ.clear(result)
-    Mutation.new(changes, -1_i64)
+    result = super(sql, parameters)
+    return result if result.is_a?(DatabaseError)
+    Mutation.new(result.changes, -1_i64)
   end
 
   def insert(sql : String, parameters : Array(Value), primary_name : String?) : Mutation | DatabaseError
     return execute(sql, parameters) if primary_name.nil?
-    result = run("#{sql} RETURNING \"#{primary_name.gsub("\"", "\"\"")}\"", parameters, "execute")
-    if result.is_a?(DatabaseError)
-      result.binds = DatabaseError.describe_binds(parameters)
-      return result
-    end
+    rows = query("#{sql} RETURNING \"#{primary_name.gsub("\"", "\"\"")}\"", parameters)!
     id = -1_i64
-    if PQ.ntuples(result) > 0 && PQ.getisnull(result, 0, 0) == 0
-      id = cstring(PQ.getvalue(result, 0, 0)).to_i64? || -1_i64
+    unless rows.empty?
+      value = rows.first.values.first
+      id = value.is_a?(Int64) ? value : (value.to_s.to_i64? || -1_i64)
     end
-    changes = cstring(PQ.cmd_tuples(result)).to_i64? || 0_i64
-    PQ.clear(result)
-    Mutation.new(changes, id)
+    Mutation.new(rows.size.to_i64, id)
   end
 
-  def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
-    result = run(sql, parameters, "query")
-    if result.is_a?(DatabaseError)
-      result.binds = DatabaseError.describe_binds(parameters)
+  def normalize(value : DBValue) : Value | DatabaseError
+    if value.is_a?(Numeric)
+      text = value.to_s
+      return text.includes?(".") ? value.to_f : (text.to_i64? || value.to_f)
+    end
+    if value.is_a?(Time)
+      return value.to_rfc3339 if value.nanosecond == 0
+      text = value.to_rfc3339(6)
+      return text[0, text.bytesize - 1].rstrip('0') + "Z"
+    end
+    super(value)
+  end
+
+  def translate(error : DBError, operation : String, sql : String? = nil) : DatabaseError
+    state = error.is_a?(::Pg::Pq::Errors::PQError) ? error.field_message(:code) : nil
+    detail = error.message
+    cause = PQError.new(state, detail)
+    gone = error.is_a?(ConnectionLost) || (!state.nil? && (state.starts_with?("57P") || state.starts_with?("08")))
+    if gone
+      @lost = true
+      native_connection.close
+      result = DatabaseError.new(0, operation, detail, sql, cause)
+      result.connection_lost = true
       return result
     end
-    rows = [] of Row
-    names = [] of String
-    PQ.nfields(result).times { |column| names << cstring(PQ.fname(result, column)) }
-    PQ.ntuples(result).times do |row|
-      attributes = Row.new
-      names.each_with_index do |name, column|
-        value = read_value(result, row, column)
-        if value.is_a?(DatabaseError)
-          PQ.clear(result)
-          return value
-        end
-        attributes[name] = value
-      end
-      rows << attributes
-    end
-    PQ.clear(result)
-    rows
-  end
-
-  def query(sql : String, parameters : Array(Value) = [] of Value, &block : ::Grant::Adapter::Driver::ResultSet -> T) : T | DatabaseError forall T
-    result = run(sql, parameters, "query")
-    if result.is_a?(DatabaseError)
-      result.binds = DatabaseError.describe_binds(parameters)
-      return result
-    end
-    outcome = yield ResultSet.new(self, result, sql)
-    PQ.clear(result)
-    outcome
-  end
-
-  def in_transaction? : Bool
-    return false if @closed
-    status = PQ.transaction_status(@handle)
-    status == 2 || status == 3
-  end
-
-  def closed? : Bool
-    @closed
-  end
-
-  def close : Nil | DatabaseError
-    return nil if @closed
-    PQ.finish(@handle)
-    @closed = true
-    nil
-  end
-
-  private def run(sql : String, parameters : Array(Value), operation : String) : Void* | DatabaseError
-    materializer = @transaction_materializer
-    unless materializer.nil?
-      # Control statements must bypass this hook while materializing.
-      @transaction_materializer = nil
-      materialized = materializer.call
-      @transaction_materializer = materializer
-      return materialized if materialized.is_a?(DatabaseError)
-    end
-    @last_statement = sql
-    observer = @query_observer
-    observer.call(sql) unless observer.nil?
-    return DatabaseError.new(0, "prepare", "connection is closed", sql) if @closed
-    return DatabaseError.new(0, "prepare", "NUL byte in SQL", sql) if sql.includes?("\0")
-    statement = PlaceholderScanner.numbered_parameters?(sql) ? sql : PlaceholderScanner.rewrite(sql, 0, true)
-    texts = [] of String?
-    parameters.each do |value|
-      texts << case value
-      when Nil   then nil
-      when Bool  then value ? "t" : "f"
-      when String
-        return DatabaseError.new(0, "bind", "NUL byte in bind value", sql) if value.includes?("\0")
-        value
-      else value.to_s
-      end
-    end
-    pointers = texts.map { |text| text.nil? ? Pointer(UInt8).new(0_u64) : text.to_unsafe }
-    result = exec_async(statement, texts.size, pointers)
-    @grant_last_used_ticks = ticks
-    if result.address == 0_u64
-      return failure(result, operation, sql)
-    end
-    status = PQ.result_status(result)
-    unless status == PGRES_COMMAND_OK || status == PGRES_TUPLES_OK
-      error = failure(result, operation, sql)
-      PQ.clear(result)
-      return error
-    end
+    kind = ::Grant::Adapter::ErrorTranslator.pg_error_kind(state, detail)
+    return DatabaseError.new(0, operation, detail, sql, cause) if kind.nil?
+    translated = ::Grant::Adapter::ErrorTranslator.build(kind, detail, sql, [] of String, cause, 0, operation)
+    return translated if translated.is_a?(StatementInvalid)
+    result = DatabaseError.new(0, operation, detail, sql, cause)
+    result.read_only = true
     result
-  end
-
-  # PQexecParams without blocking the scheduler: the statement is sent, then
-  # this fiber parks on the socket until libpq has the whole reply, so other
-  # fibers (another connection's lock holder, a canceller) keep running. Like
-  # PQexec it answers the last result, or the first failed one.
-  private def exec_async(statement : String, count : Int32, pointers : Array(Pointer(UInt8))) : Void*
-    sent = PQ.send_query_params(@handle, statement, count, Pointer(Void).new(0_u64), pointers.to_unsafe, Pointer(Int32).new(0_u64), Pointer(Int32).new(0_u64), 0)
-    return Pointer(Void).new(0_u64) if sent == 0
-    fd = PQ.socket(@handle)
-    kept = Pointer(Void).new(0_u64)
-    loop do
-      while PQ.is_busy(@handle) == 1
-        waited = IyiScheduler.wait_readable_current(fd)
-        # A cancelled fiber still drains the reply so the connection stays
-        # usable; the server is asked to stop the statement first.
-        PQ.request_cancel(@handle) if waited.is_a?(Cancelled)
-        if PQ.consume_input(@handle) == 0
-          PQ.clear(kept) unless kept.address == 0_u64
-          return Pointer(Void).new(0_u64)
-        end
-      end
-      result = PQ.get_result(@handle)
-      break if result.address == 0_u64
-      if kept.address == 0_u64
-        kept = result
-      else
-        status = PQ.result_status(kept)
-        if status == PGRES_COMMAND_OK || status == PGRES_TUPLES_OK
-          PQ.clear(kept)
-          kept = result
-        else
-          PQ.clear(result)
-        end
-      end
-    end
-    kept
-  end
-
-  def read_value(result : Void*, row : Int32, column : Int32) : Value | DatabaseError
-    return nil if PQ.getisnull(result, row, column) == 1
-    text = cstring(PQ.getvalue(result, row, column), PQ.getlength(result, row, column))
-    case PQ.ftype(result, column).to_i
-    when 16            then text == "t"
-    when 20, 21, 23, 26 then text.to_i64
-    when 700, 701      then text.to_f
-    when 1700          then text.includes?(".") ? text.to_f : text.to_i64
-    when 17            then decode_bytea(text)
-    when 1114, 1184    then rfc3339(text)
-    else                    text
-    end
-  end
-
-  # Grant reads times as RFC 3339; PostgreSQL's text output separates the date
-  # with a space and abbreviates the zone offset.
-  private def rfc3339(text : String) : String
-    stamp = text.sub(" ", "T")
-    zone = stamp.rindex('+') || stamp.rindex('-')
-    if zone.nil? || zone < 11
-      return "#{stamp}Z"
-    end
-    offset = stamp[zone, stamp.bytesize - zone]
-    offset = "#{offset}:00" if offset.bytesize == 3
-    "#{stamp[0, zone]}#{offset}"
-  end
-
-  private def hex_digit(byte : UInt8) : Int32
-    return (byte - 48_u8).to_i if byte >= 48_u8 && byte <= 57_u8
-    return (byte - 87_u8).to_i if byte >= 97_u8 && byte <= 102_u8
-    (byte - 55_u8).to_i
-  end
-
-  private def decode_bytea(text : String) : String
-    return text unless text.starts_with?("\\x")
-    hex = text[2, text.bytesize - 2]
-    String.new(hex.bytesize // 2) do |buffer|
-      (hex.bytesize // 2).times do |index|
-        buffer[index] = (hex_digit(hex.bytes[index * 2]) * 16 + hex_digit(hex.bytes[index * 2 + 1])).to_u8
-      end
-      nil
-    end
   end
 end

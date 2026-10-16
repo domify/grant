@@ -39,7 +39,7 @@ end
 
 # Upstream Grant::Adapter::Pg.error_kind. `57014` covers both a user cancel and
 # `statement_timeout`; the server's message is the only thing that tells them
-# apart, so it is consulted for that one code. It lives here so the libpq
+# apart, so it is consulted for that one code. It lives here so the PostgreSQL
 # driver can classify without importing the adapter.
 pub def pg_error_kind(sqlstate : String?, message : String? = nil) : Kind?
   return nil if sqlstate.nil?

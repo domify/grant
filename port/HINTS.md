@@ -22,7 +22,11 @@ Tests live in `test/`; each starts with `module test/<name>` and declares its mo
 ## Core layout
 
 - `grant/base.iyi` holds `Grant::Base` and the `macro inherited`/`__process_columns` expansion. Subsystems add their model API as `pub macro model_methods(model)` in their own module and one line in `__process_columns` (see `grant/locking/pessimistic.iyi`). Keep base.iyi edits small and additive; put new code in new modules mirroring upstream `src/grant/x.cr` → `grant/x.iyi`.
-- Adapters: `grant/adapter/base.iyi` (`open`, `open_pool_connection`, `with_connection`, `checkout`, `translate_exception`), `pg.iyi`/`pg_connection.iyi` (libpq, async: statements park the fiber on the socket), `sqlite.iyi`/`sqlite_connection.iyi`. Drivers sit under the abstract `grant/adapter/driver` (`Connection`, `ResultSet`, `Value`, `Row`, `Mutation`); `grant/adapter/drivers` picks the driver from the URL scheme.
+- Adapters: `grant/adapter/base.iyi` (`open`, `open_pool_connection`, `with_connection`, `checkout`,
+  `translate_exception`), `pg.iyi`/`pg_connection.iyi` (iyilang/pg, native protocol and async socket
+  IO), `sqlite.iyi`/`sqlite_connection.iyi`. Drivers sit under the abstract `grant/adapter/driver`
+  (`Connection`, `ResultSet`, `Value`, `Row`, `Mutation`); `grant/adapter/drivers` picks the driver
+  from the URL scheme.
 - Errors: `grant/error_taxonomy.iyi` has the upstream taxonomy (StatementInvalid and subclasses, ReadOnlyError, Connection*); `grant/adapter/error_translator.iyi` classifies driver codes. `grant/error.iyi` has `ErrorBase` and `ArgumentError` (returned where upstream raises it).
 - `Model.adapter` returns the `Adapter::Base`; `Model.connection` returns the `Grant::Connection` facade; `Model.__connection` is a raw driver connection (avoid in new code; use `Model.adapter.open(sql, binds) { |db| ... }`).
 

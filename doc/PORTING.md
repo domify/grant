@@ -171,6 +171,10 @@ The full gate for this increment passes all 66 native programs with zero failure
 
 Scope is SQLite and PostgreSQL; only MySQL-only examples are excluded. `port/coverage.rb` computes the adapters each example runs under from upstream `CURRENT_ADAPTER`/`adapter.postgres?` branches and `pending!("... only")`; whole `pg_*`/`jsonb`/`gin_index` spec files run on PostgreSQL only.
 
-Drivers implement the abstract `grant/adapter/driver` (`Connection`, `ResultSet`, `Value`, `Row`, `Mutation`); core code references only these. `grant/adapter/pg_connection` binds libpq: `?` placeholders become `$n` through the ported `PlaceholderScanner`, generated keys come from `RETURNING`, SQLSTATE selects the translated error, and timestamps are read back as RFC 3339. `Grant::Adapter::Pg` mirrors `src/adapter/pg.cr`.
+Drivers implement the abstract `grant/adapter/driver` (`Connection`, `ResultSet`, `Value`, `Row`,
+`Mutation`); core code references only these. `grant/adapter/pg_connection` delegates to iyilang/pg:
+`?` placeholders become `$n` through the ported `PlaceholderScanner`, generated keys come from
+`RETURNING`, SQLSTATE selects the translated error, and timestamps are read back as RFC 3339.
+`Grant::Adapter::Pg` mirrors `src/adapter/pg.cr`.
 
 Tests import `spec_helper` (`CURRENT_ADAPTER`, `ADAPTER_URL`, `register_spec_connections`, `restore_default_spec_connections`, `establish_spec_connection`) and declare models with `connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}` wherever upstream uses `adapter_literal`. Upstream adapter branches stay runtime branches; do not flatten them to the SQLite side. An unregistered connection name falls back to the first registered adapter, as upstream `resolve_adapter_for_role` does.

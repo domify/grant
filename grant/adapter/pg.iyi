@@ -33,7 +33,7 @@ pub class Pg < Base
     ::Grant::Adapter::ErrorTranslator.pg_error_kind(sqlstate, message)
   end
 
-  # Maps a libpq failure to the matching taxonomy error. An error Grant does
+  # Maps a PostgreSQL failure to the matching taxonomy error. An error Grant does
   # not recognize is returned unchanged.
   def translate_exception(error : E, sql : String? = nil, binds : Array(Value)? = nil) : E | ErrorBase forall E
     if error.is_a?(PQError)
