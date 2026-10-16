@@ -1,6 +1,7 @@
 module grant/query/builder
 
 import std/text
+pub import grant/adapter/driver
 import grant/adapter/driver::{Value, Mutation}
 import grant/errors::{DatabaseError, RecordNotFound, ErrorBase}
 import grant/error::{ArgumentError}
@@ -366,7 +367,7 @@ pub class Builder(Model)
   def and_in_place(stmt : String, value : T) : self forall T
     bound = to_bind(value)
     if bound.is_a?(Array)
-      own_where_fields << {join: :and, stmt: stmt, values: bound}
+      own_where_fields << {join: :and, stmt: stmt, values: bound.as(Array(Value))}
     else
       own_where_fields << {join: :and, stmt: stmt, value: bound.as(Bind)}
     end
@@ -407,7 +408,7 @@ pub class Builder(Model)
   def or_in_place(stmt : String, value : T) : self forall T
     bound = to_bind(value)
     if bound.is_a?(Array)
-      own_where_fields << {join: :or, stmt: stmt, values: bound}
+      own_where_fields << {join: :or, stmt: stmt, values: bound.as(Array(Value))}
     else
       own_where_fields << {join: :or, stmt: stmt, value: bound.as(Bind)}
     end

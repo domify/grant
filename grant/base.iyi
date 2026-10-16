@@ -1,4 +1,6 @@
 module grant/base
+
+import db/db/value
 import std/named_tuple
 pub import std/time
 pub import grant/timestamps
@@ -1765,8 +1767,14 @@ pub abstract class Base
   end
 end
 
+pub def sqlite_value(value : Array(T)) : Value forall T
+  values = [] of Value
+  value.each { |item| values << sqlite_value(item) }
+  values
+end
+
 pub def sqlite_value(value : Value) : Value
-  value
+  ::Db::Value.to_db_value(value)
 end
 
 pub def sqlite_value(value : Int32) : Value

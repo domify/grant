@@ -1,13 +1,25 @@
 module grant/adapter/driver
 
+pub import db/db/core
+pub import db/db/value
+pub import db/db/errors
+pub import std/time
+pub import std/slice
+import db/db/core::{TransactionState}
+import db/db/errors::{DBError}
+import db/db/value::{DBValue}
+import std/time::{Time}
+import std/slice::{Bytes}
+
 import grant/locking::{LockMode}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
 
-# Native replacement for crystal-db's driver contract. Grant's adapters, pools
-# and models hold this abstract connection; the SQLite and PostgreSQL drivers
-# own their C handles beneath it.
-pub alias Value = Nil | Bool | Int64 | Float64 | String
+# Grant's compatibility facade over db connections, values and results.
+# Concrete adapters retain SQL conventions, observers and public errors here.
+pub alias Value = DBValue
+pub alias NativeConnection = ::Db::Core::Connection
+pub alias NativeResultSet = ::Db::Core::ResultSet
 pub alias Row = Hash(String, Value)
 
 pub struct Mutation
@@ -48,7 +60,7 @@ end
 pub abstract class Connection
   @savepoint_sequence : UInt64 = 0_u64
   property name : String = "sqlite"
-  property grant_last_used_ticks : Int64 = ticks
+  property grant_last_used_ticks : Int64 = ::Grant::Adapter::PoolSupport.ticks
   property transaction_materializer : Proc(Nil | DatabaseError)? = nil
   property query_observer : Proc(String, Nil)? = nil
   # Set when the server dropped this connection; the pool forgets it.
@@ -96,5 +108,137 @@ pub abstract class Connection
 
   def postgres? : Bool
     false
+  end
+end
+
+# Buffered metadata and a live cursor over the library result. Grant keeps its
+# block API while db owns stepping, decoding and statement cleanup.
+pub class LibraryResultSet < ResultSet
+  getter column_names : Array(String)
+
+  def initialize(@owner : LibraryConnection, @result : NativeResultSet, @sql : String,
+                 @parameters : Array(Value))
+    @column_names = [] of String
+    @result.column_count.times { |index| @column_names << @result.column_name(index) }
+  end
+
+  def each(&block : -> T) : Nil | T | DatabaseError forall T
+    until closed?
+      next_row = @result.move_next
+      return @owner.statement_error(next_row, "query", @sql, @parameters) if next_row.is_a?(DBError)
+      break unless next_row
+      result = yield
+      return result if result.is_a?(::Error)
+    end
+    nil
+  end
+
+  def read : Value | DatabaseError
+    value = @result.read
+    return @owner.statement_error(value, "query", @sql, @parameters) if value.is_a?(DBError)
+    @owner.normalize(value)
+  end
+end
+
+# db owns the connection, statements and transaction state. This facade retains
+# Grant's hooks, SQL provenance, normalized rows and public error taxonomy.
+pub abstract class LibraryConnection < Connection
+  abstract def native_connection : NativeConnection
+  abstract def translate(error : DBError, operation : String, sql : String? = nil) : DatabaseError
+  abstract def statement_sql(sql : String) : String
+
+  getter last_statement : String?
+
+  def statement_error(error : DBError, operation : String, sql : String?,
+                      parameters : Array(Value)) : DatabaseError
+    translated = translate(error, operation, sql)
+    translated.binds = DatabaseError.describe_binds(parameters)
+    translated
+  end
+
+  def normalize(value : DBValue) : Value | DatabaseError
+    case value
+    when Nil, Bool, Int64, Float64, String then value
+    when Int8, Int16, Int32, UInt8, UInt16, UInt32 then value.to_i64
+    when Float32 then value.to_f64
+    when Time then value.to_rfc3339(6)
+    when Bytes
+      String.new(value.size) { |buffer| buffer.copy_from(value.to_unsafe, value.size) }
+    else
+      ::Db::Value.to_db_value(value)
+    end
+  end
+
+  def in_transaction? : Bool
+    !closed? && native_connection.transaction_state != TransactionState::Idle
+  end
+
+  def closed? : Bool
+    native_connection.closed?
+  end
+
+  def close : Nil | DatabaseError
+    result = native_connection.close
+    result.is_a?(DBError) ? translate(result, "close") : nil
+  end
+
+  protected def before_statement(sql : String) : Nil | DatabaseError
+    materializer = @transaction_materializer
+    unless materializer.nil?
+      @transaction_materializer = nil
+      defer @transaction_materializer = materializer
+      result = materializer.call
+      return result if result.is_a?(DatabaseError)
+    end
+    @last_statement = sql
+    observer = @query_observer
+    observer.call(sql) unless observer.nil?
+    return DatabaseError.new(21, "prepare", "connection is closed", sql) if closed?
+    return DatabaseError.new(21, "prepare", "NUL byte in SQL", sql) if sql.includes?("\0")
+    nil
+  end
+
+  def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    before_statement(sql)!
+    defer @grant_last_used_ticks = ::Grant::Adapter::PoolSupport.ticks
+    result = native_connection.exec(statement_sql(sql), args: parameters)
+    if result.is_a?(DBError)
+      error = translate(result, "execute", sql)
+      error.binds = DatabaseError.describe_binds(parameters)
+      return error
+    end
+    Mutation.new(result.rows_affected, result.last_insert_id)
+  end
+
+  def query(sql : String, parameters : Array(Value) = [] of Value, &block : ResultSet -> T) : T | DatabaseError forall T
+    before_statement(sql)!
+    defer @grant_last_used_ticks = ::Grant::Adapter::PoolSupport.ticks
+    result = native_connection.query(statement_sql(sql), args: parameters)
+    if result.is_a?(DBError)
+      error = translate(result, "query", sql)
+      error.binds = DatabaseError.describe_binds(parameters)
+      return error
+    end
+    finished = false
+    defer (result.close unless finished)
+    outcome = yield LibraryResultSet.new(self, result, sql, parameters)
+    closed = result.close
+    finished = true
+    return outcome if outcome.is_a?(::Error)
+    return statement_error(closed, "query", sql, parameters) if closed.is_a?(DBError)
+    outcome
+  end
+
+  def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
+    query(sql, parameters) do |rs|
+      rows = [] of Row
+      outcome = rs.each do
+        row = Row.new
+        rs.column_names.each { |name| row[name] = rs.read! }
+        rows << row
+        nil
+      end
+      outcome.is_a?(DatabaseError) ? outcome : rows
+    end
   end
 end

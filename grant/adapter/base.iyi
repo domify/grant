@@ -1,5 +1,7 @@
 module grant/adapter/base
 
+pub import grant/adapter/driver
+
 import grant/adapter/placeholder_scanner
 
 import std/time::{Span}

@@ -79,3 +79,24 @@ Driver errors inherit `DBError`. SQLite exposes `SQLite3Error#code`; PostgreSQL 
 feed Grant's existing error translator while retaining `DatabaseError` at the public boundary.
 Grant can keep its observer and transaction-materialization hooks around calls into the library.
 Neither error translation nor the hooks require rebuilding a native SQL driver.
+
+## Local integration, 2026-10-17
+
+The local libraries now implement actual `Connection#transaction_state`:
+
+- db `f0654df`: required Idle / InTransaction / FailedTransaction contract.
+- SQLite `de37bd1`, `c8f9424`: autocommit state, statement-tail and argument validation,
+  binding clearing, and resetting cached exec statements after errors to release locks.
+- pg `0c87010`: retain every ReadyForQuery status, including error recovery.
+
+Grant's `iyi.mod` replaces all three modules with `../iyis/<module>`. These are supported top-level
+replacements; the module cache stays untouched. The db bridge uses DBValue without narrowing the
+library union and retains Grant's hooks, error boundary, normalized rows and mutation API.
+Recursive array values are converted with the library's `to_db_value` helper. Public query and
+adapter modules re-export the driver types they expose.
+
+The full pre-migration gate reports `PORT 104/476 EXAMPLES 751/4736 AREA transactions FAIL`.
+It ran 276 adapter programs: 275 passed, one SQLite idle-reconnect run collided with a parallel
+draft's temporary fixture directory. That unchanged target passes under both adapters when rerun
+with its own TMPDIR. All other gate errors are unfinished source entries. Drafts, caches, build
+temporaries and logs now live under the checkout, with separate temporary directories per run.
