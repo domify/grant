@@ -2609,7 +2609,7 @@
   target: test/grant_validation_helpers_choice_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validation_helpers/exclusion_spec.cr
   target: test/grant_validation_helpers_exclusion_test.iyi
   area: other

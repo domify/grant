@@ -12,6 +12,7 @@ pub import grant/columns_helpers
 pub import grant/attributes
 pub import grant/dirty
 pub import grant/record_copy
+pub import grant/validation_helpers/choice
 pub import grant/validation_helpers/exclusion
 pub import grant/validation_helpers/nil
 pub import grant/validation_helpers/blank
@@ -82,6 +83,7 @@ pub abstract class Base
   end
 
   macro inherited
+    ::Grant::ValidationHelpers::Choice.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Exclusion.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Nil.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Blank.model_methods({{ @type }})
