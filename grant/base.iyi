@@ -12,6 +12,7 @@ pub import grant/columns_helpers
 pub import grant/attributes
 pub import grant/dirty
 pub import grant/record_copy
+pub import grant/validation_helpers/length
 pub import grant/validation_helpers/choice
 pub import grant/validation_helpers/exclusion
 pub import grant/validation_helpers/nil
@@ -83,6 +84,7 @@ pub abstract class Base
   end
 
   macro inherited
+    ::Grant::ValidationHelpers::Length.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Choice.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Exclusion.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Nil.model_methods({{ @type }})
@@ -713,9 +715,10 @@ pub abstract class Base
       save_strict
     end
 
-    def __run_validations : Nil
+    def __run_validations : Nil | ::Grant::Error::ErrorBase
       \{% for m in @type.methods.select { |m| m.name.starts_with?("__validate_") } %}
-        \{{ m.name }}
+        result = \{{ m.name }}
+        return result if result.is_a?(::Grant::Error::ErrorBase)
       \{% end %}
       nil
     end
@@ -1634,14 +1637,14 @@ pub abstract class Base
     result
   end
 
-  def valid? : Bool | ::Grant::Callbacks::Abort
+  def valid? : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
     errors.clear_validations
     __run_around_validation { __validation_phase }
   end
 
-  def __validation_phase : Bool | ::Grant::Callbacks::Abort
+  def __validation_phase : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
     self.before_validation!
-    __run_validations
+    __run_validations!
     self.after_validation!
     errors.empty?
   end
