@@ -50,7 +50,7 @@ Parent.transaction do
   Parent.create_strict(name: "Frank").or_panic
 end.or_panic
 assert Parent.count.or_panic == 2
-names = Parent.all.or_panic.map { |parent| parent.name.to_s }.sorted
+names = Parent.all.select.or_panic.map { |parent| parent.name.to_s }.sorted
 assert names == ["Eve", "Frank"]
 
 # it: rolls back records from different model classes inside one transaction

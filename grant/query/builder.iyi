@@ -11,6 +11,8 @@ pub import grant/query/where_field
 import grant/query/bind_value::{to_bind, to_value}
 import grant/query/join_support::{JoinSupport}
 import grant/query/assembler
+import grant/query/predicate_renderer
+import grant/query/empty_clauses::{EmptyClauses}
 import grant/query/executor
 import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
@@ -43,17 +45,17 @@ pub class Builder(Model)
   pub alias Sort = ::Grant::Query::WhereField::Sort
   pub alias CountResult = Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64)
 
-  getter where_fields = [] of WhereField
-  getter default_scope_where_fields = [] of WhereField
-  getter order_fields = [] of OrderField
-  getter group_fields = [] of GroupField
+  getter where_fields = EmptyClauses::WHERE_FIELDS
+  getter default_scope_where_fields = EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS
+  getter order_fields = EmptyClauses::ORDER_FIELDS
+  getter group_fields = EmptyClauses::GROUP_FIELDS
   getter offset : Int64? = nil
   getter limit : Int64? = nil
   getter lock_mode : LockMode? = nil
   property select_columns : Array(String)? = nil
-  getter join_clauses = [] of JoinClause
-  getter having_clauses = [] of HavingClause
-  getter optimizer_hint_list = [] of String
+  getter join_clauses = EmptyClauses::JOIN_CLAUSES
+  getter having_clauses = EmptyClauses::HAVING_CLAUSES
+  getter optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
   property annotation_comment : String? = nil
   property index_hint_sql : String? = nil
   @distinct : Bool = false
@@ -110,67 +112,73 @@ pub class Builder(Model)
   # write goes through them so a loaded relation forgets its records.
   def own_where_fields : Array(WhereField)
     reset_load_state
+    @where_fields = @where_fields.dup if @where_fields.object_id == EmptyClauses::WHERE_FIELDS.object_id
     @where_fields
   end
 
   def clear_where_fields : Nil
     reset_load_state
-    @where_fields = [] of WhereField
+    @where_fields = EmptyClauses::WHERE_FIELDS
     nil
   end
 
   def own_default_scope_where_fields : Array(WhereField)
     reset_load_state
+    @default_scope_where_fields = @default_scope_where_fields.dup if @default_scope_where_fields.object_id == EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS.object_id
     @default_scope_where_fields
   end
 
   def clear_default_scope_where_fields : Nil
     reset_load_state
-    @default_scope_where_fields = [] of WhereField
+    @default_scope_where_fields = EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS
     nil
   end
 
   def own_order_fields : Array(OrderField)
     reset_load_state
+    @order_fields = @order_fields.dup if @order_fields.object_id == EmptyClauses::ORDER_FIELDS.object_id
     @order_fields
   end
 
   def clear_order_fields : Nil
     reset_load_state
-    @order_fields = [] of OrderField
+    @order_fields = EmptyClauses::ORDER_FIELDS
     nil
   end
 
   def own_group_fields : Array(GroupField)
     reset_load_state
+    @group_fields = @group_fields.dup if @group_fields.object_id == EmptyClauses::GROUP_FIELDS.object_id
     @group_fields
   end
 
   def clear_group_fields : Nil
     reset_load_state
-    @group_fields = [] of GroupField
+    @group_fields = EmptyClauses::GROUP_FIELDS
     nil
   end
 
   def own_join_clauses : Array(JoinClause)
     reset_load_state
+    @join_clauses = @join_clauses.dup if @join_clauses.object_id == EmptyClauses::JOIN_CLAUSES.object_id
     @join_clauses
   end
 
   def clear_join_clauses : Nil
     reset_load_state
-    @join_clauses = [] of JoinClause
+    @join_clauses = EmptyClauses::JOIN_CLAUSES
     nil
   end
 
   def own_having_clauses : Array(HavingClause)
     reset_load_state
+    @having_clauses = @having_clauses.dup if @having_clauses.object_id == EmptyClauses::HAVING_CLAUSES.object_id
     @having_clauses
   end
 
   def clear_having_clauses : Nil
     reset_load_state
-    @having_clauses = [] of HavingClause
+    @having_clauses = EmptyClauses::HAVING_CLAUSES
     nil
   end
 
@@ -191,13 +199,13 @@ pub class Builder(Model)
   end
 
   protected def copy_state_from(source : Builder(Model)) : Nil
-    @where_fields = source.where_fields.dup
-    @default_scope_where_fields = source.default_scope_where_fields.dup
-    @order_fields = source.order_fields.dup
-    @group_fields = source.group_fields.dup
-    @join_clauses = source.join_clauses.dup
-    @having_clauses = source.having_clauses.dup
-    @optimizer_hint_list = source.optimizer_hint_list.dup
+    @where_fields = source.where_fields.empty? ? EmptyClauses::WHERE_FIELDS : source.where_fields.dup
+    @default_scope_where_fields = source.default_scope_where_fields.empty? ? EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS : source.default_scope_where_fields.dup
+    @order_fields = source.order_fields.empty? ? EmptyClauses::ORDER_FIELDS : source.order_fields.dup
+    @group_fields = source.group_fields.empty? ? EmptyClauses::GROUP_FIELDS : source.group_fields.dup
+    @join_clauses = source.join_clauses.empty? ? EmptyClauses::JOIN_CLAUSES : source.join_clauses.dup
+    @having_clauses = source.having_clauses.empty? ? EmptyClauses::HAVING_CLAUSES : source.having_clauses.dup
+    @optimizer_hint_list = source.optimizer_hint_list.empty? ? EmptyClauses::OPTIMIZER_HINTS : source.optimizer_hint_list.dup
     @offset = source.offset
     @limit = source.limit
     @lock_mode = source.lock_mode
@@ -456,6 +464,34 @@ pub class Builder(Model)
     chain_copy.or_in_place(**matches)
   end
 
+  def or_where(&block : self -> T) : self forall T
+    chain_copy.or_in_place { |query| yield query }
+  end
+
+  def or_in_place(&block : self -> T) : self forall T
+    reset_load_state
+    query = Builder(Model).new(@db_type, :or)
+    built = yield query
+    query = built if built.is_a?(Builder(Model))
+    unless query.where_fields.empty?
+      # Render with anonymous placeholders so the enclosing assembler owns
+      # numbering and bound values, including PostgreSQL's $n parameters.
+      values = [] of Value
+      renderer = ::Grant::Query::PredicateRenderer::PredicateRenderer.new(
+        Model.to_s, Model.table_name, Model.fields,
+        ->(name : String) { Model.quote(name) },
+        ->(value : Value) { values << value; "?" },
+        ->(name : String) { nil }, query.join_clauses)
+      rendered = renderer.render_where_fields(query.where_fields)
+      if rendered.is_a?(ErrorBase)
+        self.defer(rendered)
+      else
+        own_where_fields << {join: :or, stmt: "(#{rendered})", values: values}
+      end
+    end
+    self
+  end
+
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
     if value.is_a?(Array)
@@ -505,14 +541,14 @@ pub class Builder(Model)
   private def structured_field_sql(field : String) : String?
     parts = field.split('.')
     unless (parts.size == 1 || parts.size == 2) && parts.all? { |part| JoinSupport.identifier?(part) }
-      defer(ArgumentError.new("Invalid query field #{field.inspect}"))
+      self.defer(ArgumentError.new("Invalid query field #{field.inspect}"))
       return nil
     end
     column = parts.last
     qualifier = parts.size == 2 ? parts.first : nil
     if qualifier.nil? || qualifier == Model.table_name
       unless Model.fields.includes?(column)
-        defer(ArgumentError.new("Unknown query field #{column.inspect} for #{Model.to_s}"))
+        self.defer(ArgumentError.new("Unknown query field #{column.inspect} for #{Model.to_s}"))
         return nil
       end
     end
@@ -816,14 +852,14 @@ pub class Builder(Model)
       when :lock               then @lock_mode = nil
       when :readonly           then @readonly = false
       when :strict_loading     then @strict_loading = false
-      when :optimizer_hints    then @optimizer_hint_list = [] of String
+      when :optimizer_hints    then @optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
       when :annotate           then @annotation_comment = nil
       when :from               then @from_source = nil
       when :with               then @with_source = nil
       when :includes, :preload, :eager_load, :create_with, :reordering, :extending
         nil
       else
-        return defer(ArgumentError.new("unscope: unknown component #{component.inspect}"))
+        return self.defer(ArgumentError.new("unscope: unknown component #{component.inspect}"))
       end
     end
     self

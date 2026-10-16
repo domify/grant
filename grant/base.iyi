@@ -1276,8 +1276,8 @@ pub abstract class Base
       ::Grant::Transaction.current_transaction(__transaction_connection)
     end
 
-    def self.all : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
-      __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)}")!.map { |row| from_row(row)! }
+    def self.all : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope
     end
 
     def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase forall V

@@ -51,7 +51,7 @@ sql = "SELECT missing_col FROM w6_sql_things"
 
 # it: reports the statement of a select naming a column the table lacks
 w6_failure("ghost") { W6SqlGhostThing.first }
-w6_failure("ghost") { W6SqlGhostThing.all }
+w6_failure("ghost") { W6SqlGhostThing.all.select }
 w6_failure("ghost") { W6SqlGhostThing.find(1_i64) }
 
 # it: reports the statement of an insert, an update and a delete

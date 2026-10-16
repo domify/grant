@@ -59,7 +59,7 @@ parent.name = "Test Parent"
 parent.save
 parent.name = "Test Parent 2"
 parent.save
-parents = Parent.all.or_panic
+parents = Parent.all.select.or_panic
 assert parents.size == 1
 found = Parent.first_strict.or_panic
 assert found.name == parent.name
@@ -80,7 +80,7 @@ parent.name = "Test Parent"
 parent.save
 parent.name = ""
 parent.save(validate: false)
-parents = Parent.all.or_panic
+parents = Parent.all.select.or_panic
 assert parents.size == 1
 found = Parent.first_strict.or_panic
 assert found.name == parent.name

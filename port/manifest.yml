@@ -324,6 +324,9 @@
     examples:
     - T-e21bacd14f
     - T-45c3a23a71
+  - target: test/grant_perf_w6_primary_key_lookup_clauses_test.iyi
+    status: done
+    examples:
     - T-a83f744f01
     - T-000bad54b7
 - source: crystal-upstream/spec/grant/perf/w6_statement_count_spec.cr

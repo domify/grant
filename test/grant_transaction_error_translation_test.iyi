@@ -25,7 +25,7 @@ Parent.transaction do
   assert error.is_a?(StatementInvalid)
   Parent.create_strict(name: "After").or_panic
 end.or_panic
-assert Parent.all.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
+assert Parent.all.select.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
 
 # it: translates a constraint failure raised by COMMIT itself
 Parent.connection.execute("DROP TABLE IF EXISTS deferred_translation_children").or_panic

@@ -27,7 +27,7 @@ Parent.transaction do
   assert error.as(ErrorBase).message == "inner failure"
   Parent.create_strict(name: "After").or_panic
 end.or_panic
-assert Parent.all.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
+assert Parent.all.select.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
 
 # it: recovers an aborted PostgreSQL transaction via ROLLBACK TO SAVEPOINT
 Parent.clear.or_panic
@@ -42,7 +42,7 @@ statements = record do
     Parent.create_strict(name: "After").or_panic
   end.or_panic
 end
-assert Parent.all.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
+assert Parent.all.select.or_panic.map { |parent| parent.name.to_s }.sorted == ["After", "Kept"]
 assert statements.any? { |statement| statement.starts_with?("ROLLBACK TO SAVEPOINT") }
 assert statements.last == "COMMIT"
 

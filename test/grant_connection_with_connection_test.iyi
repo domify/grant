@@ -61,7 +61,7 @@ adapter.with_connection do |raw|
   assert error.as(ErrorBase).message == "rolled back"
   assert !adapter.pinned_connection?.nil?
 end.or_panic
-assert C02PinnedItem.all.or_panic.map { |record| record.name } == ["kept"]
+assert C02PinnedItem.all.select.or_panic.map { |record| record.name } == ["kept"]
 cleanup
 
 # it: routes Grant operations through the pinned connection with Model.with_connection

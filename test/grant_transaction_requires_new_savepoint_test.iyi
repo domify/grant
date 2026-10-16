@@ -56,7 +56,7 @@ result = Parent.transaction do
   :done
 end.or_panic
 assert result == :done
-assert Parent.all.or_panic.map { |parent| parent.name } == ["Kept"]
+assert Parent.all.select.or_panic.map { |parent| parent.name } == ["Kept"]
 
 # it: names savepoints from a per-transaction counter
 statements = record do
@@ -89,7 +89,7 @@ error = Parent.transaction do
 end
 assert error.is_a?(ErrorBase)
 assert error.as(ErrorBase).message == "outer failure"
-assert Parent.all.or_panic.map { |parent| parent.name } == ["Inner"]
+assert Parent.all.select.or_panic.map { |parent| parent.name } == ["Inner"]
 
 # it: issues its own BEGIN
 statements = record do

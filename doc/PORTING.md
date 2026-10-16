@@ -186,3 +186,9 @@ its SQL conventions, public errors, observers and transaction materialization at
 The lazy-decrypt source now preserves all twelve examples. Its final ignore-case example retains
 both original assertions; the companion encrypted value preserves case while structured equality
 and IN predicates are sealed at statement assembly. Invalid encrypted operators return errors.
+
+The primary-key lookup clause child preserves both shared-list examples and all five assertions.
+`Model.all` now returns the upstream lazy Builder; existing eager callers explicitly select before
+unwrapping returned errors. Shared clause sentinels detach before mutation, and the block-form
+`or_where` retains grouped binds and relation isolation on both adapters. The child also checks
+real OR reads, in-place block results and invalid-field error propagation.

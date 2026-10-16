@@ -61,7 +61,7 @@ statements = record do
 end
 assert statements.includes?("SAVEPOINT sp_1")
 assert statements.any? { |sql| sql.starts_with?("ROLLBACK TO SAVEPOINT") }
-assert Parent.all.or_panic.map { |parent| parent.name } == ["Outer"]
+assert Parent.all.select.or_panic.map { |parent| parent.name } == ["Outer"]
 
 # it: applies joinable: false to a savepoint level
 Parent.clear.or_panic
@@ -79,5 +79,5 @@ Parent.transaction do
     Rollback.new
   end.or_panic
 end.or_panic
-assert Parent.all.or_panic.map { |parent| parent.name } == ["Kept"]
+assert Parent.all.select.or_panic.map { |parent| parent.name } == ["Kept"]
 Parent.adapter.close.or_panic

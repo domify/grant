@@ -122,7 +122,7 @@ inner.rollback.or_panic
 assert !inner.open?
 assert outer.open?
 outer.commit.or_panic
-assert Parent.all.or_panic.map { |parent| parent.name } == ["Outer"]
+assert Parent.all.select.or_panic.map { |parent| parent.name } == ["Outer"]
 
 # it: raises NotOpenError when nothing is open or a handle is reused
 connection = Parent.connection

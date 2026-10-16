@@ -56,7 +56,7 @@ assert raw["eager_note"] != "note"
 assert raw["balance"].is_a?(String)
 W6bLazyUser.__connection.execute("UPDATE w6b_lazy_users SET eager_note = ? WHERE id = ?", ["corrupt", user.id] of Value).or_panic
 assert W6bLazyUser.find_strict(user.id).is_a?(DecryptionError)
-assert W6bLazyUser.all.is_a?(DecryptionError)
+assert W6bLazyUser.all.select.is_a?(DecryptionError)
 assert W6bLazyUser.where(id: user.id).select.is_a?(DecryptionError)
 assert W6bLazyUser.first.is_a?(DecryptionError)
 assert W6bLazyUser.find_by_sql("SELECT * FROM w6b_lazy_users").is_a?(DecryptionError)

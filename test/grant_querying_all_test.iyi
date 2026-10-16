@@ -13,7 +13,7 @@ models = (0...100).map do |i|
   model
 end
 model_ids = models.map { |model| model.id }
-all = Parent.all.or_panic
+all = Parent.all.select.or_panic
 assert all.size == model_ids.size
 assert all.compact_map { |model| model.id }.sorted == model_ids.compact
 
