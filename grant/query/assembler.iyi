@@ -194,6 +194,10 @@ pub abstract class Base(Model, Query)
   def predicate_renderer : PredicateRenderer
     renderer = @predicate_renderer
     if renderer.nil?
+      # SQL-only model stubs need no encryption metadata API.
+      {% if Model.class.has_method?(:encrypted_attributes) %}
+        Model.encrypted_attributes
+      {% end %}
       renderer = PredicateRenderer.new(Model.to_s, Model.table_name, Model.fields,
         ->(name : String) { Model.quote(name) },
         ->(value : Value) { add_parameter(value) },

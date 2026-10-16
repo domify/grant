@@ -179,6 +179,10 @@ pub abstract class Base
       end
 
       def {{decl.var}} : String? | ::Grant::Error::ErrorBase
+        {% if options[:original] %}
+          original = self.{{options[:original].id}}!
+          return original unless original.nil?
+        {% end %}
         __unseal_{{decl.var}}
       end
 
@@ -202,7 +206,11 @@ pub abstract class Base
       end
     {% else %}
       def {{decl.var}} : {{decl.type}} | Nil
-        @{{decl.var}}
+        {% if options[:original] %}
+          @{{options[:original].id}} || @{{decl.var}}
+        {% else %}
+          @{{decl.var}}
+        {% end %}
       end
     {% end %}
 
@@ -252,6 +260,13 @@ pub abstract class Base
       {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
       @{{decl.var}} = value
+      {% if options[:original] %}
+        {% if options[:guarded] %}
+          (self.{{options[:original].id}} = value)!
+        {% else %}
+          self.{{options[:original].id}} = value
+        {% end %}
+      {% end %}
       nil
     end
   end
@@ -623,6 +638,7 @@ pub abstract class Base
     ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
     ::Grant::Columns.model_methods({{ @type }})
+    ::Grant::Encryption.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})

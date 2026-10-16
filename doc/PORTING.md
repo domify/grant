@@ -178,3 +178,11 @@ Drivers implement the abstract `grant/adapter/driver` (`Connection`, `ResultSet`
 `Grant::Adapter::Pg` mirrors `src/adapter/pg.cr`.
 
 Tests import `spec_helper` (`CURRENT_ADAPTER`, `ADAPTER_URL`, `register_spec_connections`, `restore_default_spec_connections`, `establish_spec_connection`) and declare models with `connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}` wherever upstream uses `adapter_literal`. Upstream adapter branches stay runtime branches; do not flatten them to the SQLite side. An unregistered connection name falls back to the first registered adapter, as upstream `resolve_adapter_for_role` does.
+
+The native drivers now delegate connections, statements and decoding to local iyilang/db,
+iyilang/sqlite and iyilang/pg checkouts through supported manifest replacements. Grant retains
+its SQL conventions, public errors, observers and transaction materialization at the facade.
+
+The lazy-decrypt source now preserves all twelve examples. Its final ignore-case example retains
+both original assertions; the companion encrypted value preserves case while structured equality
+and IN predicates are sealed at statement assembly. Invalid encrypted operators return errors.

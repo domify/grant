@@ -170,7 +170,7 @@
   target: test/grant_encryption_w6b_lazy_decrypt_test.iyi
   area: transactions
   examples: 12
-  status: todo
+  status: done
   children:
   - target: test/grant_encryption_w6b_lazy_decrypt_marker_test.iyi
     status: done
@@ -183,7 +183,7 @@
     - T-50807c781d
     - T-6ff7496016
   - target: test/grant_encryption_w6b_lazy_decrypt_test.iyi
-    status: todo
+    status: done
     examples:
     - T-246a479be1
   - target: test/grant_encryption_w6b_lazy_decrypt_changes_test.iyi

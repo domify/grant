@@ -88,7 +88,7 @@ Neither error translation nor the hooks require rebuilding a native SQL driver.
 
 The local libraries now implement actual `Connection#transaction_state`:
 
-- db `f0654df`: required Idle / InTransaction / FailedTransaction contract.
+- db `f0654df`, `abf1674`: required state contract and raw SQL/savepoint contract tests.
 - SQLite `de37bd1`, `c8f9424`: autocommit state, statement-tail and argument validation,
   binding clearing, and resetting cached exec statements after errors to release locks.
 - pg `0c87010`: retain every ReadyForQuery status, including error recovery.
@@ -117,3 +117,34 @@ including failed transactions. Placeholder rewriting and RETURNING remain Grant 
 Native numeric values, UTC timestamps and byte buffers retain Grant's integer/float, RFC 3339 and
 binary-string boundary. Server SQLSTATE and connection loss retain Grant's existing public errors.
 Unread results are drained before reuse; a drain error is translated with the statement and binds.
+
+The ordinary port follow-up completes the ignore-case example in `w6b_lazy_decrypt_spec.cr`,
+retaining both original assertions. Its companion encrypted column preserves case and its
+structured predicates seal values at assembly. The original twelve example IDs still partition
+exactly once across the existing child entries, which are now all done.
+
+Generic assembler observation: the runtime `Model.responds_to?(:encrypted_attributes)` guard still
+instantiated the unavailable class method for the SQL-only stub model. The initial full-gate log
+records that compile failure in both assembler suites. The assembler now selects the optional API
+with compile-time `Model.class.has_method?`; both original suites pass without changing their stubs
+or assertions. This follows the toolchain's TypeNode metaclass reflection API.
+
+## Final validation, 2026-10-17
+
+Grant migration commits are `4c70962` (db facade), `840416c` (SQLite) and `760ca33` (PostgreSQL),
+on `native-iyi-fast-port`. Library heads are db `abf1674`, SQLite `c8f9424` and pg `0c87010`.
+The library suites pass all 15, 5 and 16 native test programs respectively.
+
+Full gate counts:
+
+```text
+before: PORT 104/476 EXAMPLES 751/4736 AREA transactions FAIL
+after:  PORT 105/476 EXAMPLES 763/4736 AREA transactions FAIL
+```
+
+The final full run passes all 142 native programs under both adapters: 284 passed, zero failed,
+zero skipped. Its only errors are 371 unfinished source entries, so the harness still exits 1.
+The baseline's isolated temporary-directory collision and successful rerun are recorded above.
+The final run uses its own TMPDIR under `build/db-migration/gate-tmp`; its complete log is
+`build/db-migration/after.log`. No existing translated assertion file, upstream source, exclusion
+or gate rule changed. No push, tag or module-cache edit was performed.

@@ -5,6 +5,7 @@ pub import grant/encryption/context
 pub import grant/encryption/sealed
 pub import grant/encryption/encrypted_attribute
 pub import grant/encryption/serializer
+pub import grant/encryption/query_extensions
 
 pub def current_context : ::Grant::Encryption::Context::Context
   ::Grant::Encryption::Context.current_context
@@ -42,12 +43,14 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
     {% raise "encrypts #{attr_name}: lazy: true applies to String attributes only; other types are decrypted when the row loads" %}
   {% end %}
 
-  @@{{attr}}_encrypted_attribute : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute? = nil
+  {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}} = ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}})
   def self.{{attr}}_encrypted_attribute : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute
-    @@{{attr}}_encrypted_attribute ||= ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}})
+    attribute = {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}}
+    ::Grant::Encryption::EncryptedAttribute::EncryptedAttributeRegistry.register({{model.stringify}}, {{attr_name}}, attribute)
+    attribute
   end
 
-  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", encrypted: true, guarded: {{lazy == true}}, lazy: {{lazy == true}}
+  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", encrypted: true, guarded: {{lazy == true}}, lazy: {{lazy == true}}, original: {{ignore_case ? "original_" + attr_name : nil}}
 
   class {{attr_name.camelcase.id}}EncryptionConverter
     def self.to_db(value : {{base}}?)
@@ -78,4 +81,18 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
   {% if ignore_case %}
     encrypts {{("original_" + attr_name).id}} : String, lazy: {{lazy}}
   {% end %}
+end
+
+pub macro model_methods(model)
+  def self.encrypted_attributes : Hash(String, ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute)
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:encrypted] } %}
+      self.\{{v.name}}_encrypted_attribute
+    \{% end %}
+    ::Grant::Encryption::EncryptedAttribute::EncryptedAttributeRegistry.for(self.to_s)
+  end
+
+  def self.encrypted_query_attribute(field : String) : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute?
+    encrypted_attributes
+    ::Grant::Encryption::EncryptedAttribute::EncryptedAttributeRegistry.lookup(self.to_s, field)
+  end
 end

@@ -5,6 +5,7 @@ import grant/encryption/key_provider::{KeyProvider, KeyError}
 import grant/encryption/cipher::{Cipher, DecryptionError, EncryptionError}
 import std/base64::{Base64}
 import grant/encryption/config::{Config}
+import grant/error::{ArgumentError, ErrorBase}
 pub import grant/encryption/context
 
 pub class EncryptedAttribute
@@ -23,6 +24,15 @@ pub class EncryptedAttribute
     encrypted = Base64.encode(Cipher.encrypt(text, key, @deterministic)!)
     Config.log_operation("encrypt", @model_name, @attribute_name, plain.bytesize, encrypted.bytesize)
     encrypted
+  end
+
+  def query_value(plain : String) : String | ErrorBase
+    return ArgumentError.new("Cannot query non-deterministic encrypted field: #{attribute_name}") unless @deterministic
+    seal(plain)
+  end
+
+  def query_values(plain : String) : Array(String) | ErrorBase
+    [query_value(plain)!]
   end
 
   def open(stored : String) : String | KeyError | EncryptionError | DecryptionError
@@ -48,5 +58,29 @@ pub class EncryptedAttribute
     end
     return KeyError.new("Primary encryption key not configured. Set Grant::Encryption::KeyProvider.primary_key") unless attempted
     DecryptionError.new("HMAC verification failed - data may have been tampered with")
+  end
+end
+
+# Declarations are registered before queries run; the native scheduler is
+# single-threaded and no registration or lookup operation yields.
+pub class EncryptedAttributeRegistry
+  @@attributes = {} of String => Hash(String, EncryptedAttribute)
+
+  def self.for(model_name : String) : Hash(String, EncryptedAttribute)
+    attributes = @@attributes[model_name]?
+    copy = {} of String => EncryptedAttribute
+    attributes.each { |name, attribute| copy[name] = attribute } unless attributes.nil?
+    copy
+  end
+
+  def self.lookup(model_name : String, attribute_name : String) : EncryptedAttribute?
+    attributes = @@attributes[model_name]?
+    attributes.nil? ? nil : attributes[attribute_name]?
+  end
+
+  def self.register(model_name : String, attribute_name : String, attribute : EncryptedAttribute) : Nil
+    @@attributes[model_name] ||= {} of String => EncryptedAttribute
+    @@attributes[model_name][attribute_name] = attribute
+    nil
   end
 end
