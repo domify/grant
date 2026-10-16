@@ -100,3 +100,8 @@ It ran 276 adapter programs: 275 passed, one SQLite idle-reconnect run collided 
 draft's temporary fixture directory. That unchanged target passes under both adapters when rerun
 with its own TMPDIR. All other gate errors are unfinished source entries. Drafts, caches, build
 temporaries and logs now live under the checkout, with separate temporary directories per run.
+
+SQLite integration delegates to `SQLite3Connection` and the common db facade. No SQLite C binding
+remains in Grant. The library validates SQL tails and bind counts before execution, clears cached
+bindings, and releases cached exec statements after failures. Grant retains its bulk-insert SQL,
+foreign-key and busy-timeout setup, SQLiteError cause, normalized binary strings and public errors.
