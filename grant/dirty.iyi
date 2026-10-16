@@ -1,5 +1,12 @@
 module grant/dirty
 
+import std/uuid::{UUID}
+import std/slice::{Bytes}
+import std/time::{Time}
+import grant/columns::{Type}
+
+pub alias DirtyValue = Type | UUID | Bytes | Array(String) | Array(Int16) | Array(Int32) | Array(Int64) | Array(Float32) | Array(Float64) | Array(Bool) | Array(UUID) | Array(Time)
+
 # Upstream's marker distinguishes an omitted filter from an explicit nil.
 pub struct Unfiltered
 end
@@ -8,6 +15,35 @@ pub UNFILTERED = Unfiltered.new
 # Scalar pre-save predicates share the column baselines already captured by
 # Base on construction, hydration, successful persistence and rollback.
 pub macro model_methods(model)
+  alias SavedValue = ::Grant::Dirty::DirtyValue
+  @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
+
+  def previous_changes : Hash(String, Tuple(SavedValue, SavedValue))
+    @previous_changes
+  end
+
+  def saved_change_to_attribute(name : String | Symbol) : Tuple(SavedValue, SavedValue)?
+    @previous_changes[name.to_s]?
+  end
+
+  def saved_change_to_attribute?(name : String | Symbol, *, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    change = saved_change_to_attribute(name)
+    return false if change.nil?
+    (from.is_a?(::Grant::Dirty::Unfiltered) || change[0] == from) &&
+      (to.is_a?(::Grant::Dirty::Unfiltered) || change[1] == to)
+  end
+
+  def __capture_saved_changes : Nil
+    pending = {} of String => Tuple(SavedValue, SavedValue)
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      if \{{ v.name }}_changed?
+        pending[\{{ v.name.stringify }}] = {@__persisted_\{{ v.name }}, @\{{ v.name }}}
+      end
+    \{% end %}
+    @previous_changes = pending
+    nil
+  end
+
   def will_save_change_to_attribute?(name : String | Symbol, *, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
     \{% begin %}
       case name.to_s

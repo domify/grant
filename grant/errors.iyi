@@ -145,6 +145,10 @@ pub class Errors
     @errors.map { |error| error.message }
   end
 
+  def any?(error_type : E.class) : Bool forall E
+    @errors.any? { |error| error.is_a?(E) }
+  end
+
   def conversion_errors? : Bool
     @errors.any? { |error| error.is_a?(::Grant::Error::ConversionError) }
   end

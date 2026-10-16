@@ -1735,6 +1735,7 @@ pub abstract class Base
         end
       end
     end
+    __capture_saved_changes
     __mark_persisted
     if operation == :create
       self.after_create!
