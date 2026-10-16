@@ -5,6 +5,7 @@ import test/spec_helper::{CURRENT_ADAPTER, register_spec_connections}
 pub class PrimaryKeyAutoDefaultSlug < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table primary_key_auto_default_slugs
+
   column id : String, primary: true
   column title : String?
 end
@@ -12,6 +13,7 @@ end
 pub class PrimaryKeyAutoDefaultCounter < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table primary_key_auto_default_counters
+
   column id : Int64, primary: true
   column title : String?
 end
@@ -19,6 +21,7 @@ end
 pub class PrimaryKeyAutoExplicitCounter < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table primary_key_auto_explicit_counters
+
   column id : Int64, primary: true, auto: true
   column title : String?
 end
@@ -26,6 +29,7 @@ end
 pub class PrimaryKeyAutoExplicitOff < Base
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table primary_key_auto_explicit_offs
+
   column id : Int64, primary: true, auto: false
   column title : String?
 end
@@ -57,5 +61,4 @@ record = PrimaryKeyAutoExplicitOff.new(title: "Chosen")
 record.id = 42_i64
 record.save_strict.or_panic
 assert PrimaryKeyAutoExplicitOff.find_strict(42_i64).or_panic.title == "Chosen"
-
-PrimaryKeyAutoDefaultSlug.adapter.close.or_panic
+PrimaryKeyAutoExplicitOff.adapter.close.or_panic
