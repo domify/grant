@@ -14,6 +14,7 @@ pub import grant/schema/model_indexes
 pub import grant/migrator
 pub import grant/columns_helpers
 pub import grant/attributes
+pub import grant/normalization
 pub import grant/dirty
 pub import grant/record_copy
 pub import grant/validation_helpers/uniqueness
@@ -151,6 +152,10 @@ pub abstract class Base
     def self.apply_default_scope(query : ::Grant::Query::Builder::Builder(Model)) forall Model
       query.{{block.body}}
     end
+  end
+
+  macro normalizes(*attributes, **options, &block)
+    ::Grant::Normalization.normalizes({{ attributes.splat }}, {{ options.double_splat }}) {{ block }}
   end
 
   macro alias_attribute(new_name, old_name)
@@ -318,7 +323,7 @@ pub abstract class Base
       {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
       discard_before_type_cast({{ decl.var.stringify }})
-      @{{decl.var}} = value
+      @{{decl.var}} = self.class.normalize_value_for({{ decl.var.symbolize }}, value).as({{ decl.type }} | Nil)
       {% if options[:original] %}
         {% if options[:guarded] %}
           (self.{{options[:original].id}} = value)!
@@ -704,6 +709,7 @@ pub abstract class Base
     ::Grant::Encryption.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
+    ::Grant::Normalization.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
@@ -1120,23 +1126,23 @@ pub abstract class Base
             %converted = \{{ v.annotation(::Grant::Base::Column)[:converter].id }}.from_db(%raw.is_a?(String) ? %raw : nil)
           \{% end %}
           return %converted if %converted.is_a?(::Error)
-          record.\{{ v.name }} = %converted
+          record.__raw_\{{ v.name }} = %converted
         \{% elsif type.includes?("UUID") %}
-          record.\{{ v.name }} = %raw.is_a?(String) ? ::Std::Uuid::UUID.parse(%raw) : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(String) ? ::Std::Uuid::UUID.parse(%raw) : nil
         \{% elsif type.includes?("Int32") %}
-          record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw.to_i32 : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(Int64) ? %raw.to_i32 : nil
         \{% elsif type.includes?("Int64") %}
-          record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(Int64) ? %raw : nil
         \{% elsif type.includes?("Bool") %}
-          record.\{{ v.name }} = %raw.is_a?(Bool) ? %raw : (%raw.is_a?(Int64) ? %raw != 0 : nil)
+          record.__raw_\{{ v.name }} = %raw.is_a?(Bool) ? %raw : (%raw.is_a?(Int64) ? %raw != 0 : nil)
         \{% elsif type.includes?("Float32") %}
-          record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw.to_f32 : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(Float64) ? %raw.to_f32 : nil
         \{% elsif type.includes?("Time") %}
-          record.\{{ v.name }} = %raw.is_a?(String) ? ::Grant::ColumnsHelpers.time_from_db(%raw) : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(String) ? ::Grant::ColumnsHelpers.time_from_db(%raw) : nil
         \{% elsif type.includes?("Float") %}
-          record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(Float64) ? %raw : nil
         \{% else %}
-          record.\{{ v.name }} = %raw.is_a?(String) ? %raw : nil
+          record.__raw_\{{ v.name }} = %raw.is_a?(String) ? %raw : nil
         \{% end %}
       \{% end %}
       record.__mark_persisted

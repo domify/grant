@@ -1986,7 +1986,7 @@
   target: test/grant_attributes_normalizes_test.iyi
   area: associations
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/run_callbacks_spec.cr
   target: test/grant_callbacks_run_callbacks_test.iyi
   area: associations

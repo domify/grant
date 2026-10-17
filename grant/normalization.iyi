@@ -1,0 +1,45 @@
+module grant/normalization
+
+pub annotation Normalizer
+end
+
+# Same assignment hook and class lookup as upstream Grant::Normalization.
+pub macro normalizes(*attributes, **options, &block)
+  {% unless options[:with] || block %}
+    {% raise "normalizes requires a `with:` proc or a block" %}
+  {% end %}
+  {% for attribute in attributes %}
+    @[::Grant::Normalization::Normalizer(attribute: {{ attribute.id.stringify }})]
+    def __normalizer_{{ attribute.id }} : Nil
+      nil
+    end
+
+    def self.__normalize_{{ attribute.id }}(value : V) : V | ::Grant::Columns::Type forall V
+      {% unless options[:apply_to_nil] %}
+        return value if value.nil?
+      {% end %}
+      {% if options[:with] %}
+        {{ options[:with] }}.call(value)
+      {% else %}
+        {% if block.args.size > 0 && block.args[0].stringify != "value" %}
+          {{ block.args[0] }} = value
+        {% end %}
+        {{ block.body }}
+      {% end %}
+    end
+  {% end %}
+end
+
+pub macro model_methods(model)
+  def self.normalize_value_for(attribute : String | Symbol, value : V) : V | ::Grant::Columns::Type forall V
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Normalization::Normalizer) %}
+        \{% column = @type.instance_vars.find { |v| v.name.stringify == ann[:attribute] } %}
+        if attribute.to_s == \{{ ann[:attribute] }} && value.is_a?(\{{ column.type }})
+          return __normalize_\{{ ann[:attribute].id }}(value)
+        end
+      \{% end %}
+    \{% end %}
+    value
+  end
+end
