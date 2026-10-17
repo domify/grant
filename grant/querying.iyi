@@ -13,6 +13,19 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def __reload_from_database : self | ::Grant::Error::ErrorBase
+    fresh = self.class.where("#{::Grant::Base.quote_identifier(self.class.primary_name)} = ?", __primary_value).first!
+    if fresh.nil?
+      return ::Grant::Querying::NotFound.new("No #{self.class} found where #{self.class.primary_name} = #{__primary_value}")
+    end
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      @\{{ column.name }} = fresh.__raw_\{{ column.name }}
+    \{% end %}
+    __mark_persisted
+    clear_previous_changes
+    self
+  end
+
   def self.first(clause : String) : {{ model }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
     first(clause, [] of ::Grant::Adapter::Driver::Value)
   end

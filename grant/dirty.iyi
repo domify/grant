@@ -18,6 +18,21 @@ pub macro model_methods(model)
   alias SavedValue = ::Grant::Dirty::DirtyValue
   @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
 
+  def changes : Hash(String, Tuple(SavedValue, SavedValue))
+    pending = {} of String => Tuple(SavedValue, SavedValue)
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      if \{{ v.name }}_changed?
+        pending[\{{ v.name.stringify }}] = {@__persisted_\{{ v.name }}, @\{{ v.name }}}
+      end
+    \{% end %}
+    pending
+  end
+
+  def clear_previous_changes : Nil
+    @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
+    nil
+  end
+
   def previous_changes : Hash(String, Tuple(SavedValue, SavedValue))
     @previous_changes
   end

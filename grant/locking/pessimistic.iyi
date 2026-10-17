@@ -89,7 +89,7 @@ pub macro model_methods(model)
   end
 
   def reload
-    replace_with_locked_row(self.class.where("#{::Grant::Base.quote_identifier(self.class.primary_name)} = ?", __primary_value))
+    __reload_from_database
   end
 
   private def replace_with_locked_row(locked_relation)

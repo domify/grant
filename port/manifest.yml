@@ -1291,7 +1291,7 @@
   target: test/grant_querying_reload_test.iyi
   area: query
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/select_projection_spec.cr
   target: test/grant_querying_select_projection_test.iyi
   area: query
