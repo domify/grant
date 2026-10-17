@@ -11,6 +11,8 @@ import db/db/value::{DBValue}
 import std/time::{Time}
 import std/slice::{Bytes}
 
+import grant/query_cache
+import grant/query_logs
 import grant/locking::{LockMode}
 import grant/adapter/pool_support::{ticks}
 import grant/errors::{DatabaseError}
@@ -190,6 +192,7 @@ pub abstract class LibraryConnection < Connection
       result = materializer.call
       return result if result.is_a?(DatabaseError)
     end
+    ::Grant::QueryCache.invalidate_in_place unless ::Grant::Adapter::PoolSupport.idempotent_read?(sql)
     @last_statement = sql
     observer = @query_observer
     observer.call(sql) unless observer.nil?
@@ -199,6 +202,7 @@ pub abstract class LibraryConnection < Connection
   end
 
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
+    sql = ::Grant::QueryLogs.append(sql)
     before_statement(sql)!
     defer @grant_last_used_ticks = ::Grant::Adapter::PoolSupport.ticks
     result = native_connection.exec(statement_sql(sql), args: parameters)
@@ -211,6 +215,7 @@ pub abstract class LibraryConnection < Connection
   end
 
   def query(sql : String, parameters : Array(Value) = [] of Value, &block : ResultSet -> T) : T | DatabaseError forall T
+    sql = ::Grant::QueryLogs.append(sql)
     before_statement(sql)!
     defer @grant_last_used_ticks = ::Grant::Adapter::PoolSupport.ticks
     result = native_connection.query(statement_sql(sql), args: parameters)
@@ -230,15 +235,19 @@ pub abstract class LibraryConnection < Connection
   end
 
   def query(sql : String, parameters : Array(Value) = [] of Value) : Array(Row) | DatabaseError
-    query(sql, parameters) do |rs|
-      rows = [] of Row
-      outcome = rs.each do
-        row = Row.new
-        rs.column_names.each { |name| row[name] = rs.read! }
-        rows << row
-        nil
+    sql = ::Grant::QueryLogs.append(sql)
+    copy = ->(value : Array(Row) | DatabaseError) { value.is_a?(DatabaseError) ? value : value.map { |row| duplicate = Row.new; row.each { |key, cell| duplicate[key] = cell }; duplicate } }
+    ::Grant::QueryCache.fetch(object_id, native_connection.object_id, sql, parameters, copy) do
+      query(sql, parameters) do |rs|
+        rows = [] of Row
+        outcome = rs.each do
+          row = Row.new
+          rs.column_names.each { |name| row[name] = rs.read! }
+          rows << row
+          nil
+        end
+        outcome.is_a?(DatabaseError) ? outcome : rows
       end
-      outcome.is_a?(DatabaseError) ? outcome : rows
     end
   end
 end

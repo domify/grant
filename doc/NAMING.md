@@ -20,3 +20,5 @@ Seed registry `clear_definitions!` becomes `clear_definitions_in_place`.
 Schema adapter `reset_schema_caches!` becomes `reset_schema_caches_in_place`.
 
 Record `readonly!` becomes `readonly_in_place`; it marks the receiver read-only.
+
+Query cache `invalidate!` becomes `invalidate_in_place`.
