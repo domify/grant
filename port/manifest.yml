@@ -675,7 +675,7 @@
   target: test/grant_config_database_configurations_adapters_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/config/database_configurations_spec.cr
   target: test/grant_config_database_configurations_test.iyi
   area: query
