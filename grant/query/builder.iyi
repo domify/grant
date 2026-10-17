@@ -18,6 +18,7 @@ import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
+import grant/query/sql_expression
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
 import grant/querying::{NotFound, NotUnique}
@@ -609,7 +610,16 @@ pub class Builder(Model)
   end
 
   def group_by_in_place(field : Symbol | String) : self
-    own_group_fields << {field: field.to_s}
+    if field.is_a?(String)
+      stripped = ::Grant::Query::SqlExpression.validate_strict(field, "GROUP BY expression")
+      if stripped.is_a?(ErrorBase)
+        self.defer(stripped)
+        return self
+      end
+      own_group_fields << {field: stripped.as(String)}
+    else
+      own_group_fields << {field: field.to_s}
+    end
     self
   end
 
@@ -1250,7 +1260,9 @@ pub class Builder(Model)
     @group_fields.each_with_index do |field, index|
       fields << "#{field[:field]} AS \"grant_group_#{index}\""
     end
-    fields << "#{function}(#{column}) AS \"grant_aggregate\""
+    aggregate = "#{function}(#{column})"
+    aggregate = "CAST(#{aggregate} AS DOUBLE PRECISION)" if function == "AVG" && Model.adapter.postgres?
+    fields << "#{aggregate} AS \"grant_aggregate\""
     sql = query_assembler.build_sql([
       query_assembler.with_clause, "#{query_assembler.select_prefix} #{fields.join(", ")}", query_assembler.from_clause,
       query_assembler.joins, query_assembler.where, query_assembler.group_by, query_assembler.having,

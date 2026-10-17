@@ -6,6 +6,7 @@ pub import std/time
 pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/scoping
+import grant/aggregations
 pub import grant/querying
 pub import grant/associations
 import grant/dependent
@@ -741,6 +742,8 @@ pub abstract class Base
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
+    ::Grant::Aggregations.model_methods({{ @type }})
+    ::Grant::Query::Grouping.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
