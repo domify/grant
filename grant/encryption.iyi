@@ -7,6 +7,14 @@ pub import grant/encryption/encrypted_attribute
 pub import grant/encryption/serializer
 pub import grant/encryption/query_extensions
 
+pub def configured? : Bool
+  ::Grant::Encryption::Config::Config.configured?
+end
+
+pub def configure(&block : ::Grant::Encryption::Config::Config.class -> T) : T forall T
+  yield ::Grant::Encryption::Config::Config
+end
+
 pub def current_context : ::Grant::Encryption::Context::Context
   ::Grant::Encryption::Context.current_context
 end
@@ -145,6 +153,8 @@ pub macro legacy_attribute(model, attribute, deterministic, downcase, compress, 
 end
 
 pub macro model_methods(model)
+  ::Grant::Encryption::QueryExtensions.model_methods({{model}})
+
   def self.encrypted_attributes : Hash(String, ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute)
     \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:encrypted] } %}
       self.\{{v.name}}_encrypted_attribute

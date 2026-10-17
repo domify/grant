@@ -810,7 +810,7 @@
   target: test/grant_encryption_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/enum_attributes_spec.cr
   target: test/grant_enum_attributes_test.iyi
   area: query

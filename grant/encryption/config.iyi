@@ -25,6 +25,14 @@ pub class Config
     @@verbose_logging = enabled
   end
 
+  def self.generate_key : String | ::Grant::Encryption::Cipher::EncryptionError
+    KeyProvider.generate_key
+  end
+
+  def self.configured? : Bool
+    !KeyProvider.primary_key.nil?
+  end
+
   def self.primary_key=(key : String)
     KeyProvider.primary_key = key
   end

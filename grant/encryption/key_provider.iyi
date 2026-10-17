@@ -23,6 +23,10 @@ pub class KeyProvider
   @@key_derivation_salt : String = DEFAULT_SALT
   @@derived_keys = {} of String => String
 
+  def self.generate_key : String | ::Grant::Encryption::Cipher::EncryptionError
+    Base64.encode(Cipher.random_bytes(KEY_SIZE)!)
+  end
+
   def self.primary_key : String?
     @@primary_key
   end
