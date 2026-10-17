@@ -920,7 +920,7 @@
   target: test/grant_query_aggregations_enumerable_test.iyi
   area: query
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/aggregations_typed_spec.cr
   target: test/grant_query_aggregations_typed_test.iyi
   area: query

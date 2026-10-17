@@ -19,6 +19,17 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.count(column : Symbol | String, distinct : Bool = false) : Int64 | ::Grant::Error::ErrorBase
+    result = current_scope.count(column, distinct)!
+    result.is_a?(Int64) ? result : result.values.sum
+  end
+
+  {% for operation in [:sum, :avg, :min, :max] %}
+    def self.{{ operation.id }}(column : Symbol | String) : ::Grant::Adapter::Driver::Value | Hash(::Grant::Adapter::Driver::Value, ::Grant::Adapter::Driver::Value) | Hash(Array(::Grant::Adapter::Driver::Value), ::Grant::Adapter::Driver::Value) | ::Grant::Error::ErrorBase
+      current_scope.{{ operation.id }}(column)
+    end
+  {% end %}
+
   def self.exists?(id : T) : Bool | ::Grant::Error::ErrorBase forall T
     return false if id.nil?
     current_scope.where(primary_name, :eq, id).exists?

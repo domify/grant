@@ -6,6 +6,36 @@ import grant/errors::{DatabaseError, ErrorBase}
 # Structural SQLite slice of the upstream Builder reopening. Database values
 # stay integers for integer SUMs; AVG is returned by SQLite as Float64.
 pub trait Aggregations(Model)
+  def sum(&block : Model -> T) : T | ErrorBase forall T
+    records!.sum { |record| yield record }
+  end
+
+  def max_of(&block : Model -> T) : T | ErrorBase forall T
+    values = records!.map { |record| yield record }
+    raise "Empty enumerable" if values.empty?
+    largest = values.first
+    values.each { |value| largest = value if value > largest }
+    largest
+  end
+
+  def count(&block : Model -> Bool) : Int32 | ErrorBase
+    records!.count { |record| yield record }
+  end
+
+  def count(column : Symbol | String, distinct : Bool = false) : Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64) | ErrorBase
+    name = column.to_s
+    return count if (name == "all" || name == "*") && !distinct
+    name = "*" if name == "all"
+    distinct = distinct || distinct?
+    if name == "*" && distinct
+      return ::Grant::Error::ArgumentError.new("count(distinct: true) needs a column")
+    end
+    return group_fields.empty? ? 0_i64 : empty_group_count if is_none?
+    rows = aggregate_rows("COUNT", distinct ? "DISTINCT #{name}" : name)!
+    return rows.first[1].as(Int64) if group_fields.empty?
+    grouped_values(rows, Int64) { |value| value.is_a?(Int64) ? value : 0_i64 }
+  end
+
   def sum(column : Symbol | String)
     rows = aggregate_rows("SUM", column.to_s)!
     if group_fields.empty?
