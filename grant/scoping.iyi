@@ -93,7 +93,7 @@ pub macro model_methods(model)
           {% if body.args.size > 0 && body.args.first.restriction.stringify.includes?("Builder") %}
             BuildNamedScopeRelation.adopt(({{ body }}).call(self, *args))
           {% else %}
-            BuildNamedScopeRelation.adopt(merge(BuildNamedScopeRelation.adopt(({{ body }}).call(*args))))
+            BuildNamedScopeRelation.adopt(chain_copy.merge_builder(({{ body }}).call(*args)))
           {% end %}
         end
       {% end %}
@@ -165,9 +165,13 @@ pub macro model_methods(model)
   {% end %}
 end
 
-# Upstream's query-argument named-scope entry point.
+pub annotation NamedScope
+end
+
+# Record declarations until the finished hook can emit the single relation subtype.
 pub macro named_scope(name, body, model)
-  def self.{{ name.id }}(*args) : ::Grant::Query::Builder::Builder({{ model }})
-    ({{ body }}).call(current_scope, *args)
+  @[::Grant::Scoping::NamedScope(name: {{ name }}, body: {{ body }})]
+  def __named_scope_{{ name.id }} : Nil
+    nil
   end
 end

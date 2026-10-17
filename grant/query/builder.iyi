@@ -198,9 +198,17 @@ pub class Builder(Model)
 
   # A copy of this relation; every non-mutating chain method starts here.
   def chain_copy : self
-    copy = Builder(Model).new(@db_type, @boolean_operator)
+    copy = self.class.new(@db_type, @boolean_operator)
     copy.copy_state_from(self)
     copy
+  end
+
+  def boolean_operator : Symbol
+    @boolean_operator
+  end
+
+  def copy_state_to(target : Builder(Model)) : Nil
+    target.copy_state_from(self)
   end
 
   protected def copy_state_from(source : Builder(Model)) : Nil
@@ -224,6 +232,7 @@ pub class Builder(Model)
     @index_hint_sql = source.index_hint_sql
     @from_source = source.from_source
     @with_source = source.with_source
+    adopt_create_with_defaults(source.create_with_attributes)
     @deferred_error = source.deferred_error
     nil
   end

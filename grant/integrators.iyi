@@ -3,6 +3,18 @@ module grant/integrators
 # Native class-method slice of Grant::Integrators, expanded into each model
 # because imported classes cannot be reopened in iyi.
 pub macro create_methods(model)
+  def self.create_with(**attrs) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.create_with(**attrs)
+  end
+
+  def self.create_with(attrs : Hash(K, V)) : ::Grant::Query::Builder::Builder({{ model }}) forall K, V
+    current_scope.create_with(attrs)
+  end
+
+  def self.scope_attributes : Hash(String, ::Grant::Columns::Type)
+    current_scope.scope_attributes
+  end
+
   def self.destroy(id : T) : {{ model }} | ::Grant::Error::ErrorBase forall T
     record = find_strict(id)!
     record.destroy

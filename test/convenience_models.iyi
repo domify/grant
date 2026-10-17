@@ -18,6 +18,7 @@ pub class ConvItem < Base
     !item.name.to_s.blank?
   end
 
+  scope :kinded, -> { ConvItem.create_with(kind: "k").where(qty: 1) }
   scope :drafts, ->(q : ::Grant::Query::Builder::Builder(ConvItem)) { q.where(status: "draft") }
 end
 

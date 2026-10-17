@@ -29,6 +29,7 @@ pub import grant/validators
 pub import grant/callbacks
 pub import grant/secure_token
 pub import grant/transactions
+pub import grant/query/scoped_relation
 pub import grant/query/finders
 pub import grant/integrators
 pub import grant/encryption
@@ -1340,6 +1341,10 @@ pub abstract class Base
 
     def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})
       current_scope.where(**args)
+    end
+
+    def self.where(matches : Hash(K, V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall K, V
+      current_scope.where(matches)
     end
 
     def self.order(field : Symbol | String) : ::Grant::Query::Builder::Builder({{ @type }})

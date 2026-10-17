@@ -765,7 +765,7 @@
   target: test/grant_convenience_create_with_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/find_by_ids_spec.cr
   target: test/grant_convenience_find_by_ids_test.iyi
   area: query

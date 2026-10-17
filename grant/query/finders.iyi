@@ -12,6 +12,42 @@ import grant/querying::{NotFound}
 import grant/adapter/driver::{Value}
 
 pub trait Finders(Model)
+  @create_with_defaults : Hash(String, Type)? = nil
+
+  def create_with(**attrs) : self
+    create_with(attrs.to_h)
+  end
+
+  def create_with(attrs : Hash(K, V)) : self forall K, V
+    chain_copy.create_with_in_place(attrs)
+  end
+
+  def create_with_in_place(attrs : Hash(K, V)) : self forall K, V
+    if attrs.empty?
+      @create_with_defaults = nil
+    else
+      merged = create_with_attributes
+      attrs.each { |key, value| merged[key.to_s] = value }
+      @create_with_defaults = merged
+    end
+    self
+  end
+
+  def create_with_attributes : Hash(String, Type)
+    defaults = @create_with_defaults
+    copy = {} of String => Type
+    defaults.each { |key, value| copy[key] = value } unless defaults.nil?
+    copy
+  end
+
+  def adopt_create_with_defaults(defaults : Hash(String, Type)) : Nil
+    return if defaults.empty?
+    merged = create_with_attributes
+    defaults.each { |key, value| merged[key] = value }
+    @create_with_defaults = merged
+    nil
+  end
+
   def scope_attributes : Hash(String, Type)
     attrs = {} of String => Type
     collect_equality_attributes(default_scope_where_fields, attrs)
@@ -35,7 +71,9 @@ pub trait Finders(Model)
   end
 
   private def attributes_for_new_record : Hash(String, Type)
-    scope_attributes
+    attrs = scope_attributes
+    create_with_attributes.each { |key, value| attrs[key] = value }
+    attrs
   end
 
   def build(**attrs) : Model | ErrorBase
