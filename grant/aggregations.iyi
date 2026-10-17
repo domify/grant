@@ -1,0 +1,11 @@
+module grant/aggregations
+
+import grant/query/aggregations::{Calculation, CalculationResult}
+import grant/error::{ErrorBase}
+
+pub macro model_methods(model)
+  def self.calculate(operation : ::Grant::Query::Aggregations::Calculation | Symbol,
+                     column : Symbol | String? = nil) : ::Grant::Query::Aggregations::CalculationResult | ::Grant::Error::ErrorBase
+    current_scope.calculate(operation, column)
+  end
+end

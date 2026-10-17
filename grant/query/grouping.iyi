@@ -17,3 +17,9 @@ pub trait Grouping(Model)
     copied
   end
 end
+
+pub macro model_methods(model)
+  def self.group_records(*fields : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.group_records(*fields)
+  end
+end

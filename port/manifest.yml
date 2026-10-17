@@ -956,7 +956,7 @@
   target: test/grant_query_calculate_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/cte_spec.cr
   target: test/grant_query_cte_test.iyi
   area: query

@@ -1250,7 +1250,9 @@ pub class Builder(Model)
     @group_fields.each_with_index do |field, index|
       fields << "#{field[:field]} AS \"grant_group_#{index}\""
     end
-    fields << "#{function}(#{column}) AS \"grant_aggregate\""
+    aggregate = "#{function}(#{column})"
+    aggregate = "CAST(#{aggregate} AS DOUBLE PRECISION)" if function == "AVG" && Model.adapter.postgres?
+    fields << "#{aggregate} AS \"grant_aggregate\""
     sql = query_assembler.build_sql([
       query_assembler.with_clause, "#{query_assembler.select_prefix} #{fields.join(", ")}", query_assembler.from_clause,
       query_assembler.joins, query_assembler.where, query_assembler.group_by, query_assembler.having,
