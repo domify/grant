@@ -27,6 +27,10 @@ pub enum Dialect
     char = self == Mysql ? "`" : "\""
     name.to_s.split('.').map { |part| "#{char}#{part.gsub(char, char + char)}#{char}" }.join(".")
   end
+  def default_expression(expression : String) : String
+    return expression if self == Pg || expression.starts_with?("(") || expression.upcase.starts_with?("CURRENT_TIMESTAMP")
+    "(#{expression})"
+  end
   def quote_literal(value : T) : String forall T
     case value
     when Nil then "NULL"

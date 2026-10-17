@@ -1391,7 +1391,7 @@
   target: test/grant_schema_create_table_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/dumper_spec.cr
   target: test/grant_schema_dumper_test.iyi
   area: query

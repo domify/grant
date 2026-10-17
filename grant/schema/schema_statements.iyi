@@ -12,18 +12,19 @@ import grant/errors::{ErrorBase}
 
 pub macro methods
   ::Grant::Schema::AlterTable.methods
-  def create_table_statements(table : String | Symbol, id : Bool = true, force : Bool = false, comment : String? = nil, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
+  def create_table_statements(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol = :id, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
     definition = TableDefinition.new(table.to_s, dialect, comment)
     result = yield definition
     return result if result.is_a?(ErrorBase)
+    return definition.definition_error.as(ErrorBase) unless definition.definition_error.nil?
     columns = [] of String
-    if id
-      type = dialect == Dialect::Pg ? "BIGSERIAL PRIMARY KEY" : (dialect == Dialect::Mysql ? "BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY" : "INTEGER PRIMARY KEY AUTOINCREMENT")
-      columns << "#{dialect.quote("id")} #{type}"
+    if id != false
+      columns << auto_id_sql(dialect, primary_key.to_s, id.is_a?(Symbol) ? id : :bigint)!
     end
     definition.columns.each { |column| columns << column.to_sql(dialect)! }
-    sql = "CREATE TABLE #{dialect.quote(table)} (\n  #{columns.join(",\n  ")}\n)"
-    statements = force ? ["DROP TABLE IF EXISTS #{dialect.quote(table)}", sql] : [sql]
+    sql = "CREATE #{temporary ? "TEMPORARY " : ""}TABLE #{if_not_exists ? "IF NOT EXISTS " : ""}#{dialect.quote(table)} (\n  #{columns.join(",\n  ")}\n)"
+    sql += " COMMENT=#{dialect.quote_literal(comment)}" if dialect == Dialect::Mysql && comment
+    statements = force != false ? ["DROP TABLE IF EXISTS #{dialect.quote(table)}#{force == :cascade && dialect == Dialect::Pg ? " CASCADE" : ""}", sql] : [sql]
     if dialect == Dialect::Pg
       statements.concat(change_table_comment_statements(table, comment)) if comment
       definition.columns.each do |column|
@@ -33,11 +34,40 @@ pub macro methods
     definition.indexes.each { |index| statements.concat(index.statements(dialect)!) }
     statements
   end
-  def create_table(table : String | Symbol, id : Bool = true, force : Bool = false, comment : String? = nil, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
-    execute_batch(create_table_statements(table, id, force, comment) { |t| yield t }!)
+  def create_table(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol = :id, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
+    execute_batch(create_table_statements(table, id, force, comment, if_not_exists, temporary, primary_key) { |t| yield t }!)
   end
-  def drop_table(table : String | Symbol, if_exists : Bool = false) : Nil | ErrorBase | Cancelled
-    execute_batch(["DROP TABLE #{if_exists ? "IF EXISTS " : ""}#{dialect.quote(table)}"])
+  def drop_table_statements(*tables, if_exists : Bool = false, cascade : Bool = false) : Array(String)
+    statements = [] of String
+    tables.each do |table|
+      statements << "DROP TABLE #{if_exists ? "IF EXISTS " : ""}#{dialect.quote(table)}#{cascade && dialect == Dialect::Pg ? " CASCADE" : ""}"
+    end
+    statements
+  end
+  def drop_table(*tables, if_exists : Bool = false, cascade : Bool = false) : Nil | ErrorBase | Cancelled
+    execute_batch(drop_table_statements(*tables, if_exists: if_exists, cascade: cascade))
+  end
+  private def auto_id_sql(dialect : Dialect, name : String, kind : Symbol) : String | ErrorBase
+    quoted = dialect.quote(name)
+    case kind
+    when :bigint, :integer, :smallint
+      if dialect == Dialect::Pg
+        type = kind == :bigint ? "BIGSERIAL" : (kind == :integer ? "SERIAL" : "SMALLSERIAL")
+        "#{quoted} #{type} PRIMARY KEY"
+      elsif dialect == Dialect::Mysql
+        type = kind == :bigint ? "BIGINT" : (kind == :integer ? "INT" : "SMALLINT")
+        "#{quoted} #{type} NOT NULL AUTO_INCREMENT PRIMARY KEY"
+      else
+        "#{quoted} INTEGER PRIMARY KEY AUTOINCREMENT"
+      end
+    when :uuid
+      type = dialect == Dialect::Pg ? "UUID PRIMARY KEY DEFAULT gen_random_uuid()" : (dialect == Dialect::Mysql ? "CHAR(36) PRIMARY KEY DEFAULT (UUID())" : "CHAR(36) PRIMARY KEY")
+      "#{quoted} #{type}"
+    when :string
+      "#{quoted} #{dialect == Dialect::Pg ? "VARCHAR" : "VARCHAR(255)"} PRIMARY KEY"
+    else
+      InvalidDefinition.new("Unknown id type #{kind.inspect}; use :bigint, :integer, :smallint, :uuid, :string or false")
+    end
   end
   def add_column(table : String | Symbol, name : String | Symbol, type : Symbol, comment : String? = nil) : Nil | ErrorBase | Cancelled
     definition = TableDefinition.new(table.to_s, dialect)
