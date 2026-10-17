@@ -19,6 +19,19 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.exists?(id : T) : Bool | ::Grant::Error::ErrorBase forall T
+    return false if id.nil?
+    current_scope.where(primary_name, :eq, id).exists?
+  end
+
+  def self.exists?(**criteria) : Bool | ::Grant::Error::ErrorBase
+    current_scope.where(criteria.to_h).exists?
+  end
+
+  def self.exists?(criteria : Hash(K, V)) : Bool | ::Grant::Error::ErrorBase forall K, V
+    current_scope.where(criteria).exists?
+  end
+
   def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : {{ model }} -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
     batch_scope(clause, params, offset)!.find_each(batch_size) { |record| yield record }
   end

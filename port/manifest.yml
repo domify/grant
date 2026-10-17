@@ -1281,7 +1281,7 @@
   target: test/grant_querying_exists_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/find_by_spec.cr
   target: test/grant_querying_find_by_test.iyi
   area: query
