@@ -107,13 +107,51 @@ pub class AssociationCollection(Owner, Target)
     !any?!
   end
 
-  def create_strict(**attrs) : Target | ErrorBase
-    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create!") unless @owner.persisted?
+  def build(**attrs) : Target
     record = Target.new(**attrs)
+    prepare_built(record)
+  end
+
+  private def prepare_built(record : Target) : Target
     record.assign_attributes({@foreign_key.to_s => owner_key})
-    record.save_strict!
     records = @loaded_records
     records << record unless records.nil?
     record
+  end
+
+  def create(**attrs) : Target | ErrorBase
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
+    record = build(**attrs)
+    record.save
+    record
+  end
+
+  def create_strict(**attrs) : Target | ErrorBase
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create!") unless @owner.persisted?
+    record = build(**attrs)
+    record.save_strict!
+    record
+  end
+
+  def delete_all(dependent : Symbol? = nil) : Int64 | ErrorBase
+    if !dependent.nil? && dependent != :nullify && dependent != :delete_all
+      return ::Grant::Error::ArgumentError.new("Unknown dependent strategy #{dependent} for delete_all; use :nullify or :delete_all")
+    end
+    count = if dependent == :delete_all
+      association_relation.delete_all!
+    else
+      association_relation.update_all([{ @foreign_key.to_s, nil.as(::Grant::Adapter::Driver::Value) }])!
+    end
+    records = @loaded_records
+    records.clear unless records.nil?
+    count
+  end
+
+  def destroy_all : Array(Target) | ErrorBase
+    records = all!.dup
+    records.each { |record| record.destroy_strict! }
+    loaded = @loaded_records
+    loaded.clear unless loaded.nil?
+    records
   end
 end

@@ -1771,7 +1771,7 @@
   target: test/grant_associations_collection_methods_test.iyi
   area: associations
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/counter_cache_spec.cr
   target: test/grant_associations_counter_cache_test.iyi
   area: associations
