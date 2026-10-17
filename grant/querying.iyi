@@ -13,6 +13,16 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.from_rs(result : R) : {{ model }} | ::Grant::Error::ErrorBase forall R
+    row = {} of String => ::Grant::Adapter::Driver::Value
+    result.column_count.times do |index|
+      value = result.read
+      return value if value.is_a?(::Grant::Error::ErrorBase)
+      row[result.column_name(index)] = ::Grant::Base.sqlite_value(value)
+    end
+    from_row(row)
+  end
+
   def __reload_from_database : self | ::Grant::Error::ErrorBase
     fresh = self.class.where("#{::Grant::Base.quote_identifier(self.class.primary_name)} = ?", __primary_value).first!
     if fresh.nil?
