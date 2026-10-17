@@ -595,7 +595,7 @@
   target: test/grant_attributes_normalized_query_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/w6_alias_query_spec.cr
   target: test/grant_attributes_w6_alias_query_test.iyi
   area: query
