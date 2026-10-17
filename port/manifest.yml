@@ -1302,7 +1302,7 @@
     - T-717ec748ca
     - T-6b738a0d18
   - target: test/grant_querying_enumerable_reductions_test.iyi
-    status: todo
+    status: done
     examples:
     - T-2a42fc0911
     - T-787434f3b2
