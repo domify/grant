@@ -131,3 +131,10 @@ impl ::Error for NotUnique
     @message
   end
 end
+
+# Native macro expansion of upstream Querying::ClassMethods for non-Base probes.
+pub macro class_methods
+  def self.count : Int64 | ::Grant::Error::ErrorBase | Cancelled
+    current_scope.count
+  end
+end

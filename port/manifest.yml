@@ -1266,7 +1266,7 @@
   target: test/grant_querying_count_test.iyi
   area: query
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/enumerable_baseline_spec.cr
   target: test/grant_querying_enumerable_baseline_test.iyi
   area: query

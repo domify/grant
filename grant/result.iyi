@@ -2,8 +2,24 @@ module grant/result
 
 import grant/adapter/driver::{Value, ResultSet}
 import grant/errors::{DatabaseError}
+import grant/error::{ArgumentError}
+import std/text
 
 pub class Result
+  def self.integer_count(value : T) : Int64 | ArgumentError forall T
+    return 0_i64 if value.nil?
+    if value.is_a?(Int8) || value.is_a?(Int16) || value.is_a?(Int32) || value.is_a?(Int64) || value.is_a?(UInt8) || value.is_a?(UInt16) || value.is_a?(UInt32) || value.is_a?(UInt64) || value.is_a?(Float32) || value.is_a?(Float64)
+      value.to_i64
+    else
+      text = value.to_s
+      integer = text.to_i64?
+      return integer unless integer.nil?
+      decimal = text.to_f?
+      return decimal.to_i64 unless decimal.nil?
+      ArgumentError.new("count_by_sql did not return a numeric value")
+    end
+  end
+
   pub alias Row = Array(Value)
   pub alias HashRow = Hash(String, Value)
 
