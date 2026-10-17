@@ -2011,7 +2011,7 @@
   target: test/grant_connection_connects_to_hash_test.iyi
   area: associations
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/pool_stats_spec.cr
   target: test/grant_connection_pool_stats_test.iyi
   area: associations

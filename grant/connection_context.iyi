@@ -50,7 +50,7 @@ pub macro model_methods(model)
       return false unless ::Grant::ConnectionManagement.registry_role(current_role) ==
                           ::Grant::ConnectionManagement.registry_role(role)
     end
-    return false if !shard.nil? && (current_shard || :default) != shard
+    return false if !shard.nil? && (current_shard || default_shard) != shard
     true
   end
 
@@ -83,11 +83,12 @@ pub macro model_methods(model)
   end
 
   def self.default_database_name : String
-    @@connection_name
+    @@default_database_name
   end
 
   def self.default_database_name=(database : String) : String
     @@connection_name = database
+    @@default_database_name = database
   end
 
   def self.connection_context : ::Grant::ConnectionContext::ConnectionContext?
