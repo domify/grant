@@ -26,6 +26,11 @@ end
 # Typed declaration slice of Encryption::Model. Converter method bodies are
 # deferred just like Base's column introspection. Persistence instantiates the
 # encrypted-attribute codec; it must never fall back to ordinary plaintext SQL.
+pub def decrypt(encrypted : String?, model_name : String, attribute_name : String) : String? | ::Grant::Error::ErrorBase
+  return nil if encrypted.nil? || encrypted.empty?
+  ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new(model_name, attribute_name, false, attribute_name).open(encrypted)
+end
+
 pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case, compress, compress_threshold, previous, support_unencrypted_data, lazy)
   {% if !attribute.is_a?(TypeDeclaration) %}
     ::Grant::Encryption.legacy_attribute({{model}}, {{attribute}}, {{deterministic}}, {{downcase}}, {{compress}}, {{compress_threshold}}, {{support_unencrypted_data}})
@@ -128,6 +133,15 @@ pub macro legacy_attribute(model, attribute, deterministic, downcase, compress, 
     @{{attr}}_encrypted = value.nil? ? nil : self.class.{{attr}}_encrypted_attribute.seal(value)!
     nil
   end
+  {% if deterministic %}
+    def self.where_{{attr}}(value : String) : ::Grant::Query::Builder::Builder({{model}})
+      where({{attr}}: value)
+    end
+    def self.find_by_{{attr}}(value : String) : {{model}}? | ::Grant::Error::ErrorBase
+      where_{{attr}}(value).first
+    end
+  {% end %}
+
 end
 
 pub macro model_methods(model)
@@ -137,6 +151,20 @@ pub macro model_methods(model)
     \{% end %}
     ::Grant::Encryption::EncryptedAttribute::EncryptedAttributeRegistry.for(self.to_s)
   end
+
+  {% if model.resolve.constants.any? { |name| name.stringify.starts_with?("ENCRYPTED_ATTRIBUTE_") } %}
+    def inspect : String
+      values = [] of String
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        \{% if v.annotation(::Grant::Base::Column)[:encrypted] %}
+          values << \{{v.name.stringify}} + ": [FILTERED]"
+        \{% else %}
+          values << \{{v.name.stringify}} + ": " + @\{{v.name}}.inspect
+        \{% end %}
+      \{% end %}
+      "#<#{self.class} #{values.join(", ")}>"
+    end
+  {% end %}
 
   def self.encrypted_query_attribute(field : String) : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute?
     encrypted_attributes
