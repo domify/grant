@@ -1321,7 +1321,7 @@
   target: test/grant_querying_query_builder_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/relation_calculations_spec.cr
   target: test/grant_querying_relation_calculations_test.iyi
   area: query
