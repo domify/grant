@@ -2180,7 +2180,7 @@
   target: test/grant_schema_w6b_execute_schema_qualified_test.iyi
   area: associations
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_migrator_foreign_keys_spec.cr
   target: test/grant_schema_w6b_migrator_foreign_keys_test.iyi
   area: associations

@@ -22,8 +22,12 @@ pub class Introspection
     adapter.open { |db| db.query(sql)!.map { |row| row["name"].as(String) } }
   end
   def table_exists?(table : String | Symbol) : Bool | ErrorBase | Cancelled
-    literal = Dialect.for(@adapter).quote_literal(table.to_s)
-    sql = @adapter.postgres? ? "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = #{literal}" : "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = #{literal}"
+    name = table.to_s.split('.').last
+    namespace = table.to_s.includes?(".") ? table.to_s.split('.').first : nil
+    literal = Dialect.for(@adapter).quote_literal(name)
+    schema_sql = namespace.nil? ? "current_schema()" : Dialect::Pg.quote_literal(namespace)
+    master = namespace.nil? ? "sqlite_master" : "#{Dialect::Sqlite.quote(namespace)}.sqlite_master"
+    sql = @adapter.postgres? ? "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = #{schema_sql} AND table_name = #{literal}" : "SELECT COUNT(*) FROM #{master} WHERE type = 'table' AND name = #{literal}"
     @adapter.open { |db| db.scalar(sql)!.as(Int64) > 0 }
   end
   def table_comment(table : String | Symbol) : String? | ErrorBase | Cancelled
@@ -37,7 +41,7 @@ pub class Introspection
     sql = if @adapter.postgres?
       "SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS required, col_description(a.attrelid, a.attnum) AS comment, pg_get_expr(d.adbin, d.adrelid) AS default_value, COALESCE(array_position(i.indkey::int2[], a.attnum) + 1, 0)::int AS pk_position, (a.attidentity IN ('a', 'd') OR COALESCE(pg_get_expr(d.adbin, d.adrelid) LIKE 'nextval(%', false)) AS auto_increment, a.attnum::int AS position FROM pg_attribute a LEFT JOIN pg_index i ON i.indrelid = a.attrelid AND i.indisprimary LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum WHERE a.attrelid = to_regclass(#{dialect.quote_literal(table.to_s)}) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
     else
-      "PRAGMA table_info(#{dialect.quote(table)})"
+      "PRAGMA #{table.to_s.includes?(".") ? dialect.quote(table.to_s.split('.').first) + "." : ""}table_info(#{dialect.quote(table.to_s.split('.').last)})"
     end
     @adapter.open do |db|
       rows = db.query(sql)!
@@ -113,10 +117,10 @@ pub class Introspection
           result << index_from_sql(table.to_s, name, sql, sql.starts_with?("CREATE UNIQUE"))
         end
       else
-        db.query("PRAGMA index_list(#{dialect.quote(table)})")!.each do |row|
+        db.query("PRAGMA #{table.to_s.includes?(".") ? dialect.quote(table.to_s.split('.').first) + "." : ""}index_list(#{dialect.quote(table.to_s.split('.').last)})")!.each do |row|
           next if row["origin"]? == "pk"
           name = row["name"].as(String)
-          sql = db.scalar("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = #{dialect.quote_literal(name)}")!.as(String?)
+          sql = db.scalar("SELECT sql FROM #{table.to_s.includes?(".") ? dialect.quote(table.to_s.split('.').first) + "." : ""}sqlite_master WHERE type = 'index' AND name = #{dialect.quote_literal(name)}")!.as(String?)
           if sql
             result << index_from_sql(table.to_s, name, sql, row["unique"].as(Int64) != 0)
           else

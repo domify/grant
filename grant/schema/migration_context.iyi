@@ -13,6 +13,12 @@ import std/dir::{Dir}
 import std/file::{File}
 import std/text
 
+pub class UnknownMigrationVersion < ErrorBase
+  def initialize(version : Int64)
+    super("No migration with version number #{version}")
+  end
+end
+
 pub class PendingMigrationError < ErrorBase
   getter versions : Array(Int64)
   def initialize(@versions : Array(Int64))
@@ -138,6 +144,30 @@ pub class MigrationContext
       ran = [] of Int64
       migrations!.each do |entry|
         next if applied.includes?(entry.version)
+        run_entry(entry, true, applied)!
+        ran << entry.version
+      end
+      ran
+    end
+  end
+
+  def migrate(target : Int64) : Array(Int64) | ErrorBase | Cancelled
+    with_migration_lock do
+      applied = schema_migration.versions!
+      entries = migrations!
+      if target != 0 && !entries.any? { |entry| entry.version == target }
+        return UnknownMigrationVersion.new(target)
+      end
+      ran = [] of Int64
+      if target < (applied.to_a.sorted.last? || 0_i64)
+        entries.reversed.each do |entry|
+          next unless entry.version > target && applied.includes?(entry.version)
+          run_entry(entry, false, applied)!
+          ran << entry.version
+        end
+      end
+      entries.each do |entry|
+        next if entry.version > target || applied.includes?(entry.version)
         run_entry(entry, true, applied)!
         ran << entry.version
       end

@@ -169,7 +169,7 @@ pub abstract class Migration
     end
   end
 
-  {% for method in ["drop_table", "add_column", "remove_column", "add_index", "remove_index", "rename_column", "rename_table", "add_foreign_key", "add_reference", "add_timestamps", "enable_extension"] %}
+  {% for method in ["create_join_table", "remove_timestamps", "drop_table", "add_column", "remove_column", "add_index", "remove_index", "rename_column", "rename_table", "add_foreign_key", "add_reference", "add_timestamps", "enable_extension"] %}
     def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
       @recorder.recording? ? @recorder.{{method.id}}(*args, **options) : statements.{{method.id}}(*args, **options)
     end

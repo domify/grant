@@ -97,6 +97,17 @@ pub class CommandRecorder
     record("remove_index", ->(s : SchemaStatements) { s.remove_index(table, columns, name: options[:name]?, if_exists: if_exists, algorithm: algorithm) },
       ->(s : SchemaStatements) { s.add_index(table, columns, **options) }, "add_index")
   end
+  def remove_index(table : String | Symbol, name : String | Symbol, if_exists : Bool = false, algorithm : Symbol? = nil) : Nil
+    record("remove_index", ->(s : SchemaStatements) { s.remove_index(table, name: name, if_exists: if_exists, algorithm: algorithm) })
+  end
+  def remove_timestamps(table : String | Symbol) : Nil
+    record("remove_timestamps", ->(s : SchemaStatements) { s.remove_timestamps(table) },
+      ->(s : SchemaStatements) { s.add_timestamps(table, null: true) }, "add_timestamps")
+  end
+  def create_join_table(first : String | Symbol, second : String | Symbol, table_name : String | Symbol? = nil, column_options = nil) : Nil
+    record("create_join_table", ->(s : SchemaStatements) { s.create_join_table(first, second, table_name, column_options) },
+      ->(s : SchemaStatements) { s.drop_join_table(first, second, table_name) }, "drop_join_table")
+  end
   def add_foreign_key(from_table : String | Symbol, to_table : String | Symbol, **options) : Nil
     record("add_foreign_key", ->(s : SchemaStatements) { s.add_foreign_key(from_table, to_table, **options) },
       ->(s : SchemaStatements) { s.remove_foreign_key(from_table, to_table, column: options[:column]?, name: options[:name]?) }, "remove_foreign_key")
