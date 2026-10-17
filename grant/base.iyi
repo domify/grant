@@ -8,6 +8,7 @@ pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
 pub import grant/associations
+import grant/dependent
 pub import grant/columns
 pub import grant/schema/verify
 pub import grant/schema/model_indexes
@@ -684,8 +685,16 @@ pub abstract class Base
     end
   end
 
+  macro belongs_to(model, scope = nil, **options)
+    ::Grant::Associations.belongs_to({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  end
+
+  macro has_one(model, scope = nil, **options)
+    ::Grant::Associations.has_one({{ model }}, {{ scope }}, foreign_key: {{ options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" }}, {% for key, value in options %}{% unless key == :foreign_key %}{{ key.id }}: {{ value }}, {% end %}{% end %})
+  end
+
   macro has_many(model, scope = nil, **options)
-    ::Grant::Associations.has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+    ::Grant::Associations.has_many({{ model }}, {{ scope }}, foreign_key: {{ options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" }}, {% for key, value in options %}{% unless key == :foreign_key %}{{ key.id }}: {{ value }}, {% end %}{% end %})
   end
 
   macro index(columns, **options)
@@ -695,6 +704,7 @@ pub abstract class Base
   macro __process_columns
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
+    ::Grant::Dependent.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
@@ -1907,6 +1917,7 @@ pub abstract class Base
     self.before_destroy!
     delete
     self.after_destroy!
+    self.__destroy_dependents!
     queue_commit_callbacks(:destroy)!
     true
   end

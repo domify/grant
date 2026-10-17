@@ -2,6 +2,7 @@ module grant/association_collection
 
 import grant/query/builder::{Builder}
 import grant/error::{ErrorBase}
+import grant/querying::{NotFound}
 import grant/associations/through::{OwnerNotSaved}
 
 # The direct association slice of upstream AssociationCollection(Owner, Target).
@@ -40,6 +41,35 @@ pub class AssociationCollection(Owner, Target)
     association_name = @association_name
     @owner.set_loaded_association(association_name, records) unless association_name.nil?
     records
+  end
+
+  def all(clause : String, params : Array(V)) : Array(Target) | ErrorBase forall V
+    values = [owner_key] of ::Grant::Adapter::Driver::Value
+    params.each { |value| values << value }
+    Target.find_by_sql("SELECT #{Target.table_name}.* FROM #{Target.table_name} WHERE #{Target.table_name}.#{@foreign_key} = ? #{clause}", values)
+  end
+
+  def find_by(**args) : Target | Nil | ErrorBase
+    association_relation.find_by(**args)
+  end
+
+  def find_by_strict(**args) : Target | ErrorBase
+    record = find_by(**args)!
+    return record unless record.nil?
+    parts = [] of String
+    args.to_h.each { |key, value| parts << "#{key} = #{value}" }
+    description = parts.join(" and ")
+    ::Grant::Querying::NotFound.new("No #{Target} found where #{description}")
+  end
+
+  def find(id : V) : Target | Nil | ErrorBase forall V
+    association_relation.where(Target.primary_name, :eq, id).first
+  end
+
+  def find_strict(id : V) : Target | ErrorBase forall V
+    record = find(id)!
+    return record unless record.nil?
+    ::Grant::Querying::NotFound.new("No #{Target} found where #{Target.primary_name} = #{id}")
   end
 
   def to_a : Array(Target) | ErrorBase

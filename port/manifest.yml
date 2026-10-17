@@ -1786,7 +1786,7 @@
   target: test/grant_associations_dependent_delete_all_test.iyi
   area: associations
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/dependent_options_spec.cr
   target: test/grant_associations_dependent_options_test.iyi
   area: associations
@@ -1806,7 +1806,7 @@
   target: test/grant_associations_has_many_test.iyi
   area: associations
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/has_many_through_spec.cr
   target: test/grant_associations_has_many_through_test.iyi
   area: associations
@@ -1816,7 +1816,7 @@
   target: test/grant_associations_has_one_test.iyi
   area: associations
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/has_one_through_preload_spec.cr
   target: test/grant_associations_has_one_through_preload_test.iyi
   area: associations
