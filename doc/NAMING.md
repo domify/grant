@@ -28,3 +28,5 @@ Migration `disable_ddl_transaction!` becomes `disable_ddl_transaction_in_place`.
 Schema `check_pending!` and `maintain_test_schema!` use the `_strict` suffix.
 
 Schema `check_protected_environments!` and `set_environment!` use the `_strict` suffix.
+
+Schema `verify!` and model `verify_schema!` use the `_strict` suffix.

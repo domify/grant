@@ -9,6 +9,7 @@ pub import grant/scoping
 pub import grant/querying
 pub import grant/associations
 pub import grant/columns
+pub import grant/schema/verify
 pub import grant/schema/model_indexes
 pub import grant/migrator
 pub import grant/columns_helpers
@@ -1062,6 +1063,8 @@ pub abstract class Base
     def self.exec(sql : String, binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : ::Grant::Adapter::Driver::Mutation | ::Grant::Errors::ErrorBase | Cancelled
       connection.execute(sql, binds)
     end
+
+    ::Grant::Schema::Verify.model_methods
 
     def self.migrator : ::Grant::Migrator::Migrator
       \{% begin %}

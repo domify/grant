@@ -2636,7 +2636,7 @@
   target: test/grant_schema_verify_model_test.iyi
   area: other
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema_tenant_reset_error_spec.cr
   target: test/grant_schema_tenant_reset_error_test.iyi
   area: other
