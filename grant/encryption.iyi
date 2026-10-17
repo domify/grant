@@ -27,6 +27,10 @@ pub def without_encryption(&block : -> T) : T forall T
   ::Grant::Encryption::Context.without_encryption { yield }
 end
 
+pub def with_context(primary_key : String? = nil, deterministic_key : String? = nil, key_derivation_salt : String? = nil, &block : -> T) : T | ::Grant::Encryption::KeyProvider::KeyError forall T
+  ::Grant::Encryption::Context.with_context(primary_key, deterministic_key, key_derivation_salt) { yield }
+end
+
 pub def protecting_encrypted_data(&block : -> T) : T forall T
   ::Grant::Encryption::Context.protecting_encrypted_data { yield }
 end
@@ -154,6 +158,64 @@ end
 
 pub macro model_methods(model)
   ::Grant::Encryption::QueryExtensions.model_methods({{model}})
+
+  def ciphertext_for(attribute_name : Symbol | String) : String? | ::Grant::Error::ErrorBase
+    \{% begin %}
+    case attribute_name.to_s
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:encrypted] } %}
+    when \{{v.name.stringify}}
+      \{% if v.annotation(::Grant::Base::Column)[:converter].resolve == ::Grant::Encryption::LegacyStorage %}
+        @\{{v.name}}
+      \{% else %}
+        self.class.\{{v.name}}_encrypted_attribute
+        \{{v.annotation(::Grant::Base::Column)[:converter]}}.to_db(@\{{v.name}})
+      \{% end %}
+    \{% end %}
+    else
+      attribute = self.class.encrypted_query_attribute(attribute_name.to_s)
+      return ::Grant::Error::ArgumentError.new("#{self.class}##{attribute_name} is not an encrypted attribute") if attribute.nil?
+      ciphertext_for(attribute.column_name)
+    end
+    \{% end %}
+  end
+
+  def encrypted_attribute?(attribute_name : Symbol | String) : Bool | ::Grant::Error::ErrorBase
+    return false if self.class.encrypted_query_attribute(attribute_name.to_s).nil?
+    stored = ciphertext_for(attribute_name)!
+    return false if stored.nil? || stored.empty?
+    bytes = ::Grant::Encryption::KeyProvider::KeyProvider.decode_encoded(stored)
+    return false if bytes.is_a?(::Error)
+    ::Grant::Encryption::Cipher::Cipher.encrypted_payload?(bytes)
+  end
+
+  def encrypt : Bool | ::Grant::Error::ErrorBase
+    rewrite_encrypted_columns(false)
+  end
+
+  def decrypt : Bool | ::Grant::Error::ErrorBase
+    rewrite_encrypted_columns(true)
+  end
+
+  private def rewrite_encrypted_columns(plaintext : Bool) : Bool | ::Grant::Error::ErrorBase
+    return ::Grant::Error::ArgumentError.new("Cannot rewrite encrypted columns of a new record") unless persisted?
+    assignments = [] of Tuple(String, ::Grant::Adapter::Driver::Value)
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:encrypted] } %}
+      \{% if v.annotation(::Grant::Base::Column)[:converter].resolve == ::Grant::Encryption::LegacyStorage %}
+        unless plaintext
+          text = \{{v.name.stringify[0...-10].id}}!
+          stored = text.nil? ? nil : self.class.\{{v.name}}_encrypted_attribute.seal(text)!
+          assignments << { \{{v.name.stringify}}, stored.as(::Grant::Adapter::Driver::Value)}
+        end
+      \{% else %}
+        value = \{{v.name}} \{% if v.annotation(::Grant::Base::Column)[:guarded] %}!\{% end %}
+        text = value.nil? ? nil : ::Grant::Encryption::Serializer.dump(value)
+        stored = plaintext || text.nil? ? text : self.class.\{{v.name}}_encrypted_attribute.seal(text)!
+        assignments << { \{{v.name.stringify}}, stored.as(::Grant::Adapter::Driver::Value)}
+      \{% end %}
+    \{% end %}
+    return true if assignments.empty?
+    self.class.where(self.class.primary_name, :eq, __primary_value).update_all(assignments)! > 0
+  end
 
   def self.encrypted_attributes : Hash(String, ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute)
     \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:encrypted] } %}

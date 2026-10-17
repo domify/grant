@@ -43,7 +43,7 @@ pub class EncryptedAttribute
 
   def seal(plain : String) : String | KeyError | EncryptionError | DecryptionError
     return plain if ::Grant::Encryption::Context.current_context.encryption_disabled?
-    key = KeyProvider.derive_key(@model_name, @attribute_name, @deterministic)!
+    key = derive_key!
     text = @downcase || @ignore_case ? plain.downcase : plain
     encrypted = Base64.encode(Cipher.encrypt(::Grant::Encryption::Compression.encode(text, options.compress?, options.compress_threshold || 140), key, @deterministic)!)
     Config.log_operation("encrypt", @model_name, @attribute_name, plain.bytesize, encrypted.bytesize)
@@ -53,6 +53,16 @@ pub class EncryptedAttribute
   def query_value(plain : String) : String | ErrorBase
     return ArgumentError.new("Cannot query non-deterministic encrypted field: #{attribute_name}") unless @deterministic
     seal(plain)
+  end
+
+  private def derive_key : String | KeyError
+    pinned = ::Grant::Encryption::Context.current_context.key_set
+    unless pinned.nil?
+      key = KeyProvider.derive_key_from_set?(@model_name, @attribute_name, @deterministic, pinned)
+      return key unless key.nil?
+      return KeyError.new(@deterministic ? "Deterministic encryption key not pinned in this context" : "Primary encryption key not pinned in this context")
+    end
+    KeyProvider.derive_key(@model_name, @attribute_name, @deterministic)
   end
 
   def support_unencrypted_data? : Bool
@@ -80,12 +90,18 @@ pub class EncryptedAttribute
       return DecryptionError.new("Failed to decode Base64: #{bytes.message}")
     end
     return {stored, -1} if support_unencrypted_data? && !Cipher.encrypted_payload?(bytes)
+    pinned = ::Grant::Encryption::Context.current_context.key_set
     attempted = false
     2.times do |round|
       deterministic = Cipher.deterministic_payload?(bytes) ? round == 0 : round == 1
-      next if (deterministic ? KeyProvider.deterministic_key : KeyProvider.primary_key).nil?
+      if pinned.nil?
+        next if (deterministic ? KeyProvider.deterministic_key : KeyProvider.primary_key).nil?
+        key = KeyProvider.derive_key(@model_name, @attribute_name, deterministic)!
+      else
+        key = KeyProvider.derive_key_from_set?(@model_name, @attribute_name, deterministic, pinned)
+        next if key.nil?
+      end
       attempted = true
-      key = KeyProvider.derive_key(@model_name, @attribute_name, deterministic)!
       result = Cipher.decrypt?(bytes, key)!
       unless result.nil?
         Config.log_operation("decrypt", @model_name, @attribute_name, bytes.bytesize, result.bytesize)

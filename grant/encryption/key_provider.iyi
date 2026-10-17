@@ -14,6 +14,15 @@ impl ::Error for KeyError
   end
 end
 
+pub struct KeySet
+  getter primary_key : String?
+  getter deterministic_key : String?
+  getter salt : String
+
+  def initialize(@primary_key : String?, @deterministic_key : String?, @salt : String)
+  end
+end
+
 pub class KeyProvider
   DERIVE_INFO_PREFIX = "grant-encryption"
   KEY_SIZE = 32
@@ -92,6 +101,13 @@ pub class KeyProvider
     @@key_derivation_salt = salt
     @@derived_keys = {} of String => String
     nil
+  end
+
+  def self.derive_key_from_set?(model_name : String, attribute_name : String, deterministic : Bool, key_set : KeySet) : String?
+    master = deterministic ? key_set.deterministic_key : key_set.primary_key
+    return nil if master.nil?
+    prk = Cipher.digest(key_set.salt, master)
+    Cipher.digest(prk, "#{DERIVE_INFO_PREFIX}.#{model_name}.#{attribute_name}" + "\u0001")
   end
 
   def self.derive_key(model_name : String, attribute_name : String, deterministic : Bool = false) : String | KeyError

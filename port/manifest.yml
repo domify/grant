@@ -2541,7 +2541,7 @@
   target: test/grant_encryption_context_test.iyi
   area: other
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/previous_schemes_spec.cr
   target: test/grant_encryption_previous_schemes_test.iyi
   area: other
