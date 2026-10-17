@@ -132,21 +132,20 @@ MIT, same as upstream Grant. See [LICENSE](LICENSE).
 
 ## Native iyi database dependencies
 
-The native port uses the common types from `github.com/iyilang/db`. Grant keeps a compatibility
-facade for its observers, transaction materialization, SQL conventions and public errors. Database
-connections, statement ownership, parameter binding and row decoding belong to the drivers.
-
-For development, `iyi.mod` uses the toolchain's local `replace` directives:
+The native port uses the common types from `github.com/priit/db` and the drivers
+`github.com/priit/sqlite` and `github.com/priit/pg`, pinned as pseudo-versions in `iyi.mod`:
 
 ```text
-replace github.com/iyilang/db => ../iyis/db
-replace github.com/iyilang/sqlite => ../iyis/sqlite
-replace github.com/iyilang/pg => ../iyis/pg
+require github.com/priit/db v0.0.0-20261017121930-c46d53e18181 as db
+require github.com/priit/sqlite v0.0.0-20261017121947-fb786eb14b5d as sqlite
+require github.com/priit/pg v0.0.0-20261017121949-b2d033771d9f as pg
 ```
 
-Keep these three checkouts beside Grant under `../iyis/`, or adjust the replacement paths. Only the
-application's replacements apply; replacements inside dependencies do not redirect Grant's builds.
-The released requirements remain in the manifest, and no module cache edits are needed.
+Grant keeps a compatibility facade for its observers, transaction materialization, SQL conventions
+and public errors. Database connections, statement ownership, parameter binding and row decoding
+belong to the drivers. No local checkouts or `replace` directives are needed; to develop against a
+local driver checkout, add a `replace` in your own `iyi.mod` (replacements inside dependencies do
+not apply).
 
 Run native checks with `/home/priit/contribute/iyi/bin/iyi`, `IYI_CACHE_DIR=$PWD/.iyi-cache`, and a
 `TMPDIR` inside the checkout. Keep sources and logs outside `.iyi-cache`, which the compiler prunes.
