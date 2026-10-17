@@ -1,9 +1,5 @@
 module github.com/domify/grant
 
-require github.com/iyilang/db v0.1.1 as db
-require github.com/iyilang/sqlite v0.0.0-20261015191849-b0d89d58a814 as sqlite
-require github.com/iyilang/pg v0.0.0-20261015182941-6e9e50d7fef4 as pg
-
-replace github.com/iyilang/db => ../iyis/db
-replace github.com/iyilang/sqlite => ../iyis/sqlite
-replace github.com/iyilang/pg => ../iyis/pg
+require github.com/priit/db v0.0.0-20261017121930-c46d53e18181 as db
+require github.com/priit/sqlite v0.0.0-20261017121947-fb786eb14b5d as sqlite
+require github.com/priit/pg v0.0.0-20261017121949-b2d033771d9f as pg
