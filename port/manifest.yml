@@ -1316,7 +1316,7 @@
   target: test/grant_querying_or_not_block_params_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/query_builder_spec.cr
   target: test/grant_querying_query_builder_test.iyi
   area: query

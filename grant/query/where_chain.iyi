@@ -1,5 +1,9 @@
 module grant/query/where_chain
 
+import grant/adapter/driver
+import grant/error
+import grant/query/predicate_renderer
+
 # Native trait slice of upstream WhereChain(Model). The existing no-argument
 # where surface returns Builder, so chain methods apply to that relation.
 pub trait WhereChainMethods(Model)
@@ -14,6 +18,34 @@ pub trait WhereChainMethods(Model)
 
   def not(**matches) : self
     where_not(matches)
+  end
+
+  def not(&block : self -> self) : self
+    chain_copy.not_in_place { |query| yield query }
+  end
+
+  def not_in_place(&block : self -> self) : self
+    reset_load_state
+    query = chain_copy
+    query.clear_where_fields
+    query.clear_default_scope_where_fields
+    query = yield query
+    unless query.where_fields.empty?
+      values = [] of ::Grant::Adapter::Driver::Value
+      renderer = ::Grant::Query::PredicateRenderer::PredicateRenderer.new(
+        Model.to_s, Model.table_name, Model.fields,
+        ->(name : String) { Model.quote(name) },
+        ->(value : ::Grant::Adapter::Driver::Value) { values << value; "?" },
+        ->(name : String) { nil }, query.join_clauses)
+      renderer.rendering_where_group = true
+      rendered = renderer.render_where_fields(query.where_fields)
+      if rendered.is_a?(::Grant::Error::ErrorBase)
+        self.defer(rendered)
+      else
+        own_where_fields << {join: :and, stmt: "NOT (#{rendered})", values: values}
+      end
+    end
+    self
   end
 
   def gteq(field : Symbol | String, value : T) : self forall T
