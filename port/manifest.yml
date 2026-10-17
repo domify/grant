@@ -2517,7 +2517,7 @@
   target: test/grant_converters_pg_numeric_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/context_spec.cr
   target: test/grant_encryption_context_test.iyi
   area: other

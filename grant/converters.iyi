@@ -1,5 +1,9 @@
 module grant/converters
 
+import grant/columns
+import db/db/errors
+import pg/pg/numeric
+
 pub import std/enum
 pub import std/slice
 pub import std/json
@@ -74,5 +78,23 @@ pub struct Json(M, T)
     {% else %}
       M.from_json(value.as(String))
     {% end %}
+  end
+end
+
+# PostgreSQL's Numeric wrapper converts to the public Float64 model value.
+pub struct PgNumeric
+  def self.to_db(value : Float64?) : ::Grant::Columns::Type
+    value
+  end
+
+  def self.from_db(value : V) : Float64? forall V
+    value.as?(Float64)
+  end
+
+  def self.from_rs(result : R) : Float64? | ::Db::Errors::DBError forall R
+    value = result.read
+    return value if value.is_a?(::Db::Errors::DBError)
+    return nil if value.nil?
+    value.as(::Pg::Numeric::Numeric).to_f
   end
 end
