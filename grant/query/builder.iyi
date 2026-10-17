@@ -18,6 +18,7 @@ import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
+import grant/query/sql_expression
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
 import grant/querying::{NotFound, NotUnique}
@@ -609,7 +610,16 @@ pub class Builder(Model)
   end
 
   def group_by_in_place(field : Symbol | String) : self
-    own_group_fields << {field: field.to_s}
+    if field.is_a?(String)
+      stripped = ::Grant::Query::SqlExpression.validate_strict(field, "GROUP BY expression")
+      if stripped.is_a?(ErrorBase)
+        self.defer(stripped)
+        return self
+      end
+      own_group_fields << {field: stripped.as(String)}
+    else
+      own_group_fields << {field: field.to_s}
+    end
     self
   end
 

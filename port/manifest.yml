@@ -1006,7 +1006,7 @@
   target: test/grant_query_group_alias_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/grouped_aggregates_spec.cr
   target: test/grant_query_grouped_aggregates_test.iyi
   area: query
