@@ -800,7 +800,7 @@
   target: test/grant_encryption_transparent_column_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption_key_rotation_spec.cr
   target: test/grant_encryption_key_rotation_test.iyi
   area: query
