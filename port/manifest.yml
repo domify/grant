@@ -1441,7 +1441,7 @@
   target: test/grant_schema_w6b_change_column_default_sqlite_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_internal_metadata_wired_spec.cr
   target: test/grant_schema_w6b_internal_metadata_wired_test.iyi
   area: query
