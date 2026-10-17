@@ -685,7 +685,7 @@
   target: test/grant_connection_abstract_inheritance_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/connected_to_predicates_spec.cr
   target: test/grant_connection_connected_to_predicates_test.iyi
   area: query

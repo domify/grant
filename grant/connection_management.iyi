@@ -94,15 +94,13 @@ pub macro model_methods(model)
   end
 
   def self.connection_config : Hash(Symbol, String)
-    {% declaration = model.resolve.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
-    {% config = declaration ? declaration.annotation(::Grant::ConnectionManagement::ConnectsTo)[:config] : nil %}
-    @@own_connection_config ||= {
-      {% if config %}
-        {% for role, name in config %}
-          {{ role.symbolize }} => {{ name }},
-        {% end %}
-      {% end %}
-    } of Symbol => String
+    own = @@own_connection_config
+    return own unless own.nil?
+    {% if model.resolve.superclass.stringify != "Grant::Base::Base" %}
+      {{ model.resolve.superclass }}.connection_config
+    {% else %}
+      @@own_connection_config ||= {} of Symbol => String
+    {% end %}
   end
 
   def self.connection_config=(config : Hash(Symbol, String)) : Nil

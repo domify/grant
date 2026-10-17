@@ -131,12 +131,18 @@ pub abstract class Base
     ::Grant::Validators.model_methods({{ @type }})
     @@table_name : String = {{ @type.name.split("::").last.underscore }}
     @@connection_name : String = "sqlite"
-    @@default_database_name : String = "primary"
+    @@own_default_database_name : String? = nil
+    @@abstract_class : Bool = false
     @@own_connection_config : Hash(Symbol, String)? = nil
     @@own_shard_config : Hash(Symbol, Hash(Symbol, String))? = nil
 
     macro finished
-      __process_columns
+      \{% if @type.abstract? %}
+        ::Grant::ConnectionHandling.model_methods(\{{ @type }})
+        ::Grant::ConnectionManagement.model_methods(\{{ @type }})
+      \{% else %}
+        __process_columns
+      \{% end %}
     end
   end
 
@@ -194,7 +200,16 @@ pub abstract class Base
 
   macro connection(name)
     @@connection_name = {{ name.id.stringify }}
-    @@default_database_name = {{ name.id.stringify }}
+    @@own_default_database_name = {{ name.id.stringify }}
+  end
+
+  macro abstract_class
+    @@abstract_class = true
+  end
+
+  macro primary_abstract_class
+    @@abstract_class = true
+    ::Grant::ConnectionHandling::ConnectionHandling.primary_abstract_class_name = {{ @type.stringify }}
   end
 
   macro connects_to(database = nil, config = nil, shards = nil)
@@ -207,11 +222,11 @@ pub abstract class Base
       -> { self.connection_names })
     {% if database && database.is_a?(NamedTupleLiteral) %}
       @@connection_name = {{ database[:writing] || database.values.first }}
-      @@default_database_name = @@connection_name
+      @@own_default_database_name = @@connection_name
     {% end %}
     {% if database && !database.is_a?(NamedTupleLiteral) %}
       @@connection_name = {{ database }}
-      @@default_database_name = @@connection_name
+      @@own_default_database_name = @@connection_name
     {% end %}
     {% if config %}
       @@own_connection_config = {
@@ -227,6 +242,7 @@ pub abstract class Base
         } of Symbol => String
       end
     {% end %}
+    @@own_shard_config = {} of Symbol => Hash(Symbol, String)
     {% if shards %}
       @@own_shard_config = {
         {% for shard, roles in shards %}
