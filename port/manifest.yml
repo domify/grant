@@ -2436,7 +2436,7 @@
   target: test/grant_attributes_reflection_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/bulk/chunking_spec.cr
   target: test/grant_bulk_chunking_test.iyi
   area: other
