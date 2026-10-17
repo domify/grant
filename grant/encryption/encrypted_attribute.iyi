@@ -25,16 +25,20 @@ pub class EncryptedAttribute
     def compress? : Bool
       @compress
     end
+    def support_unencrypted_data? : Bool?
+      @support_unencrypted_data
+    end
     getter compress_threshold : Int32?
     def initialize(@downcase : Bool = false, @ignore_case : Bool = false,
-                   @compress : Bool = false, @compress_threshold : Int32? = nil)
+                   @compress : Bool = false, @compress_threshold : Int32? = nil,
+                   @support_unencrypted_data : Bool? = nil)
     end
   end
 
   getter options : Options
 
-  def initialize(@model_name : String, @attribute_name : String, @deterministic : Bool, @column_name : String, @downcase : Bool = false, @ignore_case : Bool = false, compress : Bool = false, compress_threshold : Int32? = nil)
-    @options = Options.new(@downcase, @ignore_case, compress, compress_threshold)
+  def initialize(@model_name : String, @attribute_name : String, @deterministic : Bool, @column_name : String, @downcase : Bool = false, @ignore_case : Bool = false, compress : Bool = false, compress_threshold : Int32? = nil, support_unencrypted_data : Bool? = nil)
+    @options = Options.new(@downcase, @ignore_case, compress, compress_threshold, support_unencrypted_data)
   end
 
   def seal(plain : String) : String | KeyError | EncryptionError | DecryptionError
@@ -51,8 +55,16 @@ pub class EncryptedAttribute
     seal(plain)
   end
 
+  def support_unencrypted_data? : Bool
+    explicit = options.support_unencrypted_data?
+    explicit.nil? ? Config.support_unencrypted_data : explicit
+  end
+
   def query_values(plain : String) : Array(String) | ErrorBase
-    [query_value(plain)!]
+    sealed = query_value(plain)!
+    return [sealed] unless support_unencrypted_data?
+    text = @downcase || @ignore_case ? plain.downcase : plain
+    sealed == text ? [sealed] : [sealed, text]
   end
 
   def open(stored : String) : String | KeyError | EncryptionError | DecryptionError
@@ -63,7 +75,11 @@ pub class EncryptedAttribute
   def open_with_index(stored : String) : Tuple(String, Int32) | KeyError | EncryptionError | DecryptionError
     return {"", 0} if stored.empty?
     bytes = KeyProvider.decode_encoded(stored)
-    return DecryptionError.new("Failed to decode Base64: #{bytes.message}") if bytes.is_a?(KeyError)
+    if bytes.is_a?(KeyError)
+      return {stored, -1} if support_unencrypted_data?
+      return DecryptionError.new("Failed to decode Base64: #{bytes.message}")
+    end
+    return {stored, -1} if support_unencrypted_data? && !Cipher.encrypted_payload?(bytes)
     attempted = false
     2.times do |round|
       deterministic = Cipher.deterministic_payload?(bytes) ? round == 0 : round == 1

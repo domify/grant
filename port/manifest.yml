@@ -2041,7 +2041,7 @@
   target: test/grant_encryption_unencrypted_fallback_test.iyi
   area: associations
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/errors/statement_invalid_spec.cr
   target: test/grant_errors_statement_invalid_test.iyi
   area: associations
