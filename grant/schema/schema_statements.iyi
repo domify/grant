@@ -2,6 +2,9 @@ module grant/schema/schema_statements
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/column_info::{ColumnInfo}
 import grant/schema/table_definition::{TableDefinition}
+import grant/transaction
+import grant/schema/introspection
+import grant/schema/table_rebuild::{TableRebuild}
 import grant/schema/alter_table
 import grant/adapter/base::{Base}
 import grant/errors::{ErrorBase}
@@ -45,6 +48,20 @@ pub macro methods
     change_column_comment(table, name, comment)! if comment
     nil
   end
+  def remove_column(table : String | Symbol, column : String | Symbol) : Nil | ErrorBase | Cancelled
+    if dialect == Dialect::Sqlite
+      catalog = catalog_sqlite_table(table.to_s)!
+      rebuild = TableRebuild.new(table.to_s, catalog[0], catalog[1])
+      rebuild.remove_column(column.to_s)!
+      execute_batch(rebuild.statements)
+    else
+      execute_batch(["ALTER TABLE #{dialect.quote(table)} DROP COLUMN #{dialect.quote(column)}"])
+    end
+  end
+  def add_index(table : String | Symbol, column : String | Symbol, algorithm : Symbol? = nil) : Nil | ErrorBase | Cancelled
+    concurrent = dialect == Dialect::Pg && algorithm == :concurrently
+    execute_batch(["CREATE INDEX #{concurrent ? "CONCURRENTLY " : ""}#{dialect.quote("index_#{table}_on_#{column}")} ON #{dialect.quote(table)} (#{dialect.quote(column)})"])
+  end
   def change_table(table : String | Symbol, &block : AlterTableDefinition(self) -> T) : Nil | ErrorBase | Cancelled forall T
     definition = AlterTableDefinition.new(table.to_s, self)
     result = yield definition
@@ -76,6 +93,56 @@ pub class RecordingStatements
   ::Grant::Schema::SchemaStatements.methods
 end
 pub class AdapterStatements
+  @in_transaction : Bool = false
+  @rebuilds_in_transaction : Bool = false
+
+  def in_transaction? : Bool
+    @in_transaction
+  end
+
+  def transaction(disable_ddl_transaction : Bool = false, rebuilds : Bool = false,
+                  &block : AdapterStatements -> T) : T | Nil | ErrorBase | Cancelled forall T
+    return yield self if disable_ddl_transaction || dialect == Dialect::Mysql
+    if rebuilds && dialect == Dialect::Sqlite
+      adapter.with_connection do |_|
+        enforced = adapter.open { |db| db.scalar("PRAGMA foreign_keys")!.as(Int64) != 0 }!
+        adapter.open { |db| db.exec("PRAGMA foreign_keys = OFF") }!
+        defer restore_foreign_keys(enforced)
+        run_in_transaction(true) { yield self }
+      end
+    else
+      run_in_transaction(false) { yield self }
+    end
+  end
+
+  private def restore_foreign_keys(enforced : Bool) : Nil | ErrorBase | Cancelled
+    adapter.open { |db| db.exec("PRAGMA foreign_keys = #{enforced ? "ON" : "OFF"}")!; nil }
+  end
+
+  private def reset_transaction_flags : Nil
+    @in_transaction = false
+    @rebuilds_in_transaction = false
+    nil
+  end
+
+  private def run_in_transaction(rebuilds : Bool, &block : -> T) : T | Nil | ErrorBase forall T
+    ::Grant::Transaction.run(adapter, ::Grant::Transaction::Options.new) do
+      @in_transaction = true
+      @rebuilds_in_transaction = rebuilds
+      defer reset_transaction_flags
+      yield
+    end
+  end
+
+  def catalog_sqlite_table(table : String) : Tuple(String, Array(String)) | ErrorBase | Cancelled
+    literal = dialect.quote_literal(table)
+    adapter.open do |db|
+      create = db.scalar("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = #{literal}")!.as(String)
+      indexes = db.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = #{literal} AND sql IS NOT NULL")!.map { |row| row["sql"].as(String) }
+      {create, indexes}
+    end
+  end
+
   getter adapter : Base
   getter dialect : Dialect
   def initialize(@adapter : Base)
@@ -86,9 +153,28 @@ pub class AdapterStatements
   end
   def execute_batch(statements : Array(String)) : Nil | ErrorBase | Cancelled
     return nil if statements.empty?
+    if @in_transaction && statements.any? { |sql| sql.starts_with?("CREATE INDEX CONCURRENTLY") || sql.starts_with?("CREATE UNIQUE INDEX CONCURRENTLY") || sql.starts_with?("DROP INDEX CONCURRENTLY") }
+      return InvalidDefinition.new("CONCURRENTLY cannot run inside a transaction; use transaction(disable_ddl_transaction: true)")
+    end
+    if @in_transaction && statements.includes?("BEGIN")
+      return InvalidDefinition.new("A SQLite table rebuild cannot run inside a transaction: it must switch foreign key enforcement off first") unless @rebuilds_in_transaction
+      statements = statements.reject { |sql| sql == "BEGIN" || sql == "COMMIT" || sql.starts_with?("PRAGMA foreign_keys") }
+    end
+    defer adapter.reset_schema_caches_in_place
     @adapter.open(statements.first) do |db|
-      statements.each { |sql| db.exec(sql)! }
-      nil
+      error = nil.as(ErrorBase?)
+      statements.each do |sql|
+        outcome = db.exec(sql)
+        if outcome.is_a?(ErrorBase)
+          error = outcome
+          break
+        end
+      end
+      if !error.nil? && dialect == Dialect::Sqlite && statements.includes?("BEGIN")
+        db.exec("ROLLBACK")
+        db.exec("PRAGMA foreign_keys = ON")
+      end
+      error
     end
   end
   ::Grant::Schema::SchemaStatements.methods

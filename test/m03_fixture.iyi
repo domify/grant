@@ -1,9 +1,38 @@
 module test/m03_fixture
 
+import grant/schema/introspection
+import grant/schema/schema_migration::{SchemaMigration}
 import grant/adapter/base::{Base}
 import grant/connection_registry::{ConnectionRegistry}
 import test/spec_helper::{CURRENT_ADAPTER}
 
 pub def adapter : Base
   ConnectionRegistry.get_adapter(CURRENT_ADAPTER)
+end
+
+pub TABLES = ["m03_users", "m03_posts", "m03_tags", "m03_comments", "m03_widgets",
+  "m03_micrate_users", "m03_micrate_posts", "m03_atomic", "m03_sql_one", "m03_sql_two",
+  "m03_lock_rows", "m03_tenant_items", "m03_a", "m03_b", "m03_c", "m03_d",
+  "m03_join_a_m03_join_b", "m03_joins", "m03_revert", "m03_dry"]
+pub TRACKING = ["schema_migrations", "micrate_db_version", "ar_internal_metadata"]
+
+pub def reset_in_place(target : Base = adapter) : Nil
+  (TABLES + TRACKING).each do |table|
+    target.open { |db| db.exec("DROP TABLE IF EXISTS #{table}") }.or_panic
+  end
+  target.reset_schema_caches_in_place
+end
+
+pub def table?(name : String, target : Base = adapter) : Bool
+  target.reset_schema_caches_in_place
+  target.schema.table_exists?(name).or_panic
+end
+
+pub def column?(table : String, column : String, target : Base = adapter) : Bool
+  target.reset_schema_caches_in_place
+  target.schema.table_exists?(table).or_panic && target.schema.columns(table).or_panic.any? { |info| info.name == column }
+end
+
+pub def versions(target : Base = adapter) : Array(Int64)
+  SchemaMigration.new(target).versions.or_panic.to_a.sorted
 end

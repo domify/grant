@@ -18,3 +18,28 @@ pub struct ColumnInfo
     @primary_key_position > 0
   end
 end
+
+pub struct IndexInfo
+  getter table_name : String
+  getter name : String
+  getter columns : Array(String)
+  getter unique : Bool
+  getter where : String?
+  getter expression : Bool
+
+  def initialize(@table_name : String, @name : String, @columns : Array(String),
+                 @unique : Bool = false, @where : String? = nil, @expression : Bool = false)
+  end
+
+  def unique? : Bool
+    unique
+  end
+
+  def expression? : Bool
+    expression
+  end
+
+  def partial? : Bool
+    !where.nil?
+  end
+end

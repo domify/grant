@@ -1,0 +1,106 @@
+module grant/schema/migration
+
+import grant/adapter/base::{Base}
+import grant/schema/schema_statements::{AdapterStatements}
+import grant/schema/table_definition::{TableDefinition}
+import grant/error::{ErrorBase}
+
+pub class InvalidMigration < ErrorBase
+end
+
+pub class NoChangeDefined < ErrorBase
+end
+
+pub struct MigrationEntry
+  getter version : Int64
+  getter name : String
+  getter factory : Proc(Migration)
+
+  def initialize(@version : Int64, @name : String, @factory : Proc(Migration))
+  end
+
+  def build : Migration
+    factory.call
+  end
+end
+
+pub abstract class Migration
+  @@registry = [] of MigrationEntry
+  @statements : AdapterStatements? = nil
+  @adapter : Base? = nil
+
+  def self.registry : Array(MigrationEntry)
+    @@registry
+  end
+
+  def self.register(entry : MigrationEntry) : Nil
+    @@registry << entry
+    nil
+  end
+
+  macro migration_version(version)
+    def self.version : Int64
+      {{version}}.to_i64
+    end
+    def self.entry : ::Grant::Schema::Migration::MigrationEntry
+      ::Grant::Schema::Migration::MigrationEntry.new(version, {{@type.name.stringify}},
+        -> { {{@type}}.new.as(::Grant::Schema::Migration::Migration) })
+    end
+    def version : Int64
+      {{version}}.to_i64
+    end
+    def name : String
+      {{@type.name.stringify}}
+    end
+    ::Grant::Schema::Migration::Migration.register(entry)
+  end
+
+  macro disable_ddl_transaction_in_place
+    def disable_ddl_transaction? : Bool
+      true
+    end
+  end
+
+  abstract def version : Int64
+  abstract def name : String
+
+  def disable_ddl_transaction? : Bool
+    false
+  end
+
+  def attach(statements : AdapterStatements, adapter : Base, verbose : Bool = true) : self
+    @statements = statements
+    @adapter = adapter
+    self
+  end
+
+  def statements : AdapterStatements
+    @statements.as(AdapterStatements)
+  end
+
+  def adapter : Base
+    @adapter.as(Base)
+  end
+
+  def change : Nil | ErrorBase | Cancelled
+    NoChangeDefined.new("#{name} defines no change")
+  end
+
+  def up : Nil | ErrorBase | Cancelled
+    change
+  end
+
+  def down : Nil | ErrorBase | Cancelled
+    InvalidMigration.new("#{name} defines up but no down or change")
+  end
+
+  def create_table(*args, **options, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
+    statements.create_table(*args, **options) { |table| yield table }
+  end
+
+  {% for method in ["drop_table", "add_column", "remove_column", "add_index"] %}
+    def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      statements.{{method.id}}(*args, **options)
+    end
+  {% end %}
+end

@@ -399,7 +399,7 @@
   target: test/grant_schema_ddl_transaction_test.iyi
   area: transactions
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/indexes_spec.cr
   target: test/grant_schema_indexes_test.iyi
   area: transactions

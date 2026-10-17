@@ -1,7 +1,8 @@
 module grant/schema/introspection
 import grant/adapter/base::{Base}
 import grant/adapter/schema::{Dialect}
-import grant/schema/column_info::{ColumnInfo}
+import grant/schema/table_rebuild::{TableRebuild}
+import grant/schema/column_info::{ColumnInfo, IndexInfo}
 import grant/errors::{ErrorBase}
 import std/text
 pub class Introspection
@@ -34,6 +35,43 @@ pub class Introspection
         end
       end
     end
+  end
+  def indexes(table : String | Symbol) : Array(IndexInfo) | ErrorBase | Cancelled
+    dialect = Dialect.for(adapter)
+    literal = dialect.quote_literal(table.to_s)
+    adapter.open do |db|
+      result = [] of IndexInfo
+      if adapter.postgres?
+        rows = db.query("SELECT i.relname AS name, pg_get_indexdef(i.oid) AS sql FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid WHERE x.indrelid = to_regclass(#{literal}) AND NOT x.indisprimary ORDER BY i.relname")!
+        rows.each do |row|
+          sql = row["sql"].as(String)
+          name = row["name"].as(String)
+          result << index_from_sql(table.to_s, name, sql, sql.starts_with?("CREATE UNIQUE"))
+        end
+      else
+        db.query("PRAGMA index_list(#{dialect.quote(table)})")!.each do |row|
+          next if row["origin"]? == "pk"
+          name = row["name"].as(String)
+          sql = db.scalar("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = #{dialect.quote_literal(name)}")!.as(String?)
+          if sql
+            result << index_from_sql(table.to_s, name, sql, row["unique"].as(Int64) != 0)
+          else
+            columns = db.query("PRAGMA index_info(#{dialect.quote(name)})")!.map { |entry| entry["name"].as(String) }
+            result << IndexInfo.new(table.to_s, name, columns, row["unique"].as(Int64) != 0)
+          end
+        end
+      end
+      result
+    end
+  end
+
+  private def index_from_sql(table : String, name : String, sql : String, unique : Bool) : IndexInfo
+    open = sql.index('(').as(Int32)
+    close = TableRebuild::Scanner.matching_paren(sql, open).as(Int32)
+    columns = TableRebuild::Scanner.split_items(sql[(open + 1)...close]).map { |part| TableRebuild::Scanner.unquote(part.strip) }
+    where_at = sql.index(" WHERE ")
+    predicate = where_at.nil? ? nil : sql[(where_at + 7)...sql.size]
+    IndexInfo.new(table, name, columns, unique, predicate, columns.any? { |column| column.includes?("(") })
   end
   def enums : Hash(String, Array(String)) | ErrorBase | Cancelled
     return {} of String => Array(String) unless @adapter.postgres?

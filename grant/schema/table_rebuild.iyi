@@ -1,0 +1,178 @@
+module grant/schema/table_rebuild
+
+import grant/adapter/schema::{Dialect, InvalidDefinition}
+import grant/error::{ErrorBase}
+import std/text
+
+pub class TableRebuild
+  pub class Item
+    getter kind : Symbol
+    property name : String?
+    property text : String
+
+    def initialize(@kind : Symbol, @name : String?, @text : String)
+    end
+
+    def name_or_empty : String
+      name || ""
+    end
+  end
+
+  getter table : String
+  getter items : Array(Item)
+  getter removed_columns = [] of String
+  @suffix : String
+  @original_columns : Array(String)
+
+  def initialize(@table : String, create_sql : String, @index_sqls : Array(String) = [] of String)
+    open = create_sql.index('(').as(Int32)
+    close = Scanner.matching_paren(create_sql, open).as(Int32)
+    @suffix = create_sql[(close + 1)...create_sql.size].strip
+    @items = Scanner.split_items(create_sql[(open + 1)...close]).map { |text| classify(text) }
+    @original_columns = column_names.map { |name| name.downcase }
+  end
+
+  def column_names : Array(String)
+    items.select { |item| item.kind == :column }.map { |item| item.name_or_empty }
+  end
+
+  def remove_column(name : String) : Nil | ErrorBase
+    found = items.find { |item| item.kind == :column && item.name_or_empty.downcase == name.downcase }
+    return InvalidDefinition.new("Column '#{name}' does not exist in '#{table}'") if found.nil?
+    items.each do |item|
+      if item.kind == :primary_key && Scanner.mentions?(item.text, name)
+        return InvalidDefinition.new("Cannot remove '#{name}': it is part of the primary key of '#{table}'")
+      end
+    end
+    @items = items.reject { |item| item == found || (item.kind != :column && Scanner.mentions?(item.text, name)) }
+    removed_columns << name
+    nil
+  end
+
+  def statements : Array(String)
+    dialect = Dialect::Sqlite
+    scratch = "__grant_rebuild_#{table}"
+    kept = column_names.select { |name| @original_columns.includes?(name.downcase) }
+    quoted = kept.map { |name| dialect.quote(name) }.join(", ")
+    body = items.map { |item| item.text }.join(",\n  ")
+    create = "CREATE TABLE #{dialect.quote(scratch)} (\n  #{body}\n)"
+    create += " #{@suffix}" unless @suffix.empty?
+    result = ["PRAGMA foreign_keys = OFF", "BEGIN", create,
+      "INSERT INTO #{dialect.quote(scratch)} (#{quoted}) SELECT #{quoted} FROM #{dialect.quote(table)}",
+      "DROP TABLE #{dialect.quote(table)}",
+      "ALTER TABLE #{dialect.quote(scratch)} RENAME TO #{dialect.quote(table)}"]
+    @index_sqls.each do |sql|
+      result << sql unless removed_columns.any? { |column| Scanner.mentions?(sql, column) }
+    end
+    result << "COMMIT"
+    result << "PRAGMA foreign_keys = ON"
+    result
+  end
+
+  private def classify(text : String) : Item
+    stripped = text.strip
+    lowered = stripped.downcase
+    kind = if lowered.starts_with?("primary key")
+      :primary_key
+    elsif lowered.starts_with?("foreign key")
+      :foreign_key
+    elsif lowered.starts_with?("check")
+      :check
+    elsif lowered.starts_with?("unique")
+      :unique
+    elsif lowered.starts_with?("constraint")
+      lowered.includes?("primary key") ? :primary_key : :constraint
+    else
+      :column
+    end
+    token = Scanner.first_token(stripped)
+    Item.new(kind, kind == :column ? Scanner.unquote(token) : nil, stripped)
+  end
+
+  pub class Scanner
+    def self.unquote(token : String) : String
+      return token if token.empty?
+      first = token[0]
+      if first == '"' || first == '`' || first == '[' || first == '\''
+        token[1...-1].gsub("\"\"", "\"")
+      else
+        token
+      end
+    end
+
+    def self.first_token(text : String) : String
+      first = text[0]
+      closer = first == '[' ? ']' : first
+      quoted = first == '"' || first == '\'' || first == '[' || first == '`'
+      index = 1
+      while index < text.size
+        if quoted
+          if text[index] == closer
+            if index + 1 < text.size && text[index + 1] == closer
+              index += 2
+              next
+            end
+            return text[0..index]
+          end
+        elsif text[index] == ' ' || text[index] == '\n' || text[index] == '\t'
+          return text[0...index]
+        end
+        index += 1
+      end
+      text
+    end
+
+    def self.matching_paren(text : String, open : Int32) : Int32?
+      depth = 0
+      quote = nil.as(Char?)
+      index = open
+      while index < text.size
+        char = text[index]
+        if quote
+          if char == quote
+            if index + 1 < text.size && text[index + 1] == quote
+              index += 2
+              next
+            end
+            quote = nil
+          end
+        elsif char == '"' || char == '\'' || char == '`' || char == '['
+          quote = char == '[' ? ']' : char
+        elsif char == '('
+          depth += 1
+        elsif char == ')'
+          depth -= 1
+          return index if depth == 0
+        end
+        index += 1
+      end
+      nil
+    end
+
+    def self.split_items(body : String) : Array(String)
+      result = [] of String
+      start = 0
+      index = 0
+      while index < body.size
+        char = body[index]
+        if char == '('
+          index = matching_paren(body, index).as(Int32)
+        elsif char == '"' || char == '\'' || char == '`' || char == '['
+          index += first_token(body[index...body.size]).size - 1
+        elsif char == ','
+          result << body[start...index].strip
+          start = index + 1
+        end
+        index += 1
+      end
+      result << body[start...body.size].strip
+      result
+    end
+
+    def self.mentions?(text : String, name : String) : Bool
+      tokens = text.downcase.gsub("\"", " ").gsub("`", " ").gsub("[", " ").gsub("]", " ")
+        .gsub("(", " ").gsub(")", " ").gsub(",", " ").split
+      tokens.includes?(name.downcase)
+    end
+  end
+end

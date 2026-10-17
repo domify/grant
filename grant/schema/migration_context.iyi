@@ -1,0 +1,84 @@
+module grant/schema/migration_context
+
+import grant/schema/migration::{Migration, MigrationEntry, InvalidMigration}
+import grant/schema/schema_migration::{SchemaMigration}
+import grant/schema/schema_statements::{AdapterStatements}
+import grant/adapter/base::{Base}
+import grant/advisory_lock
+import grant/error::{ErrorBase}
+import std/time::{Span}
+import std/enumerable
+
+pub class MigrationContext
+  getter adapter : Base
+  getter schema_migration : SchemaMigration
+  getter lock_timeout : Span
+  @entries : Array(MigrationEntry)
+  @executor : AdapterStatements
+
+  def initialize(@adapter : Base, migrations : Array(MigrationEntry) = [] of MigrationEntry,
+                 @verbose : Bool = true, @lock_timeout : Span = Span.seconds(600_i64))
+    @entries = migrations
+    @schema_migration = SchemaMigration.new(adapter)
+    @executor = AdapterStatements.new(adapter)
+  end
+
+  def self.for(adapter : Base, *classes, **options) : MigrationContext
+    entries = [] of MigrationEntry
+    classes.each { |klass| entries << klass.entry }
+    new(adapter, entries, **options)
+  end
+
+  def migrations : Array(MigrationEntry)
+    @entries.sorted_by { |entry| entry.version }
+  end
+
+  def with_migration_lock(&block : -> T) : T | ErrorBase | Cancelled forall T
+    ::Grant::AdvisoryLock.synchronize(adapter, "grant-migrations:#{adapter.current_database}:#{schema_migration.table_name}", lock_timeout) do
+      created = schema_migration.create_table
+      created.is_a?(::Error) ? created : yield
+    end
+  end
+
+  def migrate : Array(Int64) | ErrorBase | Cancelled
+    with_migration_lock do
+      applied = schema_migration.versions!
+      ran = [] of Int64
+      migrations.each do |entry|
+        next if applied.includes?(entry.version)
+        run_entry(entry, true, applied)!
+        ran << entry.version
+      end
+      ran
+    end
+  end
+
+  def rollback(step : Int32 = 1) : Array(Int64) | ErrorBase | Cancelled
+    with_migration_lock do
+      applied = schema_migration.versions!
+      ran = [] of Int64
+      applied.to_a.sorted.reversed.first(step).each do |version|
+        entry = migrations.find { |candidate| candidate.version == version }
+        return InvalidMigration.new("No migration with version number #{version}") if entry.nil?
+        run_entry(entry, false, applied)!
+        ran << version
+      end
+      ran
+    end
+  end
+
+  private def run_entry(entry : MigrationEntry, direction_up : Bool, applied : Set(Int64)) : Nil | ErrorBase | Cancelled
+    migration = entry.build
+    migration.attach(@executor, adapter, verbose: @verbose)
+    @executor.transaction(disable_ddl_transaction: migration.disable_ddl_transaction?, rebuilds: true) do |_|
+      result = direction_up ? migration.up : migration.down
+      if result.is_a?(::Error)
+        result
+      else
+        direction_up ? schema_migration.record(entry.version) : schema_migration.forget(entry.version)
+      end
+    end!
+    direction_up ? applied.add(entry.version) : applied.delete(entry.version)
+    nil
+  end
+end

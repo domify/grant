@@ -22,6 +22,10 @@ pub abstract class Base
   abstract def supports_lock_mode?(mode : LockMode) : Bool
   abstract def quote(name : String) : String
 
+  def supports_ddl_transactions? : Bool
+    sqlite? || postgres?
+  end
+
   def supports_advisory_locks? : Bool
     false
   end
