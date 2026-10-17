@@ -24,3 +24,5 @@ Record `readonly!` becomes `readonly_in_place`; it marks the receiver read-only.
 Query cache `invalidate!` becomes `invalidate_in_place`.
 
 Migration `disable_ddl_transaction!` becomes `disable_ddl_transaction_in_place`.
+
+Schema `check_pending!` and `maintain_test_schema!` use the `_strict` suffix.

@@ -11,6 +11,7 @@ import db/db/value::{DBValue}
 import std/time::{Time}
 import std/slice::{Bytes}
 
+import grant/events
 import grant/query_cache
 import grant/query_logs
 import grant/locking::{LockMode}
@@ -209,9 +210,16 @@ pub abstract class LibraryConnection < Connection
     nil
   end
 
+  private def publish_sql(sql : String, binds : Array(Value), operation : String, started : ::Std::Time::Span) : Nil
+    return nil unless ::Grant::Events::SQL.subscribed?
+    ::Grant::Events::SQL.publish(::Grant::Events::SQL.new(sql, binds, operation, Time.monotonic - started, name))
+  end
+
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
     sql = ::Grant::QueryLogs.append(sql)
     before_statement(sql)!
+    started = Time.monotonic
+    defer publish_sql(sql, parameters, "SQL", started)
     defer @grant_last_used_ticks = ::Grant::Adapter::PoolSupport.ticks
     result = native_connection.exec(statement_sql(sql), args: parameters)
     if result.is_a?(DBError)
@@ -225,6 +233,8 @@ pub abstract class LibraryConnection < Connection
   def query(sql : String, parameters : Array(Value) = [] of Value, &block : ResultSet -> T) : T | DatabaseError forall T
     sql = ::Grant::QueryLogs.append(sql)
     before_statement(sql)!
+    started = Time.monotonic
+    defer publish_sql(sql, parameters, "SQL", started)
     defer @grant_last_used_ticks = ::Grant::Adapter::PoolSupport.ticks
     result = native_connection.query(statement_sql(sql), args: parameters)
     if result.is_a?(DBError)

@@ -1416,7 +1416,7 @@
   target: test/grant_schema_pending_check_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/pg_enum_extension_spec.cr
   target: test/grant_schema_pg_enum_extension_test.iyi
   area: query

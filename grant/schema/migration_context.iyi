@@ -9,6 +9,13 @@ import grant/error::{ErrorBase}
 import std/time::{Span}
 import std/enumerable
 
+pub class PendingMigrationError < ErrorBase
+  getter versions : Array(Int64)
+  def initialize(@versions : Array(Int64))
+    super("Migrations are pending: #{versions.join(", ")}. Run the migrations before continuing.")
+  end
+end
+
 pub class MigrationContext
   getter adapter : Base
   getter schema_migration : SchemaMigration
@@ -33,6 +40,20 @@ pub class MigrationContext
     @entries.sorted_by { |entry| entry.version }
   end
 
+  def applied_versions : Set(Int64) | ErrorBase | Cancelled
+    schema_migration.versions
+  end
+  def pending : Array(MigrationEntry) | ErrorBase | Cancelled
+    applied = applied_versions!
+    migrations.reject { |entry| applied.includes?(entry.version) }
+  end
+  def needs_migration? : Bool | ErrorBase | Cancelled
+    !pending!.empty?
+  end
+  def check_pending_strict : Nil | ErrorBase | Cancelled
+    versions = pending!.map { |entry| entry.version }
+    versions.empty? ? nil : PendingMigrationError.new(versions)
+  end
   def with_migration_lock(&block : -> T) : T | ErrorBase | Cancelled forall T
     ::Grant::AdvisoryLock.synchronize(adapter, "grant-migrations:#{adapter.current_database}:#{schema_migration.table_name}", lock_timeout) do
       created = schema_migration.create_table
@@ -81,4 +102,18 @@ pub class MigrationContext
     direction_up ? applied.add(entry.version) : applied.delete(entry.version)
     nil
   end
+end
+
+pub def check_pending_strict(context : MigrationContext) : Nil | ErrorBase | Cancelled
+  context.check_pending_strict
+end
+pub def maintain_test_schema_strict(context : MigrationContext, &block : -> T) : Nil | ErrorBase | Cancelled forall T
+  if context.needs_migration?!
+    result = yield
+    return result if result.is_a?(::Error)
+  end
+  context.check_pending_strict
+end
+pub def maintain_test_schema_strict(context : MigrationContext) : Nil | ErrorBase | Cancelled
+  maintain_test_schema_strict(context) { context.migrate }
 end

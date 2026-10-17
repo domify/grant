@@ -1,5 +1,7 @@
 module test/m03_fixture
 
+import grant/schema/migration::{Migration}
+import grant/error::{ErrorBase}
 import grant/schema/introspection
 import grant/schema/schema_migration::{SchemaMigration}
 import grant/adapter/base::{Base}
@@ -35,4 +37,30 @@ end
 
 pub def versions(target : Base = adapter) : Array(Int64)
   SchemaMigration.new(target).versions.or_panic.to_a.sorted
+end
+
+pub class M03CreateUsers < Migration
+  migration_version 20240101000001
+  def change : Nil | ErrorBase | Cancelled
+    create_table(:m03_users) do |t|
+      t.string(:email, null: false)!
+      t.timestamps
+    end
+  end
+end
+pub class M03AddAgeToUsers < Migration
+  migration_version 20240101000002
+  def change : Nil | ErrorBase | Cancelled
+    add_column(:m03_users, :age, :integer)!
+    add_index(:m03_users, :age, unique: true)
+  end
+end
+pub class M03CreatePosts < Migration
+  migration_version 20240101000003
+  def up : Nil | ErrorBase | Cancelled
+    create_table(:m03_posts) { |t| t.string(:title) }
+  end
+  def down : Nil | ErrorBase | Cancelled
+    drop_table(:m03_posts)
+  end
 end
