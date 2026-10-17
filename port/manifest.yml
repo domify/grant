@@ -1676,7 +1676,7 @@
   target: test/grant_validators_presence_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validators/uniqueness_spec.cr
   target: test/grant_validators_uniqueness_test.iyi
   area: query

@@ -1,12 +1,22 @@
 module grant/validators
 
 pub macro model_methods(model)
-  macro validates_presence_of(field)
-    def __validate_presence_\{{ field.id }} : Nil
-      value = \{{ field.id }}
-      errors << ::Grant::Error::Error.new(\{{ field }}, "can't be blank") if value.nil? || value.to_s.strip.empty?
-      nil
-    end
+  macro validates_presence_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_presence_\{{ field.id }} : Nil
+        \{% if options[:if] %}
+          return nil unless self.\{{ options[:if].id }}
+        \{% end %}
+        \{% if options[:unless] %}
+          return nil if self.\{{ options[:unless].id }}
+        \{% end %}
+        value = \{{ field.id }}
+        if value.nil? || value.to_s.strip.empty?
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "can't be blank" }})
+        end
+        nil
+      end
+    \{% end %}
   end
-
 end
