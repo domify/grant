@@ -1,7 +1,9 @@
 module grant/migrator
 import std/text
 import grant/adapter/driver::{Connection}
-import grant/errors::{DatabaseError}
+import grant/errors::{DatabaseError, ErrorBase}
+import grant/schema/index_definition::{IndexDefinition}
+import grant/adapter/schema::{Dialect}
 
 # Literal defaults follow src/grant/migrator.cr; expressions are not inferred.
 pub def default_clause_for(value : T) : String forall T
@@ -64,6 +66,8 @@ pub class Migrator
     "created_at" => "TIMESTAMP",
     "updated_at" => "TIMESTAMP",
   }
+
+  getter index_definitions = [] of Proc(String, IndexDefinition | ErrorBase)
 
   getter table : String
   getter connection : Connection
@@ -129,7 +133,7 @@ pub class Migrator
     "CREATE #{temporary ? "TEMPORARY " : ""}TABLE #{if_not_exists ? "IF NOT EXISTS " : ""}#{quote_identifier(@table)}(\n#{body}) ;\n"
   end
 
-  def create_statements(if_not_exists : Bool = false, temporary : Bool = false, comment : String? = nil) : Array(String)
+  def create_statements(if_not_exists : Bool = false, temporary : Bool = false, comment : String? = nil) : Array(String) | ErrorBase
     statements = [create_sql(if_not_exists, temporary, comment)]
     if @connection.postgres?
       if text = comment
@@ -141,6 +145,8 @@ pub class Migrator
         end
       end
     end
+    dialect = @connection.postgres? ? Dialect::Pg : Dialect::Sqlite
+    index_definitions.each { |factory| statements.concat(factory.call(table)!.statements(dialect)!) }
     statements
   end
 
@@ -153,12 +159,12 @@ pub class Migrator
     nil
   end
 
-  def create(if_not_exists : Bool = false, temporary : Bool = false, comment : String? = nil) : Nil | DatabaseError
-    create_statements(if_not_exists, temporary, comment).each { |sql| @connection.execute(sql)! }
+  def create(if_not_exists : Bool = false, temporary : Bool = false, comment : String? = nil) : Nil | DatabaseError | ErrorBase
+    create_statements(if_not_exists, temporary, comment)!.each { |sql| @connection.execute(sql)! }
     nil
   end
 
-  def drop_and_create : Nil | DatabaseError
+  def drop_and_create : Nil | DatabaseError | ErrorBase
     drop(cascade: @connection.postgres?)!
     create!
   end

@@ -9,6 +9,7 @@ pub import grant/scoping
 pub import grant/querying
 pub import grant/associations
 pub import grant/columns
+pub import grant/schema/model_indexes
 pub import grant/migrator
 pub import grant/columns_helpers
 pub import grant/attributes
@@ -686,6 +687,10 @@ pub abstract class Base
     ::Grant::Associations.has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
   end
 
+  macro index(columns, **options)
+    ::Grant::Schema::ModelIndexes.index({{columns}}, {{options.double_splat}})
+  end
+
   macro __process_columns
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
@@ -1062,12 +1067,16 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      ::Grant::Migrator::Migrator.new(__connection, table_name, [
+      migrator = ::Grant::Migrator::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
           \{% ann = v.annotation(::Grant::Base::Column) %}
           ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}),
         \{% end %}
       ] of ::Grant::Migrator::MigratorColumn)
+      \{% for method in @type.class.methods.select(&.name.starts_with?("__grant_index_")) %}
+        migrator.index_definitions << ->(table : String) { self.\{{method.name.id}}(table) }
+      \{% end %}
+      migrator
       \{% end %}
     end
 

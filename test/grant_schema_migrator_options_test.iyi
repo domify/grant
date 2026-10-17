@@ -23,14 +23,14 @@ sql = M02aOptionRow.migrator.create_sql(comment: "Rows")
 if SpecHelper::CURRENT_ADAPTER == "pg"
   assert sql.includes?("\"happened\" TIMESTAMP(3)")
   assert sql.includes?("\"code\" VARCHAR(20) COLLATE \"C\" NOT NULL")
-  statements = M02aOptionRow.migrator.create_statements(comment: "Rows")
+  statements = M02aOptionRow.migrator.create_statements(comment: "Rows").or_panic
   assert statements.size == 3
   assert statements[1] == "COMMENT ON TABLE \"m02a_option_rows\" IS 'Rows'"
   assert statements[2] == "COMMENT ON COLUMN \"m02a_option_rows\".\"code\" IS 'Public code'"
 else
   assert sql.includes?("\"happened\" TIMESTAMP")
   assert sql.includes?("\"code\" VARCHAR(20) COLLATE NOCASE NOT NULL")
-  assert M02aOptionRow.migrator.create_statements(comment: "Rows").size == 1
+  assert M02aOptionRow.migrator.create_statements(comment: "Rows").or_panic.size == 1
 end
 assert sql.includes?("\"note\" #{SpecHelper::CURRENT_ADAPTER == "pg" ? "TEXT" : "VARCHAR(255)"}\n")
 

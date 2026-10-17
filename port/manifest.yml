@@ -2616,7 +2616,7 @@
   target: test/grant_schema_model_indexes_test.iyi
   area: other
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/multi_db_migration_spec.cr
   target: test/grant_schema_multi_db_migration_test.iyi
   area: other
