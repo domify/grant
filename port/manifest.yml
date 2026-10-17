@@ -2721,7 +2721,7 @@
   target: test/grant_validators_contexts_test.iyi
   area: other
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/integration/multi_database_spec.cr
   target: test/integration_multi_database_test.iyi
   area: other
