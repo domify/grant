@@ -38,6 +38,8 @@ import grant/query/where_composition::{WhereComposition}
 # aggregations, …); iyi has no open classes, so those parts are traits in
 # their own modules with `impl Trait(Model) for Builder(Model)` beside them.
 pub class Builder(Model)
+  include Enumerable(Model)
+
   pub enum DbType
     Mysql
     Sqlite
@@ -921,6 +923,16 @@ pub class Builder(Model)
   def select : Array(Model) | ErrorBase
     return [] of Model if is_none?
     prepared { |query_assembler| query_assembler.select }!.run
+  end
+
+  # Enumerable#count over the loaded records.
+  def count(&block : Model -> Bool) : Int32 | ErrorBase
+    records!.count { |record| yield record }
+  end
+
+  # Enumerable#select over the loaded records.
+  def select(&block : Model -> Bool) : Array(Model) | ErrorBase
+    records!.select { |record| yield record }
   end
 
   def all : self
