@@ -404,7 +404,7 @@
   target: test/grant_schema_indexes_test.iyi
   area: transactions
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_advisory_lock_mysql_spec.cr
   target: test/grant_schema_w6b_advisory_lock_mysql_test.iyi
   area: transactions

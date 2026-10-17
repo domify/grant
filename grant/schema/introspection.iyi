@@ -65,6 +65,14 @@ pub class Introspection
     end
   end
 
+  def index_exists?(table : String | Symbol, columns = nil, name : String | Symbol? = nil, unique : Bool? = nil) : Bool | ErrorBase | Cancelled
+    return false unless table_exists?(table)!
+    wanted = columns.nil? ? nil : columns.map { |column| column.to_s }
+    indexes(table)!.any? do |index|
+      (wanted.nil? || index.columns == wanted) && (name.nil? || index.name == name.to_s) &&
+        (unique.nil? || index.unique == unique)
+    end
+  end
   private def index_from_sql(table : String, name : String, sql : String, unique : Bool) : IndexInfo
     open = sql.index('(').as(Int32)
     close = TableRebuild::Scanner.matching_paren(sql, open).as(Int32)

@@ -1,0 +1,14 @@
+module test/schema_fixture
+
+import grant/adapter/base::{Base}
+import grant/connection_registry::{ConnectionRegistry}
+import grant/errors::{ErrorBase}
+import test/spec_helper::{CURRENT_ADAPTER}
+
+pub def adapter : Base
+  ConnectionRegistry.get_adapter(CURRENT_ADAPTER)
+end
+
+pub def exec(sql : String) : Nil | ErrorBase | Cancelled
+  adapter.open { |db| db.exec(sql)!; nil }
+end

@@ -1,6 +1,7 @@
 module grant/schema/schema_statements
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
-import grant/schema/column_info::{ColumnInfo}
+import grant/schema/column_info::{ColumnInfo, IndexInfo}
+import grant/schema/index_definition::{IndexDefinition, Naming}
 import grant/schema/table_definition::{TableDefinition}
 import grant/transaction
 import grant/schema/introspection
@@ -29,6 +30,7 @@ pub macro methods
         statements.concat(change_column_comment_statements(table, column.name, column.comment)!) if column.comment
       end
     end
+    definition.indexes.each { |index| statements.concat(index.statements(dialect)!) }
     statements
   end
   def create_table(table : String | Symbol, id : Bool = true, force : Bool = false, comment : String? = nil, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
@@ -58,9 +60,44 @@ pub macro methods
       execute_batch(["ALTER TABLE #{dialect.quote(table)} DROP COLUMN #{dialect.quote(column)}"])
     end
   end
-  def add_index(table : String | Symbol, column : String | Symbol, algorithm : Symbol? = nil) : Nil | ErrorBase | Cancelled
-    concurrent = dialect == Dialect::Pg && algorithm == :concurrently
-    execute_batch(["CREATE INDEX #{concurrent ? "CONCURRENTLY " : ""}#{dialect.quote("index_#{table}_on_#{column}")} ON #{dialect.quote(table)} (#{dialect.quote(column)})"])
+  def add_index_statements(table : String | Symbol, columns : C, **options) : Array(String) | ErrorBase forall C
+    IndexDefinition.build(table, columns, **options)!.statements(dialect)
+  end
+  def add_index(table : String | Symbol, columns : C, **options) : Nil | ErrorBase | Cancelled forall C
+    execute_batch(add_index_statements(table, columns, **options)!)
+  end
+  def remove_index_statements(table : String | Symbol, columns = nil, name : String | Symbol? = nil,
+                              if_exists : Bool = false, algorithm : Symbol? = nil) : Array(String) | ErrorBase
+    index_name = name.nil? ? nil : name.to_s
+    if index_name.nil?
+      return InvalidDefinition.new("remove_index on '#{table}' needs columns: or name:") if columns.nil?
+      index_name = Naming.index_name(table, IndexDefinition.to_names(columns))
+    end
+    if dialect == Dialect::Mysql
+      ["DROP INDEX #{dialect.quote(index_name)} ON #{dialect.quote(table)}"]
+    else
+      concurrently = dialect == Dialect::Pg && algorithm == :concurrently ? "CONCURRENTLY " : ""
+      ["DROP INDEX #{concurrently}#{if_exists ? "IF EXISTS " : ""}#{dialect.quote(Naming.in_schema_of(table, index_name))}"]
+    end
+  end
+  def remove_index(*args, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(remove_index_statements(*args, **options)!)
+  end
+  def rename_index_statements(table : String | Symbol, old : String | Symbol, new : String | Symbol) : Array(String) | ErrorBase | Cancelled
+    case dialect
+    when Dialect::Pg
+      ["ALTER INDEX #{dialect.quote(Naming.in_schema_of(table, old))} RENAME TO #{dialect.quote(new)}"]
+    when Dialect::Mysql
+      ["ALTER TABLE #{dialect.quote(table)} RENAME INDEX #{dialect.quote(old)} TO #{dialect.quote(new)}"]
+    else
+      known = lookup_indexes(table.to_s)!
+      info = known.nil? ? nil : known.find { |index| index.name == old.to_s }
+      return UnsupportedOperation.new("Renaming index '#{old}' on SQLite needs a database connection to read it") if info.nil?
+      ["DROP INDEX #{dialect.quote(Naming.in_schema_of(table, old))}"] + IndexDefinition.from_info(info, info.columns, new.to_s).statements(dialect)!
+    end
+  end
+  def rename_index(*args) : Nil | ErrorBase | Cancelled
+    execute_batch(rename_index_statements(*args)!)
   end
   def change_table(table : String | Symbol, &block : AlterTableDefinition(self) -> T) : Nil | ErrorBase | Cancelled forall T
     definition = AlterTableDefinition.new(table.to_s, self)
@@ -85,6 +122,9 @@ pub class RecordingStatements
   def lookup_column(table : String, column : String) : ColumnInfo?
     columns = @known_columns[table]?
     columns.nil? ? nil : columns.find { |info| info.name == column }
+  end
+  def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase
+    nil
   end
   def execute_batch(statements : Array(String)) : Nil
     @statements.concat(statements)
@@ -150,6 +190,9 @@ pub class AdapterStatements
   end
   def lookup_column(table : String, column : String) : ColumnInfo?
     nil
+  end
+  def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase | Cancelled
+    adapter.schema.indexes(table)
   end
   def execute_batch(statements : Array(String)) : Nil | ErrorBase | Cancelled
     return nil if statements.empty?
