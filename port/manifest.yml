@@ -1296,7 +1296,7 @@
   target: test/grant_querying_find_in_batches_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/find_spec.cr
   target: test/grant_querying_find_test.iyi
   area: query
