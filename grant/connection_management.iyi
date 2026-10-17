@@ -50,13 +50,49 @@ pub class ReplicaLagRegistry
 
   def self.for(model : String, database : String) : ReplicaLagTracker
     key = "#{model}:#{database}"
-    @@trackers[key] ||= ReplicaLagTracker.new
+    @@trackers[key] ||= begin
+      tracker = ReplicaLagTracker.new
+      tracker.lag_threshold = ::Grant::ConnectionManagement.replica_lag_threshold(model)
+      tracker
+    end
   end
+end
+
+pub class ReplicaLagThresholds
+  @@values = {} of String => ::Std::Time::Span
+
+  def self.get(model : String) : ::Std::Time::Span
+    @@values[model]? || ::Std::Time::Span.seconds(2_i64)
+  end
+
+  def self.store(model : String, value : ::Std::Time::Span) : ::Std::Time::Span
+    @@values[model] = value
+  end
+end
+
+pub def default_replica_lag_threshold : ::Std::Time::Span
+  ::Std::Time::Span.seconds(2_i64)
+end
+
+pub def replica_lag_threshold(model_name : String) : ::Std::Time::Span
+  ReplicaLagThresholds.get(model_name)
+end
+
+pub def store_replica_lag_threshold(model_name : String, threshold : ::Std::Time::Span) : ::Std::Time::Span
+  ReplicaLagThresholds.store(model_name, threshold)
 end
 
 # Native expansion of the upstream ConnectionManagement::ClassMethods slice.
 pub macro model_methods(model)
   ::Grant::ConnectionContext.model_methods({{ model }})
+  def self.replica_lag_threshold : ::Std::Time::Span
+    ::Grant::ConnectionManagement.replica_lag_threshold({{ model.stringify }})
+  end
+
+  def self.replica_lag_threshold=(threshold : ::Std::Time::Span) : ::Std::Time::Span
+    ::Grant::ConnectionManagement.store_replica_lag_threshold({{ model.stringify }}, threshold)
+  end
+
   def self.connection_config : Hash(Symbol, String)
     {% declaration = model.resolve.methods.find { |m| m.annotation(::Grant::ConnectionManagement::ConnectsTo) } %}
     {% config = declaration ? declaration.annotation(::Grant::ConnectionManagement::ConnectsTo)[:config] : nil %}

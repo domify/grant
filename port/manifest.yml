@@ -2572,7 +2572,7 @@
   target: test/grant_persistence_ivar_initializer_save_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/mass_assignment_spec.cr
   target: test/grant_persistence_mass_assignment_test.iyi
   area: other
