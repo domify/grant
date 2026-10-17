@@ -1366,7 +1366,7 @@
   target: test/grant_schema_alter_table_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/check_unique_constraints_spec.cr
   target: test/grant_schema_check_unique_constraints_test.iyi
   area: query

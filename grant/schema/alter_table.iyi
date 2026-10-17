@@ -2,9 +2,221 @@ module grant/schema/alter_table
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/column_info::{ColumnInfo}
 import grant/errors::{ErrorBase}
+import grant/schema/table_rebuild::{TableRebuild}
+import grant/schema/table_definition::{TableDefinition, ColumnDefinition, Unset, UNSET}
 import std/text
 
+pub class AlterStep
+  getter pre = [] of String
+  getter clauses = [] of String
+  getter post = [] of String
+  getter native = [] of String
+  property edit : Proc(TableRebuild, Nil | ErrorBase)? = nil
+  property rebuild : Bool = false
+  def rebuild? : Bool
+    rebuild
+  end
+end
+
+pub class AlterTableDefinition(S)
+  getter table : String
+  getter steps = [] of AlterStep
+  def initialize(@table : String, @source : S)
+  end
+  def column(name : String | Symbol, type : String | Symbol, **options) : Nil | ErrorBase | Cancelled
+    definition = TableDefinition.new(table, @source.dialect)
+    definition.column(name, type, **options)!
+    @steps << @source.step_add_column(table, definition.columns.first)!
+    nil
+  end
+  {% for kind in ["string", "integer", "bigint", "text", "datetime", "boolean"] %}
+    def {{kind.id}}(name : String | Symbol, **options) : Nil | ErrorBase | Cancelled
+      column(name, :{{kind.id}}, **options)
+    end
+  {% end %}
+  def remove(*names, if_exists : Bool = false) : Nil | ErrorBase | Cancelled
+    names.each { |name| @steps << @source.step_remove_column(table, name.to_s, if_exists)! }
+    nil
+  end
+  def change_null(name : String | Symbol, null : Bool, default = UNSET) : Nil | ErrorBase | Cancelled
+    @steps << @source.step_change_column_null(table, name.to_s, null, default)!
+    nil
+  end
+  def comment(text : String?) : Nil
+    step = AlterStep.new
+    step.post.concat(@source.change_table_comment_statements(table, text))
+    @steps << step
+    nil
+  end
+end
+
 pub macro methods
+  def step_add_column(table : String, definition : ColumnDefinition, if_not_exists : Bool = false) : AlterStep | ErrorBase | Cancelled
+    step = AlterStep.new
+    if if_not_exists && dialect != Dialect::Pg
+      return step unless lookup_column(table, definition.name)!.nil?
+    end
+    column_sql = definition.to_sql(dialect)!
+    if dialect == Dialect::Pg
+      step.clauses << "ADD COLUMN #{if_not_exists ? "IF NOT EXISTS " : ""}#{column_sql}"
+      if text = definition.comment
+        step.post << "COMMENT ON COLUMN #{dialect.quote(table)}.#{dialect.quote(definition.name)} IS #{dialect.quote_literal(text)}"
+      end
+    elsif dialect == Dialect::Mysql
+      step.clauses << "ADD COLUMN #{column_sql}"
+    else
+      step.native << "ALTER TABLE #{dialect.quote(table)} ADD COLUMN #{column_sql}"
+      step.rebuild = (!definition.null && definition.default_clause.empty?) || definition.expression_default
+      step.edit = ->(rebuild : TableRebuild) { rebuild.add_column(column_sql) }
+    end
+    step
+  end
+
+  def step_remove_column(table : String, name : String, if_exists : Bool = false) : AlterStep | ErrorBase | Cancelled
+    step = AlterStep.new
+    if if_exists && dialect != Dialect::Pg
+      return step if lookup_column(table, name)!.nil?
+    end
+    if dialect == Dialect::Sqlite
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) { rebuild.remove_column(name) }
+    else
+      step.clauses << "DROP COLUMN #{if_exists && dialect == Dialect::Pg ? "IF EXISTS " : ""}#{dialect.quote(name)}"
+    end
+    step
+  end
+
+  def step_change_column(table : String, name : String, type : String | Symbol, null : Bool? = nil,
+                         default = UNSET, default_sql : String? = nil, using expression : String? = nil) : AlterStep | ErrorBase | Cancelled
+    definition = TableDefinition.new(table, dialect)
+    definition.column(name, type, null: null != false, default: default, default_sql: default_sql)!
+    column = definition.columns.first
+    step = AlterStep.new
+    if dialect == Dialect::Pg
+      clause = "ALTER COLUMN #{dialect.quote(name)} TYPE #{column.type}"
+      clause += " USING #{expression}" if expression
+      step.clauses << clause
+      step.clauses << "ALTER COLUMN #{dialect.quote(name)} #{null ? "DROP" : "SET"} NOT NULL" unless null.nil?
+      step.clauses << "ALTER COLUMN #{dialect.quote(name)} SET#{column.default_clause}" unless column.default_clause.empty?
+    elsif dialect == Dialect::Mysql
+      current = lookup_column(table, name)!
+      column.null = current.null? if null.nil? && current
+      text = column.to_sql(dialect)!
+      text += " DEFAULT #{current.default}" if default.is_a?(Unset) && default_sql.nil? && current && current.default
+      step.clauses << "MODIFY COLUMN #{text}"
+    else
+      step.rebuild = true
+      column.null = true
+      text = column.to_sql(dialect)!
+      step.edit = ->(rebuild : TableRebuild) do
+        rebuild.change_column(name) do |old|
+          changed = text
+          changed += " NOT NULL" if null.nil? ? old.upcase.includes?(" NOT NULL") : !null
+          if default.is_a?(Unset) && default_sql.nil?
+            previous = TableRebuild::Scanner.default_clause(old)
+            changed += " #{previous}" if previous
+          end
+          if key_at = old.upcase.index(" PRIMARY KEY")
+            changed += old[key_at...old.size]
+          end
+          changed
+        end
+      end
+    end
+    step
+  end
+
+  def step_change_column_null(table : String, name : String, null : Bool, default = UNSET) : AlterStep | ErrorBase | Cancelled
+    step = AlterStep.new
+    if !null && !default.is_a?(Unset)
+      step.pre << "UPDATE #{dialect.quote(table)} SET #{dialect.quote(name)} = #{dialect.quote_literal(default)} WHERE #{dialect.quote(name)} IS NULL"
+    end
+    if dialect == Dialect::Pg
+      step.clauses << "ALTER COLUMN #{dialect.quote(name)} #{null ? "DROP" : "SET"} NOT NULL"
+    elsif dialect == Dialect::Mysql
+      info = lookup_column(table, name)!
+      return UnsupportedOperation.new("Changing NULL needs a database connection to read the column") if info.nil?
+      step.clauses << "MODIFY COLUMN #{dialect.quote(name)} #{info.sql_type}#{null ? "" : " NOT NULL"}#{info.default.nil? ? "" : " DEFAULT #{info.default}"}"
+    else
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) do
+        rebuild.change_column(name) do |old|
+          # The catalog's keyword spelling is preserved outside this clause.
+          text = old.gsub(" NOT NULL", "").gsub(" not null", "")
+          null ? text : "#{text} NOT NULL"
+        end
+      end
+    end
+    step
+  end
+
+  def render_steps(table : String, steps : Array(AlterStep), bulk : Bool) : Array(String) | ErrorBase | Cancelled
+    result = [] of String
+    if dialect == Dialect::Sqlite
+      if steps.any? { |step| step.rebuild? }
+        steps.each { |step| result.concat(step.pre) }
+        catalog = catalog_sqlite_table(table)!
+        rebuild = TableRebuild.new(table, catalog[0], catalog[1])
+        steps.each do |step|
+          if edit = step.edit
+            edit.call(rebuild)!
+          elsif !step.native.empty?
+            return UnsupportedOperation.new("This change to '#{table}' cannot be combined with a table rebuild on SQLite; run it separately")
+          end
+        end
+        result.concat(rebuild.statements)
+        steps.each { |step| result.concat(step.post) }
+      else
+        steps.each { |step| result.concat(step.pre); result.concat(step.native); result.concat(step.post) }
+      end
+      return result
+    end
+    head = "ALTER TABLE #{dialect.quote(table)}"
+    pending = [] of String
+    steps.each do |step|
+      unless step.pre.empty?
+        result << "#{head} #{pending.join(", ")}" unless pending.empty?
+        pending.clear
+        result.concat(step.pre)
+      end
+      pending.concat(step.clauses)
+      if !bulk || !step.post.empty?
+        result << "#{head} #{pending.join(", ")}" unless pending.empty?
+        pending.clear
+      end
+      result.concat(step.post)
+    end
+    result << "#{head} #{pending.join(", ")}" unless pending.empty?
+    result
+  end
+
+  def add_column_statements(table : String | Symbol, name : String | Symbol, type : String | Symbol,
+                            if_not_exists : Bool = false, **options) : Array(String) | ErrorBase | Cancelled
+    definition = TableDefinition.new(table.to_s, dialect)
+    definition.column(name, type, **options)!
+    render_steps(table.to_s, [step_add_column(table.to_s, definition.columns.first, if_not_exists)!], false)
+  end
+  def remove_column_statements(table : String | Symbol, name : String | Symbol, type : String | Symbol? = nil,
+                               if_exists : Bool = false) : Array(String) | ErrorBase | Cancelled
+    render_steps(table.to_s, [step_remove_column(table.to_s, name.to_s, if_exists)!], false)
+  end
+  def change_column_statements(table : String | Symbol, name : String | Symbol, type : String | Symbol, **options) : Array(String) | ErrorBase | Cancelled
+    render_steps(table.to_s, [step_change_column(table.to_s, name.to_s, type, **options)!], false)
+  end
+  def change_column_null_statements(table : String | Symbol, name : String | Symbol, null : Bool, default = UNSET) : Array(String) | ErrorBase | Cancelled
+    render_steps(table.to_s, [step_change_column_null(table.to_s, name.to_s, null, default)!], false)
+  end
+  def change_table_statements(table : String | Symbol, bulk : Bool = false, &block : AlterTableDefinition(self) -> T) : Array(String) | ErrorBase | Cancelled forall T
+    definition = AlterTableDefinition.new(table.to_s, self)
+    result = yield definition
+    return result if result.is_a?(::Error)
+    render_steps(table.to_s, definition.steps, bulk)
+  end
+  {% for method in ["change_column", "change_column_null"] %}
+    def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      execute_batch({{method.id}}_statements(*args, **options)!)
+    end
+  {% end %}
   def change_table_comment_statements(table : String | Symbol, text : String?) : Array(String)
     case dialect
     when Dialect::Pg then ["COMMENT ON TABLE #{dialect.quote(table)} IS #{dialect.quote_literal(text)}"]
@@ -16,7 +228,9 @@ pub macro methods
     case dialect
     when Dialect::Pg then ["COMMENT ON COLUMN #{dialect.quote(table)}.#{dialect.quote(column)} IS #{dialect.quote_literal(text)}"]
     when Dialect::Mysql
-      info = lookup_column(table.to_s, column.to_s)
+      lookup = lookup_column(table.to_s, column.to_s)
+      return ErrorBase.new("Column lookup was cancelled") if lookup.is_a?(Cancelled)
+      info = lookup!
       return UnsupportedOperation.new("Changing the comment needs a database connection to read the column") if info.nil?
       default = info.default
       ["ALTER TABLE #{dialect.quote(table)} MODIFY COLUMN #{dialect.quote(column)} #{info.sql_type}#{info.null? ? "" : " NOT NULL"}#{default.nil? ? "" : " DEFAULT #{default}"} COMMENT #{dialect.quote_literal(text || "")}"]

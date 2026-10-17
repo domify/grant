@@ -36,6 +36,16 @@ pub class TableRebuild
     items.select { |item| item.kind == :column }.map { |item| item.name_or_empty }
   end
 
+  def add_column(text : String) : Nil | ErrorBase
+    item = classify(text)
+    if items.any? { |existing| existing.kind == :column && existing.name_or_empty.downcase == item.name_or_empty.downcase }
+      return InvalidDefinition.new("Column '#{item.name}' already exists in '#{table}'")
+    end
+    position = items.index { |existing| existing.kind != :column } || items.size
+    @items.insert(position, item)
+    nil
+  end
+
   def remove_column(name : String) : Nil | ErrorBase
     found = items.find { |item| item.kind == :column && item.name_or_empty.downcase == name.downcase }
     return InvalidDefinition.new("Column '#{name}' does not exist in '#{table}'") if found.nil?

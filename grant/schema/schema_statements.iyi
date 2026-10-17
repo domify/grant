@@ -2,11 +2,11 @@ module grant/schema/schema_statements
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/column_info::{ColumnInfo, IndexInfo}
 import grant/schema/index_definition::{IndexDefinition, Naming}
-import grant/schema/table_definition::{TableDefinition, Unset, UNSET}
+import grant/schema/table_definition::{TableDefinition, ColumnDefinition, Unset, UNSET}
 import grant/transaction
 import grant/schema/introspection
 import grant/schema/table_rebuild::{TableRebuild}
-import grant/schema/alter_table
+import grant/schema/alter_table::{AlterStep, AlterTableDefinition}
 import grant/adapter/base::{Base}
 import grant/errors::{ErrorBase}
 
@@ -69,26 +69,11 @@ pub macro methods
       InvalidDefinition.new("Unknown id type #{kind.inspect}; use :bigint, :integer, :smallint, :uuid, :string or false")
     end
   end
-  def add_column(table : String | Symbol, name : String | Symbol, type : Symbol, comment : String? = nil) : Nil | ErrorBase | Cancelled
-    definition = TableDefinition.new(table.to_s, dialect)
-    case type
-    when :integer then definition.integer(name, comment: comment)
-    when :string then definition.string(name, comment: comment)
-    else return UnsupportedOperation.new("Unknown column type #{type}")
-    end
-    execute_batch(["ALTER TABLE #{dialect.quote(table)} ADD COLUMN #{definition.columns.first.to_sql(dialect)!}"])!
-    change_column_comment(table, name, comment)! if comment
-    nil
+  def add_column(table : String | Symbol, name : String | Symbol, type : String | Symbol, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(add_column_statements(table, name, type, **options)!)
   end
-  def remove_column(table : String | Symbol, column : String | Symbol) : Nil | ErrorBase | Cancelled
-    if dialect == Dialect::Sqlite
-      catalog = catalog_sqlite_table(table.to_s)!
-      rebuild = TableRebuild.new(table.to_s, catalog[0], catalog[1])
-      rebuild.remove_column(column.to_s)!
-      execute_batch(rebuild.statements)
-    else
-      execute_batch(["ALTER TABLE #{dialect.quote(table)} DROP COLUMN #{dialect.quote(column)}"])
-    end
+  def remove_column(table : String | Symbol, column : String | Symbol, type : String | Symbol? = nil, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(remove_column_statements(table, column, type, **options)!)
   end
   def add_index_statements(table : String | Symbol, columns : C, **options) : Array(String) | ErrorBase forall C
     IndexDefinition.build(table, columns, **options)!.statements(dialect)
@@ -164,32 +149,23 @@ pub macro methods
   def change_column_default(*args, **options) : Nil | ErrorBase | Cancelled
     execute_batch(change_column_default_statements(*args, **options)!)
   end
-  def change_table(table : String | Symbol, &block : AlterTableDefinition(self) -> T) : Nil | ErrorBase | Cancelled forall T
-    definition = AlterTableDefinition.new(table.to_s, self)
-    result = yield definition
-    return result if result.is_a?(ErrorBase) || result.is_a?(Cancelled)
-    nil
-  end
-end
-pub class AlterTableDefinition(S)
-  def initialize(@table : String, @source : S)
-  end
-  def comment(text : String?) : Nil | ErrorBase | Cancelled
-    @source.change_table_comment(@table, text)
+  def change_table(table : String | Symbol, bulk : Bool = false, &block : AlterTableDefinition(self) -> T) : Nil | ErrorBase | Cancelled forall T
+    execute_batch(change_table_statements(table, bulk) { |definition| yield definition }!)
   end
 end
 pub class RecordingStatements
   getter dialect : Dialect
   getter statements = [] of String
+  getter sqlite_tables = {} of String => Tuple(String, Array(String))
   getter known_columns = {} of String => Array(ColumnInfo)
   def initialize(@dialect : Dialect)
   end
-  def lookup_column(table : String, column : String) : ColumnInfo?
+  def lookup_column(table : String, column : String) : ColumnInfo? | ErrorBase | Cancelled
     columns = @known_columns[table]?
     columns.nil? ? nil : columns.find { |info| info.name == column }
   end
   def catalog_sqlite_table(table : String) : Tuple(String, Array(String)) | ErrorBase
-    UnsupportedOperation.new("A SQLite table rebuild needs a database connection to read '#{table}'")
+    sqlite_tables[table]? || UnsupportedOperation.new("A SQLite table rebuild needs a database connection to read '#{table}'")
   end
   def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase
     nil
@@ -256,8 +232,9 @@ pub class AdapterStatements
   def initialize(@adapter : Base)
     @dialect = Dialect.for(adapter)
   end
-  def lookup_column(table : String, column : String) : ColumnInfo?
-    nil
+  def lookup_column(table : String, column : String) : ColumnInfo? | ErrorBase | Cancelled
+    return nil unless adapter.schema.table_exists?(table)!
+    adapter.schema.columns(table)!.find { |info| info.name == column }
   end
   def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase | Cancelled
     adapter.schema.indexes(table)
