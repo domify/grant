@@ -1976,7 +1976,7 @@
   target: test/grant_attributes_assign_attributes_test.iyi
   area: associations
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/inspect_filter_spec.cr
   target: test/grant_attributes_inspect_filter_test.iyi
   area: associations
