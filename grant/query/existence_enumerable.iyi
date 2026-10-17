@@ -19,4 +19,12 @@ pub trait ExistenceEnumerable(Model)
   def many?(&block : Model -> Bool) : Bool | ErrorBase
     records!.count { |record| yield record } > 1
   end
+  def compact_map(&block : Model -> T?) : Array(T) | ErrorBase forall T
+    records!.compact_map { |record| yield record }
+  end
+
+  def reduce(initial : T, &block : T, Model -> T) : T | ErrorBase forall T
+    records!.reduce(initial) { |sum, record| yield sum, record }
+  end
+
 end

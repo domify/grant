@@ -76,6 +76,7 @@ pub class Builder(Model)
   def initialize(@db_type : DbType = DbType::Sqlite, @boolean_operator : Symbol = :and)
   end
 
+  getter boolean_operator : Symbol
   getter db_type : DbType
 
   # The DbType of *adapter*, as the model passes it to new relations.

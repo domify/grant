@@ -1051,7 +1051,7 @@
   target: test/grant_query_lazy_all_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/left_outer_joins_spec.cr
   target: test/grant_query_left_outer_joins_test.iyi
   area: query

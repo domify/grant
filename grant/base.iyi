@@ -145,6 +145,10 @@ pub abstract class Base
     query
   end
 
+  macro scope(name, body)
+    ::Grant::Scoping.scope({{ name }}, {{ body }})
+  end
+
   macro default_scope(&block)
     def self._has_default_scope? : Bool
       true
@@ -1237,7 +1241,7 @@ pub abstract class Base
       scoped = ::Grant::Scoping.current_relation(self)
       return scoped unless scoped.nil?
       query = ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
-      !_unscoped? && _has_default_scope? ? apply_default_scope(query) : query
+      !_unscoped? && _has_default_scope? ? apply_default_scope(query).promote_where_to_default_scope : query
     end
 
     def self.scoping(relation : ::Grant::Query::Builder::Builder({{ @type }}), &block : -> T) : T forall T
