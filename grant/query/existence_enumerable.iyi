@@ -4,6 +4,10 @@ import grant/error::{ErrorBase}
 
 # Enumerable fallback alongside builder.cr's bounded existence probes.
 pub trait ExistenceEnumerable(Model)
+  def reject(&block : Model -> Bool) : Array(Model) | ErrorBase
+    records!.reject { |record| yield record }
+  end
+
   def any?(&block : Model -> Bool) : Bool | ErrorBase
     records!.any? { |record| yield record }
   end
