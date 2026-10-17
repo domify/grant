@@ -1073,7 +1073,15 @@ pub abstract class Base
       migrator = ::Grant::Migrator::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
           \{% ann = v.annotation(::Grant::Base::Column) %}
-          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}, default_sql: \{{ ann[:default_sql] }}),
+          \{% key = v.type.union_types.find { |type| type != Nil } %}
+          \{% if key < ::Enum %}
+            \{% converter = ann[:converter] %}
+            \{% storage_type = converter.is_a?(Generic) && converter.type_vars.size == 2 ? converter.type_vars.last.resolve.stringify : "String" %}
+            \{% storage_type = storage_type + "?" if ann[:type].includes?("?") || ann[:type].includes?("Nil") %}
+          \{% else %}
+            \{% storage_type = ann[:type] %}
+          \{% end %}
+          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ storage_type }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}, default_sql: \{{ ann[:default_sql] }}),
         \{% end %}
       ] of ::Grant::Migrator::MigratorColumn)
       migrator.schema_adapter = self.adapter
@@ -1104,7 +1112,14 @@ pub abstract class Base
         \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
           record.__load_\{{ v.name }}(%raw.is_a?(String) ? %raw : nil)
         \{% elsif v.annotation(::Grant::Base::Column)[:converter] %}
-          record.\{{ v.name }} = \{{ v.annotation(::Grant::Base::Column)[:converter].id }}.from_db(%raw.is_a?(String) ? %raw : nil)!
+          \{% key = v.type.union_types.find { |type| type != Nil } %}
+          \{% if key < ::Enum %}
+            %converted = \{{ v.annotation(::Grant::Base::Column)[:converter].id }}.from_db(%raw)
+          \{% else %}
+            %converted = \{{ v.annotation(::Grant::Base::Column)[:converter].id }}.from_db(%raw.is_a?(String) ? %raw : nil)
+          \{% end %}
+          return %converted if %converted.is_a?(::Error)
+          record.\{{ v.name }} = %converted
         \{% elsif type.includes?("UUID") %}
           record.\{{ v.name }} = %raw.is_a?(String) ? ::Std::Uuid::UUID.parse(%raw) : nil
         \{% elsif type.includes?("Int32") %}
@@ -1462,7 +1477,9 @@ pub abstract class Base
             %value = self.\{{ v.name }}
           \{% end %}
           \{% if v.annotation(::Grant::Base::Column)[:converter] %}
-            values << \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(%value)!
+            %converted = \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(%value)
+            return %converted if %converted.is_a?(::Error)
+            values << %converted
           \{% else %}
             values << ::Grant::Base.sqlite_value(%value)
           \{% end %}

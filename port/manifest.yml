@@ -2611,7 +2611,7 @@
   target: test/grant_schema_m02a_review_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/model_indexes_spec.cr
   target: test/grant_schema_model_indexes_test.iyi
   area: other

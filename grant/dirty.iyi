@@ -15,7 +15,7 @@ pub UNFILTERED = Unfiltered.new
 # Scalar pre-save predicates share the column baselines already captured by
 # Base on construction, hydration, successful persistence and rollback.
 pub macro model_methods(model)
-  alias SavedValue = ::Grant::Dirty::DirtyValue
+  alias SavedValue = ::Grant::Dirty::DirtyValue {% for method in model.resolve.methods.select { |method| method.name.starts_with?("__raw_") && !method.name.ends_with?("=") } %} | {{method.return_type}}{% end %}
   @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
 
   def changes : Hash(String, Tuple(SavedValue, SavedValue))

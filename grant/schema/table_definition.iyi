@@ -81,11 +81,17 @@ pub class TableDefinition
       when :date then "DATE"
       when :time then dialect == Dialect::Sqlite ? "TIME" : "TIME(#{precision || 6})"
       when :binary then dialect == Dialect::Pg ? "BYTEA" : (dialect == Dialect::Mysql ? TypeCatalog.sized("BLOB", {255 => "TINYBLOB", 65535 => "BLOB", 16777215 => "MEDIUMBLOB"}, "LONGBLOB", limit) : "BLOB")
+      when :timestamp then dialect == Dialect::Sqlite ? "TIMESTAMP" : "TIMESTAMP(#{precision || 6})"
+      when :jsonb
+        return UnsupportedOperation.new("jsonb columns are only supported on PostgreSQL ('#{name}')") unless dialect == Dialect::Pg
+        "JSONB"
       when :json then "JSON"
       when :uuid then dialect == Dialect::Pg ? "UUID" : "CHAR(36)"
       when :boolean then dialect == Dialect::Mysql ? "TINYINT(1)" : "BOOLEAN"
       when :datetime then dialect == Dialect::Pg ? "TIMESTAMP(#{precision || 6})" : (dialect == Dialect::Mysql ? "DATETIME(#{precision || 6})" : "DATETIME")
-      else type.to_s
+      else
+        @definition_error = InvalidDefinition.new("Unknown column type :#{type} for '#{name}'")
+        return @definition_error
       end
     end
     clause = if default_sql
