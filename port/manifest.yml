@@ -394,7 +394,7 @@
   target: test/grant_schema_advisory_lock_test.iyi
   area: transactions
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/ddl_transaction_spec.cr
   target: test/grant_schema_ddl_transaction_test.iyi
   area: transactions

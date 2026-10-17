@@ -2,6 +2,7 @@ module grant/adapter/base
 
 pub import grant/adapter/driver
 
+import grant/advisory_lock
 import grant/adapter/placeholder_scanner
 
 import std/time::{Span}
@@ -20,6 +21,22 @@ pub abstract class Base
   abstract def lock_clause(mode : LockMode) : String
   abstract def supports_lock_mode?(mode : LockMode) : Bool
   abstract def quote(name : String) : String
+
+  def supports_advisory_locks? : Bool
+    false
+  end
+
+  def try_advisory_lock(connection : Connection, key : String) : Bool | ErrorBase
+    ::Grant::AdvisoryLock.try_acquire(self, connection, key)
+  end
+
+  def release_advisory_lock(connection : Connection, key : String) : Nil | ErrorBase
+    ::Grant::AdvisoryLock.release(self, connection, key)
+  end
+
+  def current_database : String
+    url
+  end
 
   def quote_boolean(value : Bool) : String
     value ? "1" : "0"

@@ -37,3 +37,12 @@ end
 pub def after_all_transactions_commit(&block : -> Nil) : Nil
   ::Grant::Transaction.after_all_transactions_commit(&block)
 end
+
+pub import grant/advisory_lock
+
+pub def with_advisory_lock(key : String, adapter : ::Grant::Adapter::Base::Base? = nil,
+                          timeout : ::Std::Time::Span = ::Std::Time::Span.seconds(5_i64),
+                          &block : -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
+  selected = adapter || ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter(::Grant::ConnectionRegistry::ConnectionRegistry.default_database)
+  ::Grant::AdvisoryLock.synchronize(selected, key, timeout) { yield }
+end

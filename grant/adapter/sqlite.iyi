@@ -50,6 +50,10 @@ pub class Sqlite < Base
     initialize(name, Sqlite.url_with_pragmas(url, overrides))
   end
 
+  def current_database : String
+    url.split('?').first.sub("sqlite3:", "").sub("sqlite:", "")
+  end
+
   def self.memory_url?(url : String) : Bool
     url.includes?(":memory:") || url.includes?("mode=memory")
   end

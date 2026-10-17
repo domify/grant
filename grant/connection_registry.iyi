@@ -18,6 +18,16 @@ pub class ConnectionRegistry
     end
   end
 
+  @@default_database : String? = nil
+
+  def self.default_database : String
+    @@default_database || raise "No default database configured"
+  end
+
+  def self.default_database=(name : String) : String
+    @@default_database = name
+  end
+
   @@specifications = {} of String => ConnectionSpec
   @@adapters = {} of String => Base
 
@@ -40,6 +50,7 @@ pub class ConnectionRegistry
     instance.verify_idle_after = verify_idle_after
     instance.pool_size = adapter.single_connection_url?(url) ? 1 : pool_size
     instance.checkout_timeout = checkout_timeout
+    @@default_database ||= database
     @@specifications[key] = ConnectionSpec.new(database, url, role, verify_idle_after)
     @@adapters[key] = instance
     Connections.register(database, instance) if role == :primary
@@ -94,6 +105,7 @@ pub class ConnectionRegistry
     retired = @@adapters.values
     @@specifications.values.each { |spec| Connections.unregister(spec.database) }
     @@adapters = {} of String => Base
+    @@default_database = nil
     @@specifications = {} of String => ConnectionSpec
     retired.each do |adapter|
       adapter.disconnect_strict!

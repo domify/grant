@@ -1,0 +1,9 @@
+module test/m03_fixture
+
+import grant/adapter/base::{Base}
+import grant/connection_registry::{ConnectionRegistry}
+import test/spec_helper::{CURRENT_ADAPTER}
+
+pub def adapter : Base
+  ConnectionRegistry.get_adapter(CURRENT_ADAPTER)
+end
