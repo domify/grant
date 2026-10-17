@@ -71,6 +71,24 @@ pub class TableRebuild
     @items << classify(text)
     nil
   end
+  def remove_foreign_key(name : String? = nil, columns : Array(String)? = nil) : Int32
+    before = items.size
+    @items = items.reject do |item|
+      item.kind == :foreign_key && ((!name.nil? && item.name_or_empty.downcase == name.downcase) || (!columns.nil? && Scanner.fk_columns(item.text) == columns.map { |column| column.downcase }))
+    end
+    removed = before - items.size
+    if removed == 0 && !columns.nil? && columns.size == 1 && name.nil?
+      items.each do |item|
+        next unless item.kind == :column && item.name_or_empty.downcase == columns.first.downcase
+        stripped = Scanner.strip_references(item.text)
+        if stripped != item.text
+          item.text = stripped
+          removed += 1
+        end
+      end
+    end
+    removed
+  end
   def remove_check(name : String? = nil, expression : String? = nil) : Int32
     before = items.size
     @items = items.reject do |item|
@@ -226,6 +244,38 @@ pub class TableRebuild
         trimmed = trimmed[1...-1].strip
       end
       trimmed.split.join(" ").downcase
+    end
+    def self.strip_references(text : String) : String
+      start = text.upcase.index(" REFERENCES ")
+      return text if start.nil?
+      rest = text[(start + 12)...text.size].lstrip
+      token = first_token(rest)
+      rest = rest[token.size...rest.size].lstrip
+      if rest.starts_with?('(')
+        close = matching_paren(rest, 0)
+        return text if close.nil?
+        rest = rest[(close + 1)...rest.size].lstrip
+      end
+      loop do
+        upper = rest.upcase
+        if upper.starts_with?("ON DELETE ") || upper.starts_with?("ON UPDATE ")
+          action = rest[10...rest.size].lstrip
+          clause = ["SET NULL", "SET DEFAULT", "CASCADE", "RESTRICT", "NO ACTION"].find { |word| action.upcase.starts_with?(word) }
+          break if clause.nil?
+          rest = action[clause.size...action.size].lstrip
+        else
+          break
+        end
+      end
+      upper = rest.upcase
+      length = upper.starts_with?("NOT DEFERRABLE") ? 14 : (upper.starts_with?("DEFERRABLE") ? 10 : 0)
+      if length > 0
+        rest = rest[length...rest.size].lstrip
+        ["INITIALLY DEFERRED", "INITIALLY IMMEDIATE"].each do |clause|
+          rest = rest[clause.size...rest.size].lstrip if rest.upcase.starts_with?(clause)
+        end
+      end
+      rest.empty? ? text[0...start] : "#{text[0...start]} #{rest}"
     end
     def self.default_clause(text : String) : String?
       start = text.upcase.index(" DEFAULT ")

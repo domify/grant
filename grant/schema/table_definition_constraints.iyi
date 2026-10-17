@@ -4,6 +4,12 @@ pub import grant/schema/index_definition
 import grant/errors::{ErrorBase}
 
 pub macro methods
+  getter foreign_keys = [] of ::Grant::Schema::ConstraintDefinition::ForeignKeyDefinition
+  def foreign_key(to_table : String | Symbol, **options) : ::Grant::Schema::ConstraintDefinition::ForeignKeyDefinition
+    definition = ::Grant::Schema::ConstraintDefinition::ForeignKeyDefinition.build(table, to_table, **options)
+    @foreign_keys << definition
+    definition
+  end
   getter check_constraints = [] of ::Grant::Schema::ConstraintDefinition::CheckConstraintDefinition
   getter unique_constraints = [] of ::Grant::Schema::ConstraintDefinition::UniqueConstraintDefinition
   def check_constraint(expression : String, name : String? = nil, validate : Bool = true) : Nil

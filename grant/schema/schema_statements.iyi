@@ -1,8 +1,8 @@
 module grant/schema/schema_statements
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/constraint_catalog
-import grant/schema/constraint_definition::{CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
-import grant/schema/column_info::{ColumnInfo, IndexInfo}
+import grant/schema/constraint_definition::{ForeignKeyDefinition, CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
+import grant/schema/column_info::{ColumnInfo, IndexInfo, ForeignKeyInfo}
 import grant/schema/index_definition::{IndexDefinition, Naming}
 import grant/schema/table_definition::{TableDefinition, ColumnDefinition, Unset, UNSET}
 import grant/transaction
@@ -24,6 +24,7 @@ pub macro methods
       columns << auto_id_sql(dialect, primary_key.to_s, id.is_a?(Symbol) ? id : :bigint)!
     end
     definition.columns.each { |column| columns << column.to_sql(dialect)! }
+    definition.foreign_keys.each { |constraint| columns << constraint.constraint_sql(dialect)! }
     definition.unique_constraints.each { |constraint| columns << constraint.constraint_sql(dialect)! }
     definition.check_constraints.each { |constraint| columns << constraint.constraint_sql(dialect)! }
     sql = "CREATE #{temporary ? "TEMPORARY " : ""}TABLE #{if_not_exists ? "IF NOT EXISTS " : ""}#{dialect.quote(table)} (\n  #{columns.join(",\n  ")}\n)"
@@ -190,6 +191,9 @@ pub class RecordingStatements
   def catalog_sqlite_table(table : String) : Tuple(String, Array(String)) | ErrorBase
     sqlite_tables[table]? || UnsupportedOperation.new("A SQLite table rebuild needs a database connection to read '#{table}'")
   end
+  def lookup_foreign_keys(table : String) : Array(ForeignKeyInfo)? | ErrorBase | Cancelled
+    nil
+  end
   def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase
     nil
   end
@@ -258,6 +262,9 @@ pub class AdapterStatements
   def lookup_column(table : String, column : String) : ColumnInfo? | ErrorBase | Cancelled
     return nil unless adapter.schema.table_exists?(table)!
     adapter.schema.columns(table)!.find { |info| info.name == column }
+  end
+  def lookup_foreign_keys(table : String) : Array(ForeignKeyInfo)? | ErrorBase | Cancelled
+    adapter.schema.foreign_keys(table)
   end
   def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase | Cancelled
     adapter.schema.indexes(table)

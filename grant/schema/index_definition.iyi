@@ -7,6 +7,27 @@ import grant/schema/column_info::{IndexInfo}
 import grant/error::{ErrorBase}
 
 pub class Naming
+  IRREGULAR_SINGULARS = {"people" => "person", "men" => "man", "women" => "woman", "children" => "child", "teeth" => "tooth", "feet" => "foot", "mice" => "mouse"}
+  def self.singularize(name : String) : String
+    words = name.split('_')
+    word = words.pop
+    singular = if irregular = IRREGULAR_SINGULARS[word]?
+      irregular
+    elsif word.size > 3 && word.ends_with?("ies")
+      word[0...-3] + "y"
+    elsif word.ends_with?("ses") || word.ends_with?("xes") || word.ends_with?("zes") || word.ends_with?("ches") || word.ends_with?("shes")
+      word[0...-2]
+    elsif word.ends_with?('s') && !word.ends_with?("ss")
+      word[0...-1]
+    else
+      word
+    end
+    words << singular
+    words.join('_')
+  end
+  def self.foreign_key_column(table : String | Symbol) : String
+    "#{singularize(table.to_s.split('.').last)}_id"
+  end
   def self.digest(text : String) : String
     CRC32.hexdigest(text)
   end

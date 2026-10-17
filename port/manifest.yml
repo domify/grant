@@ -2150,7 +2150,7 @@
   target: test/grant_schema_foreign_keys_test.iyi
   area: associations
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/generator_spec.cr
   target: test/grant_schema_generator_test.iyi
   area: associations

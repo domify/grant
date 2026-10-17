@@ -1,9 +1,20 @@
 module grant/schema/constraint_definition
-import grant/schema/index_definition::{Naming}
+import grant/schema/index_definition::{Naming, IndexDefinition}
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/error::{ErrorBase}
 
 pub class ConstraintOptions
+  ACTIONS = {:cascade => "CASCADE", :restrict => "RESTRICT", :nullify => "SET NULL", :set_null => "SET NULL", :set_default => "SET DEFAULT", :no_action => "NO ACTION"}
+  def self.action_sql(action : Symbol, what : String) : String | ErrorBase
+    case action
+    when :cascade then "CASCADE"
+    when :restrict then "RESTRICT"
+    when :nullify, :set_null then "SET NULL"
+    when :set_default then "SET DEFAULT"
+    when :no_action then "NO ACTION"
+    else InvalidDefinition.new("Unknown #{what} #{action.inspect}; use #{ACTIONS.keys.join(", ")}")
+    end
+  end
   def self.deferrable_sql(dialect : Dialect, deferrable : Bool | Symbol?, name : String) : String? | ErrorBase
     return nil if deferrable.nil? || deferrable == false
     return UnsupportedOperation.new("Only PostgreSQL supports deferrable constraints ('#{name}')") unless dialect == Dialect::Pg
@@ -89,5 +100,49 @@ pub class ExclusionConstraintDefinition
         io << ' ' << clause
       end
     end
+  end
+end
+
+pub class ForeignKeyDefinition
+  getter table : String
+  getter to_table : String
+  getter columns : Array(String)
+  getter primary_key : Array(String)
+  getter name : String
+  getter on_delete : Symbol?
+  getter on_update : Symbol?
+  getter deferrable : Bool | Symbol?
+  getter validate : Bool
+  def initialize(@table : String, @to_table : String, @columns : Array(String), @primary_key : Array(String), name : String? = nil, @on_delete : Symbol? = nil, @on_update : Symbol? = nil, @deferrable : Bool | Symbol? = nil, @validate : Bool = true)
+    @name = name || Naming.constraint_name("fk", @table, @columns.join("_"))
+  end
+  def validate? : Bool
+    validate
+  end
+  def self.build(table : String | Symbol, to_table : String | Symbol, column = nil, primary_key = nil, name : String | Symbol? = nil, on_delete : Symbol? = nil, on_update : Symbol? = nil, deferrable : Bool | Symbol? = nil, validate : Bool = true) : ForeignKeyDefinition
+    columns = column.nil? ? [Naming.foreign_key_column(to_table)] : IndexDefinition.to_names(column)
+    keys = primary_key.nil? ? ["id"] : IndexDefinition.to_names(primary_key)
+    new(table.to_s, to_table.to_s, columns, keys, name.nil? ? nil : name.to_s, on_delete, on_update, deferrable, validate)
+  end
+  def definition_sql(dialect : Dialect) : String | ErrorBase
+    sql = "FOREIGN KEY (#{columns.map { |column| dialect.quote(column) }.join(", ")}) REFERENCES #{dialect.quote(to_table)} (#{primary_key.map { |column| dialect.quote(column) }.join(", ")})"
+    if action = on_delete
+      sql += " ON DELETE #{ConstraintOptions.action_sql(action, "on_delete:")!}"
+    end
+    if action = on_update
+      sql += " ON UPDATE #{ConstraintOptions.action_sql(action, "on_update:")!}"
+    end
+    if clause = ConstraintOptions.deferrable_sql(dialect, deferrable, name)!
+      sql += " #{clause}"
+    end
+    sql
+  end
+  def constraint_sql(dialect : Dialect) : String | ErrorBase
+    "CONSTRAINT #{dialect.quote(name)} #{definition_sql(dialect)!}"
+  end
+  def inline_sql(dialect : Dialect) : String | ErrorBase
+    sql = definition_sql(dialect)!
+    start = sql.index("REFERENCES").as(Int32)
+    sql[start...sql.size]
   end
 end

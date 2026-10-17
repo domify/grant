@@ -1,7 +1,7 @@
 module grant/schema/alter_table
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/column_info::{ColumnInfo}
-import grant/schema/constraint_definition::{CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
+import grant/schema/constraint_definition::{ForeignKeyDefinition, CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
 import grant/schema/index_definition::{IndexDefinition, Naming}
 import grant/errors::{ErrorBase}
 import grant/schema/table_rebuild::{TableRebuild}
@@ -53,6 +53,74 @@ pub class AlterTableDefinition(S)
 end
 
 pub macro methods
+  def add_foreign_key_statements(from_table : String | Symbol, to_table : String | Symbol, column = nil, primary_key = nil, name : String | Symbol? = nil, on_delete : Symbol? = nil, on_update : Symbol? = nil, deferrable : Bool | Symbol? = nil, validate : Bool = true, if_not_exists : Bool = false) : Array(String) | ErrorBase | Cancelled
+    definition = ForeignKeyDefinition.build(from_table, to_table, column, primary_key, name, on_delete, on_update, deferrable, validate)
+    if if_not_exists
+      known = lookup_foreign_keys(definition.table)!
+      return [] of String if !known.nil? && known.any? { |key| key.to_table == definition.to_table && key.columns == definition.columns }
+    end
+    render_steps(definition.table, [step_add_foreign_key(definition)!], false)
+  end
+  def validate_foreign_key_statements(from_table : String | Symbol, to_table : String | Symbol? = nil, column = nil, name : String | Symbol? = nil) : Array(String) | ErrorBase | Cancelled
+    return [] of String unless dialect == Dialect::Pg
+    key_name = name.nil? ? resolve_foreign_key_name(from_table.to_s, to_table, column)! : name.to_s
+    ["ALTER TABLE #{dialect.quote(from_table)} VALIDATE CONSTRAINT #{dialect.quote(key_name)}"]
+  end
+  def remove_foreign_key_statements(from_table : String | Symbol, to_table : String | Symbol? = nil, column = nil, name : String | Symbol? = nil, if_exists : Bool = false) : Array(String) | ErrorBase | Cancelled
+    if if_exists
+      known = lookup_foreign_keys(from_table.to_s)!
+      unless known.nil?
+        wanted = column.nil? ? (to_table.nil? ? nil : [Naming.foreign_key_column(to_table)]) : IndexDefinition.to_names(column)
+        found = known.any? do |key|
+          (!name.nil? && key.name == name.to_s) || (!wanted.nil? && key.columns == wanted && (to_table.nil? || key.to_table == to_table.to_s))
+        end
+        return [] of String unless found
+      end
+    end
+    render_steps(from_table.to_s, [step_remove_foreign_key(from_table.to_s, to_table, column, name, if_exists)!], false)
+  end
+  def step_add_foreign_key(definition : ForeignKeyDefinition) : AlterStep | ErrorBase
+    step = AlterStep.new
+    sql = definition.constraint_sql(dialect)!
+    if dialect == Dialect::Sqlite
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) { rebuild.add_constraint(sql) }
+    else
+      step.clauses << "ADD #{sql}#{dialect == Dialect::Pg && !definition.validate? ? " NOT VALID" : ""}"
+    end
+    step
+  end
+  def step_remove_foreign_key(table : String, to_table : String | Symbol?, column, name : String | Symbol?, if_exists : Bool) : AlterStep | ErrorBase | Cancelled
+    step = AlterStep.new
+    columns = column.nil? ? (to_table.nil? ? nil : [Naming.foreign_key_column(to_table)]) : IndexDefinition.to_names(column)
+    if dialect == Dialect::Sqlite
+      wanted_name = name.nil? ? nil : name.to_s
+      return InvalidDefinition.new("remove_foreign_key on '#{table}' needs to_table:, column: or name:") if columns.nil? && wanted_name.nil?
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) do
+        removed = rebuild.remove_foreign_key(wanted_name, columns)
+        (removed == 0 && !if_exists ? InvalidDefinition.new("Table '#{table}' has no such foreign key") : nil).as(Nil | ErrorBase)
+      end
+    else
+      key_name = name.nil? ? resolve_foreign_key_name(table, to_table, column)! : name.to_s
+      step.clauses << (dialect == Dialect::Pg ? "DROP CONSTRAINT #{if_exists ? "IF EXISTS " : ""}#{dialect.quote(key_name)}" : "DROP FOREIGN KEY #{dialect.quote(key_name)}")
+    end
+    step
+  end
+  private def resolve_foreign_key_name(table : String, to_table : String | Symbol?, column) : String | ErrorBase | Cancelled
+    columns = column.nil? ? (to_table.nil? ? nil : [Naming.foreign_key_column(to_table)]) : IndexDefinition.to_names(column)
+    return InvalidDefinition.new("A foreign key of '#{table}' needs to_table:, column: or name:") if columns.nil?
+    if known = lookup_foreign_keys(table)!
+      key = known.find { |entry| (to_table.nil? || entry.to_table == to_table.to_s) && (columns.nil? || entry.columns == columns) }
+      return key.name.as(String) if !key.nil? && !key.name.nil?
+    end
+    Naming.constraint_name("fk", table, columns.join("_"))
+  end
+  {% for method in ["add_foreign_key", "remove_foreign_key", "validate_foreign_key"] %}
+    def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      execute_batch({{method.id}}_statements(*args, **options)!)
+    end
+  {% end %}
   def add_check_constraint_statements(table : String | Symbol, expression : String, name : String? = nil, validate : Bool = true) : Array(String) | ErrorBase | Cancelled
     definition = CheckConstraintDefinition.new(table.to_s, expression, name, validate)
     step = AlterStep.new
