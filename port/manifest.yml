@@ -1277,6 +1277,53 @@
   area: query
   examples: 37
   status: todo
+  children:
+  - target: test/grant_querying_enumerable_collections_test.iyi
+    status: done
+    examples:
+    - T-2dbc1755fd
+    - T-af6023fe03
+    - T-599cda0997
+    - T-749b716f45
+    - T-422d0a2b99
+    - T-ada05a71ed
+    - T-041e3b1fdd
+    - T-26b2f5d4cb
+    - T-c84161114f
+    - T-1b988067b0
+    - T-b6294ce256
+    - T-039b23f413
+    - T-29c5c7118b
+    - T-5e49ba660a
+    - T-838f1f77a7
+    - T-d46a1713ac
+    - T-9145af2d06
+    - T-5f0a93320e
+    - T-717ec748ca
+    - T-6b738a0d18
+  - target: test/grant_querying_enumerable_reductions_test.iyi
+    status: todo
+    examples:
+    - T-2a42fc0911
+    - T-787434f3b2
+    - T-7b7ceb758d
+    - T-5ecfd935f1
+    - T-2885f3c30b
+    - T-28862af6d2
+    - T-ea577da71d
+    - T-8577efc121
+    - T-bfbdbc273b
+    - T-6e2f6cb28d
+    - T-9700fdea3f
+    - T-1e5c472708
+    - T-89796d9fab
+  - target: test/grant_querying_enumerable_types_test.iyi
+    status: todo
+    examples:
+    - T-30a7ba7c11
+    - T-e91df8f909
+    - T-2f232e1273
+    - T-ab9e2b93bb
 - source: crystal-upstream/spec/grant/querying/exists_spec.cr
   target: test/grant_querying_exists_test.iyi
   area: query

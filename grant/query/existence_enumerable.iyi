@@ -1,9 +1,54 @@
 module grant/query/existence_enumerable
 
 import grant/error::{ErrorBase}
+import std/enumerable::{Enumerable}
+import std/traits::{Comparable, Hashable}
 
 # Enumerable fallback alongside builder.cr's bounded existence probes.
 pub trait ExistenceEnumerable(Model)
+  def select(&block : Model -> Bool) : Array(Model) | ErrorBase
+    records!.select { |record| yield record }
+  end
+
+  def all?(&block : Model -> Bool) : Bool | ErrorBase
+    records!.all? { |record| yield record }
+  end
+
+  def compact_map(&block : Model -> T?) : Array(T) | ErrorBase forall T
+    records!.compact_map { |record| yield record }
+  end
+
+  def flat_map(&block : Model -> Array(T)) : Array(T) | ErrorBase forall T
+    records!.flat_map { |record| yield record }
+  end
+
+  def min_by(&block : Model -> T) : Model | ErrorBase forall T : Comparable
+    records!.min_by { |record| yield record }
+  end
+
+  def max_by(&block : Model -> T) : Model | ErrorBase forall T : Comparable
+    records!.max_by { |record| yield record }
+  end
+
+  def group_by(&block : Model -> T) : Hash(T, Array(Model)) | ErrorBase forall T : Hashable
+    records!.group_by { |record| yield record }
+  end
+
+  def partition(&block : Model -> Bool) : Array(Array(Model)) | ErrorBase
+    records!.partition { |record| yield record }
+  end
+
+  def reduce(initial : T, &block : T, Model -> T) : T | ErrorBase forall T
+    records!.reduce(initial) { |value, record| yield value, record }
+  end
+
+  def each_with_object(object : T, &block : Model, T -> U) : T | ErrorBase forall T, U
+    records!.each_with_object(object) do |record, accumulator|
+      yield record, accumulator
+      nil
+    end
+  end
+
   def reject(&block : Model -> Bool) : Array(Model) | ErrorBase
     records!.reject { |record| yield record }
   end
