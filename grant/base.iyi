@@ -491,7 +491,11 @@ pub abstract class Base
         unless begin
           {{ block.body }}
         end
-          errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
+          {% if message %}
+            errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
+          {% else %}
+            errors << ::Grant::Error::Error.new(:base, {{ field }})
+          {% end %}
         end
       {% else %}
         {{ field.id }}

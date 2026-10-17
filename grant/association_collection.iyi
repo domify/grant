@@ -114,8 +114,12 @@ pub class AssociationCollection(Owner, Target)
 
   private def prepare_built(record : Target) : Target
     record.assign_attributes({@foreign_key.to_s => owner_key})
+    inverse = @inverse_of
+    record.set_loaded_association(inverse.to_s, [@owner]) unless inverse.nil?
     records = @loaded_records
     records << record unless records.nil?
+    name = @association_name
+    @owner.set_loaded_association(name, records) if !name.nil? && !records.nil?
     record
   end
 
@@ -131,6 +135,87 @@ pub class AssociationCollection(Owner, Target)
     record = build(**attrs)
     record.save_strict!
     record
+  end
+
+  def load_target : Array(Target) | ErrorBase
+    all
+  end
+
+  def build(**attrs, &block : Target -> T) : Target forall T
+    record = Target.new(**attrs)
+    record.assign_attributes({@foreign_key.to_s => owner_key})
+    yield record
+    prepare_built(record)
+  end
+
+  def build(attrs : Hash(K, V)) : Target forall K, V
+    record = Target.new
+    record.assign_attributes(attrs)
+    prepare_built(record)
+  end
+
+  def build(attrs : NamedTuple) : Target
+    build(**attrs)
+  end
+
+  def build(records : Array(T)) : Array(Target) forall T
+    records.map { |attrs| build(attrs) }
+  end
+
+  def create(**attrs, &block : Target -> T) : Target | ErrorBase forall T
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
+    record = build(**attrs) { |built| yield built }
+    record.save
+    record
+  end
+
+  def create(attrs : Hash(K, V)) : Target | ErrorBase forall K, V
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
+    record = build(attrs)
+    record.save
+    record
+  end
+
+  def create(attrs : NamedTuple) : Target | ErrorBase
+    create(**attrs)
+  end
+
+  def create(records : Array(T)) : Array(Target) | ErrorBase forall T
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
+    created = [] of Target
+    Owner.transaction do
+      records.each { |attrs| created << create(attrs)! }
+      nil
+    end!
+    created
+  end
+
+  def create_strict(**attrs, &block : Target -> T) : Target | ErrorBase forall T
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create!") unless @owner.persisted?
+    record = build(**attrs) { |built| yield built }
+    record.save_strict!
+    record
+  end
+
+  def create_strict(attrs : Hash(K, V)) : Target | ErrorBase forall K, V
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create!") unless @owner.persisted?
+    record = build(attrs)
+    record.save_strict!
+    record
+  end
+
+  def create_strict(attrs : NamedTuple) : Target | ErrorBase
+    create_strict(**attrs)
+  end
+
+  def create_strict(records : Array(T)) : Array(Target) | ErrorBase forall T
+    return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create!") unless @owner.persisted?
+    created = [] of Target
+    Owner.transaction do
+      records.each { |attrs| created << create_strict(attrs)! }
+      nil
+    end!
+    created
   end
 
   def delete_all(dependent : Symbol? = nil) : Int64 | ErrorBase

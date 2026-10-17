@@ -1756,7 +1756,7 @@
   target: test/grant_associations_collection_build_create_test.iyi
   area: associations
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/collection_delete_strategy_spec.cr
   target: test/grant_associations_collection_delete_strategy_test.iyi
   area: associations

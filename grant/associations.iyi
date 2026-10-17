@@ -28,6 +28,7 @@ pub macro has_many(model, scope = nil, **options)
     {% end %}
     ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }}).new(
       self, {{ foreign_key.id.stringify }}, primary_key: {{ options[:primary_key] ? primary_key.id.stringify : nil }},
+      inverse_of: {{ options[:inverse_of] ? options[:inverse_of].id.stringify : nil }},
       scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
   end
   {% if options[:dependent] == :delete_all %}
@@ -154,7 +155,7 @@ pub macro model_methods(model)
     @__loaded_associations[name]?
   end
 
-  def association_loaded?(name : String) : Bool
-    @__loaded_associations.has_key?(name)
+  def association_loaded?(name : String | Symbol) : Bool
+    @__loaded_associations.has_key?(name.to_s)
   end
 end
