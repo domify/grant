@@ -36,6 +36,7 @@ pub import grant/locking/pessimistic
 pub import grant/adapter/sqlite
 pub import grant/adapter/base
 import grant/adapter/driver::{Connection, Value, Row}
+pub import grant/connection_handling
 pub import grant/connection_management
 pub import grant/connection_pool
 pub import grant/connection
@@ -129,7 +130,9 @@ pub abstract class Base
     ::Grant::Validators.model_methods({{ @type }})
     @@table_name : String = {{ @type.name.split("::").last.underscore }}
     @@connection_name : String = "sqlite"
+    @@default_database_name : String = "primary"
     @@own_connection_config : Hash(Symbol, String)? = nil
+    @@own_shard_config : Hash(Symbol, Hash(Symbol, String))? = nil
 
     macro finished
       __process_columns
@@ -186,17 +189,31 @@ pub abstract class Base
 
   macro connection(name)
     @@connection_name = {{ name.id.stringify }}
+    @@default_database_name = {{ name.id.stringify }}
   end
 
   macro connects_to(database = nil, config = nil, shards = nil)
-    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database || "primary" }}, config: {{ config }})]
+    {% config = database if !config && database.is_a?(NamedTupleLiteral) %}
+    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database || "primary" }}, config: {{ config }}, shards: {{ shards }})]
     def __connection_declaration
       nil
     end
+    ::Grant::ConnectionHandling::ConnectionHandling.declare({{ @type.stringify }},
+      -> { self.connection_names })
+    {% if database && database.is_a?(NamedTupleLiteral) %}
+      @@connection_name = {{ database[:writing] || database.values.first }}
+      @@default_database_name = @@connection_name
+    {% end %}
     {% if database && !database.is_a?(NamedTupleLiteral) %}
       @@connection_name = {{ database }}
+      @@default_database_name = @@connection_name
     {% end %}
     {% if config %}
+      @@own_connection_config = {
+        {% for role, name in config %}
+          {{ role.symbolize }} => {{ name }},
+        {% end %}
+      } of Symbol => String
       def self.connection_config : Hash(Symbol, String)
         @@own_connection_config ||= {
           {% for role, name in config %}
@@ -206,6 +223,15 @@ pub abstract class Base
       end
     {% end %}
     {% if shards %}
+      @@own_shard_config = {
+        {% for shard, roles in shards %}
+          {{ shard.symbolize }} => {
+            {% for role, name in roles %}
+              {{ role.symbolize }} => {{ name }},
+            {% end %}
+          } of Symbol => String,
+        {% end %}
+      } of Symbol => Hash(Symbol, String)
       def self.shard_config : Hash(Symbol, Hash(Symbol, String))
         {
           {% for shard, roles in shards %}
@@ -705,6 +731,7 @@ pub abstract class Base
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
     ::Grant::Dependent.model_methods({{ @type }})
+    ::Grant::ConnectionHandling.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
