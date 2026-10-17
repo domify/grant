@@ -26,6 +26,7 @@ log="$root/port/stage-b-$owner.log"
 prompt="Your owner name is $owner. Read port/STAGE_B.md and follow it exactly, together with AGENTS.md, port/HINTS.md and doc/NAMING.md. Continue porting the spec files listed in port/owners/$owner.txt whose manifest entries are not done yet. Make several committed spec files of progress in this iteration; commit after each spec file. Never end with a list of remaining work."
 feedback="Reviewer feedback lives in $root/port/feedback/all.md and $root/port/feedback/$owner.md. Read both first when they exist and follow them; fix what they flag in your earlier commits before porting new files."
 flat=0
+sid=""; resumes=0
 for ((round = 1; round <= max_rounds; round++)); do
   # The Codex sandbox cannot write the worktree's own index, so workers commit through
   # commit-tree with a private index; resync the real index to HEAD before looking.
@@ -39,9 +40,19 @@ for ((round = 1; round <= max_rounds; round++)); do
   before=$(git -C "$directory" rev-parse HEAD)
   waits=0
   while :; do
-    (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec -p port -m "$model" -c "model_reasoning_effort=\"$effort\"" -C "$directory" \
-      --output-last-message "$root/port/last-$owner.txt" "$prompt $feedback" < /dev/null > "$root/port/codex-$owner.log" 2>&1)
-    status=$?
+    # Resume one session so the docs stay in context; start fresh every 15 resumes.
+    common=(-p port -m "$model" -c "model_reasoning_effort=\"$effort\"" --output-last-message "$root/port/last-$owner.txt")
+    if [[ -n $sid && $resumes -lt 15 ]]; then
+      (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec "${common[@]}" \
+        resume "$sid" "Continue: $prompt $feedback" < /dev/null > "$root/port/codex-$owner.log" 2>&1)
+      status=$?; resumes=$((resumes + 1))
+      grep -qiE 'context window|context length|too long' "$root/port/codex-$owner.log" && sid=""
+    else
+      (cd "$directory" && IYI_CACHE_DIR="$directory/.iyi-cache" timeout --kill-after=60 7200 codex exec "${common[@]}" -C "$directory" \
+        "$prompt $feedback" < /dev/null > "$root/port/codex-$owner.log" 2>&1)
+      status=$?; resumes=0
+      sid=$(grep -m1 -oE 'session id: [0-9a-f-]+' "$root/port/codex-$owner.log" | cut -d' ' -f3)
+    fi
     if grep -q 'hit your usage limit' "$root/port/codex-$owner.log" && [[ $waits -lt 72 ]]; then
       waits=$((waits + 1))
       echo "$(date -Iseconds) round=$round waiting for usage limit" >> "$log"
