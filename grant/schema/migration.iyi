@@ -1,10 +1,10 @@
 module grant/schema/migration
 
 import grant/adapter/base::{Base}
-import grant/schema/schema_statements::{AdapterStatements}
+import grant/schema/schema_statements::{AdapterStatements, RecordingStatements}
 import grant/schema/table_definition::{TableDefinition}
 pub import grant/schema/command_recorder
-import grant/schema/command_recorder::{IrreversibleMigration}
+import grant/schema/command_recorder::{IrreversibleMigration, CommandRecorder, Command, SchemaStatements}
 import std/text
 import grant/error::{ErrorBase}
 
@@ -29,7 +29,8 @@ end
 
 pub abstract class Migration
   @@registry = [] of MigrationEntry
-  @statements : AdapterStatements? = nil
+  @statements : SchemaStatements? = nil
+  @recorder = CommandRecorder.new
   @adapter : Base? = nil
 
   def self.registry : Array(MigrationEntry)
@@ -75,14 +76,14 @@ pub abstract class Migration
     false
   end
 
-  def attach(statements : AdapterStatements, adapter : Base, verbose : Bool = true) : self
+  def attach(statements : SchemaStatements, adapter : Base, output = nil, verbose : Bool = true) : self
     @statements = statements
     @adapter = adapter
     self
   end
 
-  def statements : AdapterStatements
-    @statements.as(AdapterStatements)
+  def statements : SchemaStatements
+    @statements.as(SchemaStatements)
   end
 
   def adapter : Base
@@ -94,24 +95,83 @@ pub abstract class Migration
   end
 
   def up : Nil | ErrorBase | Cancelled
-    change
+    result = change
+    result.is_a?(NoChangeDefined) ? InvalidMigration.new("#{name} defines none of change, up and down") : result
   end
 
   def down : Nil | ErrorBase | Cancelled
-    InvalidMigration.new("#{name} defines up but no down or change")
+    result = revert { change }
+    result.is_a?(NoChangeDefined) ? IrreversibleMigration.new("#{name} defines up but no down or change") : result
+  end
+
+  pub class Direction
+    @up : Proc(Nil | ErrorBase | Cancelled)? = nil
+    @down : Proc(Nil | ErrorBase | Cancelled)? = nil
+    def up(&block : -> Nil | ErrorBase | Cancelled) : Nil
+      @up = block
+      nil
+    end
+    def down(&block : -> Nil | ErrorBase | Cancelled) : Nil
+      @down = block
+      nil
+    end
+    def run_up : Nil | ErrorBase | Cancelled
+      callback = @up
+      callback.nil? ? nil : callback.call
+    end
+    def run_down : Nil | ErrorBase | Cancelled
+      callback = @down
+      callback.nil? ? nil : callback.call
+    end
+  end
+  def replay(commands : Array(Command)) : Nil | ErrorBase | Cancelled
+    commands.each { |command| command.apply(statements)! }
+    nil
+  end
+  def revert(&block : -> T) : Nil | ErrorBase | Cancelled forall T
+    commands = @recorder.capture { yield }!
+    reversed = [] of Command
+    commands.reversed.each { |command| reversed << command.reversed! }
+    if @recorder.recording?
+      reversed.each { |command| @recorder.add(command) }
+      nil
+    else
+      replay(reversed)
+    end
+  end
+  def reversible(&block : Direction -> T) : Nil | ErrorBase | Cancelled forall T
+    direction = Direction.new
+    result = yield direction
+    return result if result.is_a?(::Error) || result.is_a?(Cancelled)
+    if @recorder.recording?
+      @recorder.add(Command.new("reversible", ->(_s : SchemaStatements) { direction.run_up },
+        ->(_s : SchemaStatements) { direction.run_down }, "reversible"))
+    else
+      direction.run_up
+    end
+  end
+  def up_only(&block : -> Nil | ErrorBase | Cancelled) : Nil | ErrorBase | Cancelled
+    reversible { |direction| direction.up(&block) }
   end
 
   def execute(sql : String) : Nil | ErrorBase | Cancelled
-    statements.execute_batch([sql])
+    @recorder.recording? ? @recorder.execute(sql) : statements.execute_batch([sql])
   end
 
   def create_table(*args, **options, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
-    statements.create_table(*args, **options) { |table| yield table }
+    if @recorder.recording?
+      definition = TableDefinition.new(args[0].to_s, statements.dialect)
+      result = yield definition
+      return result if result.is_a?(ErrorBase) || result.is_a?(Cancelled)
+      @recorder.create_table(*args, **options) { |table| table.absorb(definition) }
+    else
+      statements.create_table(*args, **options) { |table| yield table }
+    end
   end
 
-  {% for method in ["drop_table", "add_column", "remove_column", "add_index"] %}
+  {% for method in ["drop_table", "add_column", "remove_column", "add_index", "remove_index", "rename_column", "rename_table", "add_foreign_key", "add_reference", "add_timestamps", "enable_extension"] %}
     def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
-      statements.{{method.id}}(*args, **options)
+      @recorder.recording? ? @recorder.{{method.id}}(*args, **options) : statements.{{method.id}}(*args, **options)
     end
   {% end %}
 end

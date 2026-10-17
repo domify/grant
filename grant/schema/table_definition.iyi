@@ -43,6 +43,16 @@ pub class TableDefinition
   getter dialect : Dialect
   def initialize(@table : String, @dialect : Dialect, @comment : String? = nil)
   end
+  # Copies a definition built while recording, so replay needs no captured user block.
+  def absorb(other : TableDefinition) : Nil | ErrorBase
+    @definition_error = other.definition_error
+    @columns.concat(other.columns)
+    @indexes.concat(other.indexes)
+    foreign_keys.concat(other.foreign_keys)
+    check_constraints.concat(other.check_constraints)
+    unique_constraints.concat(other.unique_constraints)
+    @definition_error
+  end
   def index(columns : C, **options) : Nil | ErrorBase forall C
     definition = IndexDefinition.build(table, columns, **options)!
     definition.to_sql(dialect)!

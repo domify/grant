@@ -2631,7 +2631,7 @@
   target: test/grant_schema_reversible_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/verify_model_spec.cr
   target: test/grant_schema_verify_model_test.iyi
   area: other
