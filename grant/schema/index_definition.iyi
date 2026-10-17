@@ -25,6 +25,9 @@ pub class Naming
     words << singular
     words.join('_')
   end
+  def self.join_table_name(first : String | Symbol, second : String | Symbol) : String
+    [first.to_s, second.to_s].sorted.join('_')
+  end
   def self.foreign_key_column(table : String | Symbol) : String
     "#{singularize(table.to_s.split('.').last)}_id"
   end

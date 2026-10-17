@@ -196,7 +196,7 @@ pub macro methods
       execute_batch({{method.id}}_statements(*args, **options)!)
     end
   {% end %}
-  def step_add_column(table : String, definition : ColumnDefinition, if_not_exists : Bool = false) : AlterStep | ErrorBase | Cancelled
+  def step_add_column(table : String, definition : ColumnDefinition, if_not_exists : Bool = false, inline_reference : ForeignKeyDefinition? = nil) : AlterStep | ErrorBase | Cancelled
     step = AlterStep.new
     if if_not_exists && dialect != Dialect::Pg
       return step unless lookup_column(table, definition.name)!.nil?
@@ -210,6 +210,7 @@ pub macro methods
     elsif dialect == Dialect::Mysql
       step.clauses << "ADD COLUMN #{column_sql}"
     else
+      column_sql += " #{inline_reference.inline_sql(dialect)!}" unless inline_reference.nil?
       step.native << "ALTER TABLE #{dialect.quote(table)} ADD COLUMN #{column_sql}"
       step.rebuild = (!definition.null && definition.default_clause.empty?) || definition.expression_default
       step.edit = ->(rebuild : TableRebuild) { rebuild.add_column(column_sql) }

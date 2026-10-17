@@ -2,6 +2,7 @@ module grant/schema/table_definition
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition, TypeCatalog}
 import grant/schema/index_definition::{IndexDefinition}
 import grant/errors::{ErrorBase}
+import grant/counter_cache
 import grant/schema/table_definition_constraints
 import std/text
 pub struct Unset

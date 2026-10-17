@@ -13,6 +13,70 @@ import grant/adapter/base::{Base}
 import grant/errors::{ErrorBase}
 
 pub macro methods
+  def create_join_table_statements(first : String | Symbol, second : String | Symbol, table_name : String | Symbol? = nil, column_options = nil, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
+    name = table_name.nil? ? Naming.join_table_name(first, second) : table_name.to_s
+    nullable = column_options.nil? ? false : column_options[:null]? == true
+    type = column_options.nil? ? :bigint : (column_options[:type]? || :bigint)
+    create_table_statements(name, id: false) do |t|
+      t.column(Naming.foreign_key_column(first), type, null: nullable)!
+      t.column(Naming.foreign_key_column(second), type, null: nullable)!
+      yield t
+    end
+  end
+  def create_join_table_statements(first : String | Symbol, second : String | Symbol, table_name : String | Symbol? = nil, column_options = nil) : Array(String) | ErrorBase
+    create_join_table_statements(first, second, table_name, column_options) { nil }
+  end
+  def create_join_table(first : String | Symbol, second : String | Symbol, table_name : String | Symbol? = nil, column_options = nil, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
+    execute_batch(create_join_table_statements(first, second, table_name, column_options) { |t| yield t }!)
+  end
+  def create_join_table(first : String | Symbol, second : String | Symbol, table_name : String | Symbol? = nil, column_options = nil) : Nil | ErrorBase | Cancelled
+    execute_batch(create_join_table_statements(first, second, table_name, column_options)!)
+  end
+  def drop_join_table_statements(first : String | Symbol, second : String | Symbol, table_name : String | Symbol? = nil, if_exists : Bool = false) : Array(String)
+    drop_table_statements(table_name || Naming.join_table_name(first, second), if_exists: if_exists)
+  end
+  def drop_join_table(*args, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(drop_join_table_statements(*args, **options))
+  end
+  def add_reference_statements(table : String | Symbol, *names, **options) : Array(String) | ErrorBase | Cancelled
+    definition = TableDefinition.new(table.to_s, dialect)
+    definition.references(*names, **options)!
+    render_steps(table.to_s, steps_for_reference(definition)!, false)
+  end
+  def steps_for_reference(definition : TableDefinition) : Array(AlterStep) | ErrorBase | Cancelled
+    steps = [] of AlterStep
+    definition.columns.each do |column|
+      reference = dialect == Dialect::Sqlite ? definition.foreign_keys.find { |key| key.columns.first == column.name } : nil
+      steps << step_add_column(definition.table, column, false, reference)!
+    end
+    definition.indexes.each do |index|
+      step = AlterStep.new
+      step.post.concat(index.statements(dialect)!)
+      steps << step
+    end
+    unless dialect == Dialect::Sqlite
+      definition.foreign_keys.each { |key| steps << step_add_foreign_key(key)! }
+    end
+    steps
+  end
+  def remove_reference_statements(table : String | Symbol, *names, polymorphic : Bool = false, foreign_key : Bool = false) : Array(String) | ErrorBase | Cancelled
+    steps = [] of AlterStep
+    names.each { |name| steps.concat(steps_remove_reference(table.to_s, name.to_s, polymorphic, foreign_key)!) }
+    render_steps(table.to_s, steps, false)
+  end
+  def steps_remove_reference(table : String, name : String, polymorphic : Bool, foreign_key : Bool) : Array(AlterStep) | ErrorBase | Cancelled
+    steps = [] of AlterStep
+    column = "#{name}_id"
+    steps << step_remove_foreign_key(table, nil, column, nil, false)! if foreign_key && dialect == Dialect::Mysql
+    steps << step_remove_column(table, column, false)!
+    steps << step_remove_column(table, "#{name}_type", false)! if polymorphic
+    steps
+  end
+  {% for method in ["add_reference", "remove_reference"] %}
+    def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      execute_batch({{method.id}}_statements(*args, **options)!)
+    end
+  {% end %}
   ::Grant::Schema::AlterTable.methods
   def create_table_statements(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol = :id, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
     definition = TableDefinition.new(table.to_s, dialect, comment)

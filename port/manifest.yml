@@ -1426,7 +1426,7 @@
   target: test/grant_schema_references_join_table_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/tenant_cache_spec.cr
   target: test/grant_schema_tenant_cache_test.iyi
   area: query
