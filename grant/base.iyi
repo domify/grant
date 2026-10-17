@@ -1035,7 +1035,7 @@ pub abstract class Base
         return contextual unless contextual.nil?
       end
       unless connection_config.empty?
-        role = should_use_reader? ? ::Grant::Settings.settings.reading_role : ::Grant::Settings.settings.writing_role
+        role = current_role
         return resolve_adapter_for_role(role)
       end
       \{% begin %}
@@ -1056,6 +1056,7 @@ pub abstract class Base
       original = __transaction_connection
       current = ::Grant::Base::Base.current_transaction_connection(original)
       return current unless current.nil?
+      return adapter.checkout.or_panic unless connection_context.nil?
       if should_use_reader?
         return resolve_adapter_for_role(::Grant::Settings.settings.reading_role).checkout.or_panic
       end
@@ -1824,6 +1825,7 @@ pub abstract class Base
 
   # Crystal `save!`.
   def save_strict(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
+    __guard_context_writes!
     result = __run_save_transaction(validate: validate, skip_timestamps: skip_timestamps)
     if result.is_a?(::Grant::Callbacks::Abort)
       errors << ::Grant::Error::Error.new(:base, result.message)

@@ -2496,7 +2496,7 @@
   target: test/grant_connection_routing_two_files_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/w6_connected_to_role_hash_spec.cr
   target: test/grant_connection_w6_connected_to_role_hash_test.iyi
   area: other

@@ -34,6 +34,15 @@ pub class ConnectionState
 end
 
 pub macro model_methods(model)
+  def self.guard_writes_strict : Nil | ::Grant::ErrorTaxonomy::ReadOnlyError
+    return nil unless preventing_writes?
+    ::Grant::ErrorTaxonomy::ReadOnlyError.new("Write query attempted while in readonly mode")
+  end
+
+  def __guard_context_writes : Nil | ::Grant::ErrorTaxonomy::ReadOnlyError
+    {{ model }}.guard_writes_strict
+  end
+
   def self.connection_context_owner?(owner : String?) : Bool
     return true if owner == {{ model.stringify }}
     {% for ancestor in model.resolve.ancestors %}
