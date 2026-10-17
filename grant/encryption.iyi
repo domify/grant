@@ -1,5 +1,6 @@
 module grant/encryption
 
+pub import grant/encryption/scheme
 pub import grant/encryption/config
 pub import grant/encryption/context
 pub import grant/encryption/sealed
@@ -60,7 +61,13 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
     {% raise "encrypts #{attr_name}: lazy: true applies to String attributes only; other types are decrypted when the row loads" %}
   {% end %}
 
-  {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}} = ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}}, {{compress}}, {{compress_threshold}}, {{support_unencrypted_data}})
+  {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}} = ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}}, {{compress}}, {{compress_threshold}}, {{support_unencrypted_data}}, [
+    {% if previous %}
+      {% for scheme in previous %}
+        ::Grant::Encryption::Scheme::Scheme.build(**{{scheme}}).or_panic,
+      {% end %}
+    {% end %}
+  ] of ::Grant::Encryption::Scheme::Scheme)
   def self.{{attr}}_encrypted_attribute : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute
     attribute = {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}}
     ::Grant::Encryption::EncryptedAttribute::EncryptedAttributeRegistry.register({{model.stringify}}, {{attr_name}}, attribute)

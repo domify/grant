@@ -25,6 +25,22 @@ pub class Config
     @@verbose_logging = enabled
   end
 
+  def self.primary_keys=(keys : Array(String)) : Nil | ::Grant::Encryption::KeyProvider::KeyError
+    return ::Grant::Encryption::KeyProvider::KeyError.new("primary_keys cannot be empty") if keys.empty?
+    previous = [] of String
+    keys.each_with_index { |key, index| previous << KeyProvider.decode_key(key)! if index > 0 }
+    KeyProvider.previous_primary_keys = previous
+    KeyProvider.primary_key = keys.first
+  end
+
+  def self.deterministic_keys=(keys : Array(String)) : Nil | ::Grant::Encryption::KeyProvider::KeyError
+    return ::Grant::Encryption::KeyProvider::KeyError.new("deterministic_keys cannot be empty") if keys.empty?
+    previous = [] of String
+    keys.each_with_index { |key, index| previous << KeyProvider.decode_key(key)! if index > 0 }
+    KeyProvider.previous_deterministic_keys = previous
+    KeyProvider.deterministic_key = keys.first
+  end
+
   def self.generate_key : String | ::Grant::Encryption::Cipher::EncryptionError
     KeyProvider.generate_key
   end
