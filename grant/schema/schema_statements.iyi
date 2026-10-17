@@ -245,6 +245,7 @@ pub class RecordingStatements
   getter dialect : Dialect
   getter statements = [] of String
   getter sqlite_tables = {} of String => Tuple(String, Array(String))
+  getter known_indexes = {} of String => Array(IndexInfo)
   getter known_columns = {} of String => Array(ColumnInfo)
   def initialize(@dialect : Dialect)
   end
@@ -258,8 +259,11 @@ pub class RecordingStatements
   def lookup_foreign_keys(table : String) : Array(ForeignKeyInfo)? | ErrorBase | Cancelled
     nil
   end
-  def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase
+  def lookup_primary_key(table : String) : Array(String)? | ErrorBase | Cancelled
     nil
+  end
+  def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase
+    known_indexes[table]?
   end
   def execute_batch(statements : Array(String)) : Nil
     @statements.concat(statements)
@@ -329,6 +333,9 @@ pub class AdapterStatements
   end
   def lookup_foreign_keys(table : String) : Array(ForeignKeyInfo)? | ErrorBase | Cancelled
     adapter.schema.foreign_keys(table)
+  end
+  def lookup_primary_key(table : String) : Array(String)? | ErrorBase | Cancelled
+    adapter.schema.primary_key(table)
   end
   def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase | Cancelled
     adapter.schema.indexes(table)

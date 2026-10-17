@@ -1,6 +1,6 @@
 module grant/schema/alter_table
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
-import grant/schema/column_info::{ColumnInfo}
+import grant/schema/column_info::{ColumnInfo, IndexInfo}
 import grant/schema/constraint_definition::{ForeignKeyDefinition, CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
 import grant/schema/index_definition::{IndexDefinition, Naming}
 import grant/errors::{ErrorBase}
@@ -40,6 +40,10 @@ pub class AlterTableDefinition(S)
     names.each { |name| @steps << @source.step_remove_column(table, name.to_s, if_exists)! }
     nil
   end
+  def rename(old : String | Symbol, new : String | Symbol) : Nil | ErrorBase | Cancelled
+    @steps << @source.step_rename_column(table, old.to_s, new.to_s)!
+    nil
+  end
   def change_null(name : String | Symbol, null : Bool, default = UNSET) : Nil | ErrorBase | Cancelled
     @steps << @source.step_change_column_null(table, name.to_s, null, default)!
     nil
@@ -53,6 +57,68 @@ pub class AlterTableDefinition(S)
 end
 
 pub macro methods
+  def rename_column_statements(table : String | Symbol, old : String | Symbol, new : String | Symbol) : Array(String) | ErrorBase | Cancelled
+    render_steps(table.to_s, [step_rename_column(table.to_s, old.to_s, new.to_s)!], false)
+  end
+  def step_rename_column(table : String, old : String, new : String) : AlterStep | ErrorBase | Cancelled
+    step = AlterStep.new
+    statements = ["ALTER TABLE #{dialect.quote(table)} RENAME COLUMN #{dialect.quote(old)} TO #{dialect.quote(new)}"]
+    known = lookup_indexes(table)!
+    unless known.nil?
+      known.each do |index|
+        next unless index.name == Naming.index_name(table, index.columns) && index.columns.includes?(old)
+        columns = index.columns.map { |column| column == old ? new : column }
+        target = Naming.index_name(table, columns)
+        if dialect == Dialect::Sqlite
+          statements.concat(recreate_index_statements(index, columns, target)!)
+        else
+          statements.concat(rename_index_statements(table, index.name, target)!)
+        end
+      end
+    end
+    dialect == Dialect::Sqlite ? step.native.concat(statements) : step.post.concat(statements)
+    step
+  end
+  private def recreate_index_statements(info : IndexInfo, columns : Array(String), name : String, table : String = info.table_name) : Array(String) | ErrorBase
+    definition = IndexDefinition.new(table, columns, name, info.unique?, info.where)
+    ["DROP INDEX #{dialect.quote(Naming.in_schema_of(table, info.name))}", definition.to_sql(dialect)!]
+  end
+  def rename_table_statements(old : String | Symbol, new : String | Symbol) : Array(String) | ErrorBase | Cancelled
+    old_name = old.to_s
+    new_name = new.to_s
+    bare_new = new_name.split('.').last
+    result = dialect == Dialect::Mysql ? ["RENAME TABLE #{dialect.quote(old_name)} TO #{dialect.quote(new_name)}"] : ["ALTER TABLE #{dialect.quote(old_name)} RENAME TO #{dialect.quote(bare_new)}"]
+    if dialect == Dialect::Pg
+      keys = lookup_primary_key(old_name)! || ["id"]
+      old_bare = old_name.split('.').last
+      if keys.size == 1
+        old_sequence = Naming.in_schema_of(old_name, "#{old_bare}_#{keys.first}_seq")
+        new_sequence = "#{bare_new}_#{keys.first}_seq"
+        result << "ALTER SEQUENCE IF EXISTS #{dialect.quote(old_sequence)} RENAME TO #{dialect.quote(new_sequence)}"
+      end
+      old_key = Naming.in_schema_of(old_name, "#{old_bare}_pkey")
+      new_key = "#{bare_new}_pkey"
+      result << "ALTER INDEX IF EXISTS #{dialect.quote(old_key)} RENAME TO #{dialect.quote(new_key)}"
+    end
+    known = lookup_indexes(old_name)!
+    unless known.nil?
+      known.each do |index|
+        next unless index.name == Naming.index_name(old_name, index.columns)
+        target = Naming.index_name(new_name, index.columns)
+        if dialect == Dialect::Sqlite
+          result.concat(recreate_index_statements(index, index.columns, target, new_name)!)
+        else
+          result.concat(rename_index_statements(new_name, index.name, target)!)
+        end
+      end
+    end
+    result
+  end
+  {% for method in ["rename_column", "rename_table"] %}
+    def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      execute_batch({{method.id}}_statements(*args, **options)!)
+    end
+  {% end %}
   def add_foreign_key_statements(from_table : String | Symbol, to_table : String | Symbol, column = nil, primary_key = nil, name : String | Symbol? = nil, on_delete : Symbol? = nil, on_update : Symbol? = nil, deferrable : Bool | Symbol? = nil, validate : Bool = true, if_not_exists : Bool = false) : Array(String) | ErrorBase | Cancelled
     definition = ForeignKeyDefinition.build(from_table, to_table, column, primary_key, name, on_delete, on_update, deferrable, validate)
     if if_not_exists
