@@ -1,6 +1,46 @@
 module grant/validators
 
+import std/text
+
+pub def blank?(value : T) : Bool forall T
+  if value.is_a?(Nil)
+    true
+  elsif value.is_a?(Bool)
+    !value
+  elsif value.is_a?(String)
+    value.strip.empty?
+  elsif value.responds_to?(:empty?)
+    value.empty?
+  else
+    false
+  end
+end
+
 pub macro model_methods(model)
+  @validation_contexts : Array(Symbol)? = nil
+
+  def __active_validation_contexts : Array(Symbol)
+    @validation_contexts || [new_record? ? :create : :update]
+  end
+
+  def valid?(context : Symbol | Array(Symbol) | Nil) : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    previous = @validation_contexts
+    @validation_contexts = context.is_a?(Array(Symbol)) ? context : (context.nil? ? nil : [context])
+    result = valid?
+    @validation_contexts = previous
+    result
+  end
+
+  def validate(context : Symbol | Array(Symbol) | Nil = nil) : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    valid?(context)
+  end
+
+  def validate_strict(context : Symbol | Array(Symbol) | Nil = nil) : self | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase | ::Grant::Errors::RecordInvalid
+    valid = valid?(context)!
+    return ::Grant::Errors::RecordInvalid.new(self) unless valid
+    self
+  end
+
   macro validates_presence_of(*fields, **options)
     \{% for field in fields %}
       def __validate_presence_\{{ field.id }} : Nil
@@ -10,10 +50,22 @@ pub macro model_methods(model)
         \{% if options[:unless] %}
           return nil if self.\{{ options[:unless].id }}
         \{% end %}
+        \{% if options[:on] %}
+          contexts = \{{ options[:on] }}
+          contexts = [contexts] unless contexts.is_a?(Array(Symbol))
+          active = __active_validation_contexts
+          return nil unless active.includes?(:save) || contexts.includes?(:save) || contexts.any? { |item| active.includes?(item) }
+        \{% end %}
         value = \{{ field.id }}
-        if value.nil? || value.to_s.strip.empty?
+        \{% if options[:allow_nil] %}
+          return nil if value.nil?
+        \{% end %}
+        \{% if options[:allow_blank] %}
+          return nil if ::Grant::Validators.blank?(value)
+        \{% end %}
+        if ::Grant::Validators.blank?(value)
           errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-            \{{ options[:message] || "can't be blank" }})
+            \{{ options[:message] || "can't be blank" }}, :blank)
         end
         nil
       end

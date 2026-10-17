@@ -2706,7 +2706,7 @@
   target: test/grant_validations_validate_bang_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/validator_info_evaluation_spec.cr
   target: test/grant_validations_validator_info_evaluation_test.iyi
   area: other
