@@ -16,3 +16,8 @@
 /port/stage-b-*.log
 /port/feedback/
 /port/stage-b-*.out
+
+# Local port loop artifacts
+port/rounds.*
+*.grant-lock-*
+port/run-port-*.sh
