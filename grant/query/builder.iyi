@@ -21,6 +21,7 @@ import grant/query/grouping::{Grouping}
 import grant/query/sql_expression
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
+import grant/columns::{Type}
 import grant/querying::{NotFound, NotUnique}
 import grant/query/where_chain::{WhereChainMethods}
 import grant/query/where_composition::{WhereComposition}
@@ -205,6 +206,29 @@ pub class Builder(Model)
 
   def boolean_operator : Symbol
     @boolean_operator
+  end
+
+  # create_with defaults travel with the relation state (upstream finders.cr).
+  @create_with_defaults : Hash(String, Type)? = nil
+
+  def create_with_attributes : Hash(String, Type)
+    defaults = @create_with_defaults
+    copy = {} of String => Type
+    defaults.each { |key, value| copy[key] = value } unless defaults.nil?
+    copy
+  end
+
+  def clear_create_with_defaults : Nil
+    @create_with_defaults = nil
+    nil
+  end
+
+  def adopt_create_with_defaults(defaults : Hash(String, Type)) : Nil
+    return if defaults.empty?
+    merged = create_with_attributes
+    defaults.each { |key, value| merged[key] = value }
+    @create_with_defaults = merged
+    nil
   end
 
   def copy_state_to(target : Builder(Model)) : Nil

@@ -12,8 +12,6 @@ import grant/querying::{NotFound}
 import grant/adapter/driver::{Value}
 
 pub trait Finders(Model)
-  @create_with_defaults : Hash(String, Type)? = nil
-
   def create_with(**attrs) : self
     create_with(attrs.to_h)
   end
@@ -24,29 +22,15 @@ pub trait Finders(Model)
 
   def create_with_in_place(attrs : Hash(K, V)) : self forall K, V
     if attrs.empty?
-      @create_with_defaults = nil
+      clear_create_with_defaults
     else
-      merged = create_with_attributes
-      attrs.each { |key, value| merged[key.to_s] = value }
-      @create_with_defaults = merged
+      incoming = {} of String => Type
+      attrs.each { |key, value| incoming[key.to_s] = value }
+      adopt_create_with_defaults(incoming)
     end
     self
   end
 
-  def create_with_attributes : Hash(String, Type)
-    defaults = @create_with_defaults
-    copy = {} of String => Type
-    defaults.each { |key, value| copy[key] = value } unless defaults.nil?
-    copy
-  end
-
-  def adopt_create_with_defaults(defaults : Hash(String, Type)) : Nil
-    return if defaults.empty?
-    merged = create_with_attributes
-    defaults.each { |key, value| merged[key] = value }
-    @create_with_defaults = merged
-    nil
-  end
 
   def scope_attributes : Hash(String, Type)
     attrs = {} of String => Type

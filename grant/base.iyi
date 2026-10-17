@@ -352,6 +352,14 @@ pub abstract class Base
       nil
     end
 
+    {% if options[:converter] %}
+      # Converter lookup from the model's scope, for Base methods that loop over columns.
+      def self.__converter_from_db_{{decl.var}}(value : V) forall V
+        return value if value.is_a?({{ decl.type }}?)
+        {{ options[:converter] }}.from_db(value)
+      end
+    {% end %}
+
     def {{decl.var}}_changed? : Bool
       return false if @{{decl.var}} == @__persisted_{{decl.var}}
       {% if options[:encrypted] %}
@@ -1776,8 +1784,10 @@ pub abstract class Base
       args.each do |key, value|
         if self.class.resolve_attribute_alias(key.to_s) == {{ column.name.stringify }}
           {% type = column.annotation(::Grant::Base::Column)[:type] %}
-          {% if column.annotation(::Grant::Base::Column)[:converter] %}
-            self.{{ column.name }} = {{ column.annotation(::Grant::Base::Column)[:converter] }}.from_db(value)
+          {% if column.annotation(::Grant::Base::Column)[:converter] && !column.annotation(::Grant::Base::Column)[:encrypted] %}
+            from_db = self.class.__converter_from_db_{{ column.name }}(value)
+            return from_db if from_db.is_a?(::Error)
+            self.{{ column.name }} = from_db
           {% elsif type.includes?("Int32") %}
             converted = value.is_a?(String) ? value.to_i64? : (value.is_a?(Int) ? value.to_i64 : nil)
             if value.nil?
