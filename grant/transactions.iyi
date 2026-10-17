@@ -3,6 +3,7 @@ module grant/transactions
 import grant/adapter/driver::{Connection, Value}
 import grant/errors::{DatabaseError}
 import grant/error::{ErrorBase}
+pub import grant/query/bind_value
 
 # Structural slice of the upstream model-array import methods. Keep each
 # batch a single adapter insert; import does not validate or persist instances.
@@ -38,4 +39,108 @@ pub def import_records(adapter : Connection, table_name : String, primary_name :
     offset = index
   end
   nil
+end
+
+# Single-attribute and direct-column persistence from upstream Transactions.
+pub macro model_methods(model)
+  def write_attribute(name : String, value : ::Grant::Columns::Type) : Nil | ::Grant::Error::ErrorBase
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      if name == \{{ column.name.stringify }}
+        \{% type = column.annotation(::Grant::Base::Column)[:type] %}
+        \{% if type.includes?("Int32") %}
+          converted = value.is_a?(Int) ? value.to_i32 : nil
+        \{% elsif type.includes?("Int64") %}
+          converted = value.is_a?(Int) ? value.to_i64 : nil
+        \{% else %}
+          converted = value.is_a?(\{{ type.id }}) ? value : nil
+        \{% end %}
+        result = (self.\{{ column.name }} = converted)
+        return result if result.is_a?(::Error)
+        return nil
+      end
+    \{% end %}
+    ::Grant::Error::ErrorBase.new("Unknown attribute: #{name}")
+  end
+
+  def update_attribute(name : Symbol | String, value : ::Grant::Columns::Type) : Bool | ::Grant::Error::ErrorBase
+    __remember_transaction_state
+    write_attribute(name.to_s, value)!
+    save(validate: false)
+  end
+
+  def update_attribute_strict(name : Symbol | String, value : ::Grant::Columns::Type) : Bool | ::Grant::Error::ErrorBase
+    __remember_transaction_state
+    write_attribute(name.to_s, value)!
+    save_strict(validate: false)
+  end
+
+  def update_columns(**attrs) : Bool | ::Grant::Error::ErrorBase
+    update_columns(attrs.to_h)
+  end
+
+  def update_column(name : Symbol | String, value : ::Grant::Columns::Type) : Bool | ::Grant::Error::ErrorBase
+    update_columns({name.to_s => value})
+  end
+
+  def update_columns(attrs : Hash(K, V)) : Bool | ::Grant::Error::ErrorBase forall K, V
+    return ::Grant::Error::ErrorBase.new("#{self.class} is marked as read only") if readonly?
+    return ::Grant::Error::ErrorBase.new("Cannot update columns on a new record object") unless persisted?
+    return ::Grant::Error::ArgumentError.new("No columns given to update_columns") if attrs.empty?
+    __remember_transaction_state
+    assignments = [] of Tuple(String, ::Grant::Adapter::Driver::Value)
+    attrs.each do |name, value|
+      write_attribute(name.to_s, value)!
+      assignments << {name.to_s, ::Grant::Query::BindValue.to_value(read_attribute(name.to_s)!)}
+    end
+    self.class.unscoped.where(self.class.primary_name, :eq, __primary_value).update_all(assignments)!
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      @__persisted_\{{ column.name }} = @\{{ column.name }} if attrs.keys.any? { |key| key.to_s == \{{ column.name.stringify }} }
+    \{% end %}
+    true
+  end
+
+  def increment(field : Symbol | String, by : Int32 = 1) : self | ::Grant::Error::ErrorBase
+    current = read_attribute(field.to_s)!
+    return ::Grant::Error::ErrorBase.new("Cannot increment non-numeric attribute #{field}") unless current.is_a?(Int32 | Int64 | Float32 | Float64) || current.nil?
+    write_attribute(field.to_s, (current.nil? ? 0 : current) + by)!
+    self
+  end
+
+  def decrement(field : Symbol | String, by : Int32 = 1) : self | ::Grant::Error::ErrorBase
+    increment(field, -by)
+  end
+
+  def increment_strict(field : Symbol | String, by : Int32 = 1) : self | ::Grant::Error::ErrorBase
+    return ::Grant::Error::ErrorBase.new("#{self.class} is marked as read only") if readonly?
+    __remember_transaction_state
+    increment(field, by)!
+    if new_record?
+      save_strict(validate: false)!
+    else
+      quoted = ::Grant::Base.quote_identifier(field.to_s)
+      self.class.unscoped.where(self.class.primary_name, :eq, __primary_value).update_all("#{quoted} = COALESCE(#{quoted}, 0) + #{by}")!
+      \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        @__persisted_\{{ column.name }} = @\{{ column.name }} if field.to_s == \{{ column.name.stringify }}
+      \{% end %}
+    end
+    self
+  end
+
+  def decrement_strict(field : Symbol | String, by : Int32 = 1) : self | ::Grant::Error::ErrorBase
+    increment_strict(field, -by)
+  end
+
+  def toggle(field : Symbol | String) : self | ::Grant::Error::ErrorBase
+    current = read_attribute(field.to_s)!
+    return ::Grant::Error::ErrorBase.new("Cannot toggle non-boolean attribute #{field}") unless current.is_a?(Bool) || current.nil?
+    write_attribute(field.to_s, !current)!
+    self
+  end
+
+  def toggle_strict(field : Symbol | String) : self | ::Grant::Error::ErrorBase
+    __remember_transaction_state
+    toggle(field)!
+    save_strict(validate: false)!
+    self
+  end
 end

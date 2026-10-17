@@ -906,6 +906,33 @@
   area: query
   examples: 20
   status: todo
+  children:
+  - target: test/grant_persistence_helpers_operations_test.iyi
+    status: done
+    examples:
+    - T-3b5decb8e1
+    - T-5099cb6a81
+    - T-004c9ab8cb
+    - T-b6ce67b9b3
+    - T-8e57e81b13
+    - T-d99f13bd25
+    - T-e1661250ce
+    - T-b8095fe4c5
+    - T-196f65a5da
+    - T-0327aced4f
+    - T-aef18a1a93
+    - T-b1ded8b128
+    - T-42b94a6084
+    - T-fe87e6bf1a
+  - target: test/grant_persistence_helpers_readonly_test.iyi
+    status: todo
+    examples:
+    - T-f8d8be8b84
+    - T-730ab070e0
+    - T-9c087d759a
+    - T-eb14293223
+    - T-3a5d8a73b2
+    - T-3bcbfc85f2
 - source: crystal-upstream/spec/grant/prevent_writes_spec.cr
   target: test/grant_prevent_writes_test.iyi
   area: query
