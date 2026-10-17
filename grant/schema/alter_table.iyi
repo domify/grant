@@ -299,13 +299,17 @@ pub macro methods
   end
 
   def step_change_column(table : String, name : String, type : String | Symbol, null : Bool? = nil,
-                         default = UNSET, default_sql : String? = nil, using expression : String? = nil) : AlterStep | ErrorBase | Cancelled
+                         default = UNSET, default_sql : String? = nil, using expression : String? = nil,
+                         limit : Int32? = nil, precision : Int32? = nil, scale : Int32? = nil,
+                         collation : String? = nil) : AlterStep | ErrorBase | Cancelled
     definition = TableDefinition.new(table, dialect)
-    definition.column(name, type, null: null != false, default: default, default_sql: default_sql)!
+    definition.column(name, type, null: null != false, default: default, default_sql: default_sql,
+      limit: limit, precision: precision, scale: scale, collation: collation)!
     column = definition.columns.first
     step = AlterStep.new
     if dialect == Dialect::Pg
       clause = "ALTER COLUMN #{dialect.quote(name)} TYPE #{column.type}"
+      clause += " COLLATE #{dialect.quote(collation)}" if collation
       clause += " USING #{expression}" if expression
       step.clauses << clause
       step.clauses << "ALTER COLUMN #{dialect.quote(name)} #{null ? "DROP" : "SET"} NOT NULL" unless null.nil?
