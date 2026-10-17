@@ -147,5 +147,4 @@ belong to the drivers. No local checkouts or `replace` directives are needed; to
 local driver checkout, add a `replace` in your own `iyi.mod` (replacements inside dependencies do
 not apply).
 
-Run native checks with `/home/priit/contribute/iyi/bin/iyi`, `IYI_CACHE_DIR=$PWD/.iyi-cache`, and a
-`TMPDIR` inside the checkout. Keep sources and logs outside `.iyi-cache`, which the compiler prunes.
+Keep sources and logs outside `.iyi-cache`, which the compiler prunes.
