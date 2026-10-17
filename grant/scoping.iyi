@@ -61,6 +61,44 @@ end
 
 # Class finder and delete delegations from upstream Grant::Scoping.
 pub macro model_methods(model)
+  \{% begin %}
+  \{% scopes = @type.methods.select { |m| m.annotation(::Grant::Scoping::NamedScope) } %}
+  \{% unless scopes.empty? %}
+    pub class BuildNamedScopeRelation < ::Grant::Query::Builder::Builder({{ model }})
+      def self.adopt(result : ::Grant::Query::Builder::Builder({{ model }})) : BuildNamedScopeRelation
+        return result if result.is_a?(BuildNamedScopeRelation)
+        relation = new(result.db_type, result.boolean_operator)
+        result.copy_state_to(relation)
+        relation
+      end
+
+      \{% for method in scopes %}
+        \{% scope = method.annotation(::Grant::Scoping::NamedScope) %}
+        def \{{ scope[:name].id }}(*args) : BuildNamedScopeRelation
+          \{% if scope[:body].args.size > 0 %}
+            BuildNamedScopeRelation.adopt((\{{ scope[:body] }}).call(self, *args))
+          \{% else %}
+            BuildNamedScopeRelation.adopt(chain_copy.merge_builder((\{{ scope[:body] }}).call(*args)))
+          \{% end %}
+        end
+      \{% end %}
+    end
+
+    \{% for method in scopes %}
+      \{% scope = method.annotation(::Grant::Scoping::NamedScope) %}
+      def self.\{{ scope[:name].id }}(*args) : BuildNamedScopeRelation
+        query = BuildNamedScopeRelation.adopt(current_scope)
+        \{% if scope[:body].args.size > 0 %}
+          BuildNamedScopeRelation.adopt((\{{ scope[:body] }}).call(query, *args))
+        \{% else %}
+          BuildNamedScopeRelation.adopt(query.merge_builder((\{{ scope[:body] }}).call(*args)))
+        \{% end %}
+      end
+    \{% end %}
+  \{% end %}
+
+  \{% end %}
+
   def self.delete(id : T) : Int64 | ::Grant::Error::ErrorBase forall T
     delete([id])
   end
@@ -87,9 +125,13 @@ pub macro model_methods(model)
   end
 end
 
-# Upstream's query-argument named-scope entry point.
+pub annotation NamedScope
+end
+
+# Record declarations until the finished hook can emit the single relation subtype.
 pub macro named_scope(name, body, model)
-  def self.{{ name.id }}(*args) : ::Grant::Query::Builder::Builder({{ model }})
-    ({{ body }}).call(current_scope, *args)
+  @[::Grant::Scoping::NamedScope(name: {{ name }}, body: {{ body }})]
+  def __named_scope_{{ name.id }} : Nil
+    nil
   end
 end
