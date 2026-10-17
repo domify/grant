@@ -1,5 +1,7 @@
 module grant/querying
 
+import std/regex::{Regex}
+
 import grant/errors::{RecordNotFound, ErrorBase}
 
 pub class NotFound < RecordNotFound
@@ -11,8 +13,30 @@ impl ::Error for NotFound
   end
 end
 
+pub def invalid_batch_clause?(filter : String) : Bool
+  /\b(ORDER\s+BY|LIMIT|OFFSET|GROUP\s+BY)\b/.match?(filter.upcase)
+end
+
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : {{ model }} -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
+    batch_scope(clause, params, offset)!.find_each(batch_size) { |record| yield record }
+  end
+
+  private def self.batch_scope(clause : String, params : Array(::Grant::Adapter::Driver::Value), offset : Int32) : ::Grant::Query::Builder::Builder({{ model }}) | ::Grant::Error::ErrorBase
+    scope = current_scope
+    filter = clause.strip
+    unless filter.empty?
+      if ::Grant::Querying.invalid_batch_clause?(filter)
+        return ::Grant::Error::ArgumentError.new("find_each/find_in_batches accept only a WHERE clause; use order, limit and offset on the relation instead")
+      end
+      filter = filter[6, filter.size - 6] if filter.upcase.starts_with?("WHERE ")
+      scope = scope.where(filter, params)
+    end
+    scope = scope.offset(offset) if offset > 0
+    scope
+  end
+
   def self.from_rs(result : R) : {{ model }} | ::Grant::Error::ErrorBase forall R
     row = {} of String => ::Grant::Adapter::Driver::Value
     result.column_count.times do |index|

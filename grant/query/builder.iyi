@@ -1264,6 +1264,7 @@ pub class Builder(Model)
   protected def next_batch_rows(last_value : Value, batch_size : Int32) : Array(::Grant::Adapter::Driver::Row) | ErrorBase
     relation = chain_copy
     relation.where_in_place("#{Model.quote(Model.primary_name)} > ?", last_value) unless last_value.nil?
+    relation.offset_in_place(nil) unless last_value.nil?
     relation.clear_order_fields
     relation.order_in_place(Model.primary_name)
     relation.limit_in_place(batch_size)
