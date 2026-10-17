@@ -79,9 +79,21 @@ pub class Connection < ::Grant::Adapter::Driver::LibraryConnection
 
   def self.open(path : String, busy_timeout_ms : Int32 = 5000) : Connection | DatabaseError
     return DatabaseError.new(21, "open", "NUL byte in database path") if path.includes?("\0")
+    parts = path.split('?')
+    options = {} of String => String
+    query = parts[1]?
+    unless query.nil?
+      query.split('&').each do |part|
+        pair = part.split('=')
+        options[pair.first] = pair[1]? || ""
+      end
+    end
     native = SQLite3Connection.open(::Db::Core::Connection::Options.new,
-      SQLite3Connection::Options.new(filename: path, busy_timeout: busy_timeout_ms.to_s,
-        foreign_keys: "ON"))
+      SQLite3Connection::Options.new(filename: parts.first,
+        busy_timeout: options["busy_timeout"]? || busy_timeout_ms.to_s,
+        foreign_keys: options["foreign_keys"]? || "ON",
+        journal_mode: options["journal_mode"]?, synchronous: options["synchronous"]?,
+        cache_size: options["cache_size"]?))
     if native.is_a?(DBError)
       cause = native.cause
       code = cause.is_a?(SQLite3Error) ? cause.code : 14

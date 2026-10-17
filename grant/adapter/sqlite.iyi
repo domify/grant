@@ -17,6 +17,39 @@ import grant/adapter/error_translator::{Kind}
 import grant/adapter/error_translator
 
 pub class Sqlite < Base
+  DEFAULT_PRAGMAS = {
+    "foreign_keys" => "1",
+    "journal_mode" => "wal",
+    "busy_timeout" => "5000",
+    "synchronous" => "normal",
+  }
+
+  def self.url_with_pragmas(url : String, overrides : Hash(String, String) = {} of String => String) : String
+    parts = url.split('?')
+    base = parts.first
+    query = parts[1]? || ""
+    present = query.split('&').map { |pair| pair.split('=').first }
+    memory = memory_url?(url)
+    additions = [] of String
+    DEFAULT_PRAGMAS.each do |key, default|
+      next if present.includes?(key)
+      value = overrides[key]? || ((memory && key != "foreign_keys") ? nil : default)
+      additions << "#{key}=#{value}" if value
+    end
+    overrides.each do |key, value|
+      next if present.includes?(key) || DEFAULT_PRAGMAS.has_key?(key)
+      additions << "#{key}=#{value}"
+    end
+    return url if additions.empty?
+    query.empty? ? "#{base}?#{additions.join('&')}" : "#{base}?#{query}&#{additions.join('&')}"
+  end
+
+  def initialize(name : String, url : String, *, pragmas : T) forall T
+    overrides = {} of String => String
+    pragmas.each { |key, value| overrides[key.to_s] = value.to_s }
+    initialize(name, Sqlite.url_with_pragmas(url, overrides))
+  end
+
   def self.memory_url?(url : String) : Bool
     url.includes?(":memory:") || url.includes?("mode=memory")
   end
@@ -30,7 +63,7 @@ pub class Sqlite < Base
   end
 
   def initialize(name : String, url : String)
-    super(name, url)
+    super(name, Sqlite.url_with_pragmas(url))
     query = url.split('?')[1]?
     unless query.nil?
       query.split('&').each do |part|
@@ -77,7 +110,7 @@ pub class Sqlite < Base
       path = path[7, path.bytesize - 7]
     end
     path = path[2, path.bytesize - 2] if path.starts_with?("//")
-    path.split('?').first
+    path
   end
 
   def translate_exception(error : E, sql : String? = nil, binds : Array(Value)? = nil) : E | ErrorBase forall E

@@ -545,7 +545,7 @@
   target: test/adapter_sqlite_pragmas_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/collection_query_methods_spec.cr
   target: test/grant_associations_collection_query_methods_test.iyi
   area: query
