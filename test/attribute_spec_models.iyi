@@ -16,4 +16,7 @@ pub class AttrPost < Base
   column author_id : Int64?
   timestamps
   alias_attribute :name, :title
+  def instance_variable_get_for_spec : Hash(String, ::Grant::Columns::Type)?
+    @attributes_before_type_cast
+  end
 end

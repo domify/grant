@@ -575,7 +575,7 @@
   target: test/grant_attributes_before_type_cast_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/cache_key_spec.cr
   target: test/grant_attributes_cache_key_test.iyi
   area: query

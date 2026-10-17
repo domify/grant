@@ -94,6 +94,7 @@ pub macro model_methods(model)
     \{% end %}
     __mark_persisted
     clear_previous_changes
+    clear_before_type_cast
     self
   end
 
