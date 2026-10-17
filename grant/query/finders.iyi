@@ -2,6 +2,8 @@ module grant/query/finders
 
 import grant/query/builder::{Builder}
 import grant/columns::{Type}
+import grant/errors::{RecordNotSaved}
+import grant/error_taxonomy::{RecordNotUnique}
 import grant/query/where_field::{StructuredWhere}
 import std/text
 import grant/query/bind_value
@@ -224,6 +226,52 @@ pub trait Finders(Model)
     merged = attributes_for_new_record
     attrs.each { |key, value| merged[key.to_s] = value }
     Model.new(merged) { |record| yield record }
+  end
+
+  def create_or_find_by(**attrs) : Model | ErrorBase
+    create_or_find_by(attrs.to_h)
+  end
+
+  def create_or_find_by(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    create_or_find_by(attrs.to_h) { |record| yield record }
+  end
+
+  def create_or_find_by(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    create_or_find_by(attrs) { |record| nil }
+  end
+
+  def create_or_find_by(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    record = build(attrs) { |built| yield built }!
+    saved = Model.transaction(requires_new: true) { record.save_strict }
+    return record if saved == true
+    if saved.is_a?(RecordNotSaved) && saved.statement_error.is_a?(RecordNotUnique)
+      find_by(attrs)! || record
+    else
+      record
+    end
+  end
+
+  def create_or_find_by_strict(**attrs) : Model | ErrorBase
+    create_or_find_by_strict(attrs.to_h)
+  end
+
+  def create_or_find_by_strict(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    create_or_find_by_strict(attrs.to_h) { |record| yield record }
+  end
+
+  def create_or_find_by_strict(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    create_or_find_by_strict(attrs) { |record| nil }
+  end
+
+  def create_or_find_by_strict(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    record = build(attrs) { |built| yield built }!
+    saved = Model.transaction(requires_new: true) { record.save_strict }
+    return record if saved == true
+    if saved.is_a?(RecordNotSaved) && saved.statement_error.is_a?(RecordNotUnique)
+      find_by_strict(attrs)
+    else
+      saved.is_a?(ErrorBase) ? saved : record
+    end
   end
 
   def find_by(criteria : Hash(K, V)) : Model | Nil | ErrorBase forall K, V

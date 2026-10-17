@@ -87,6 +87,38 @@ pub macro create_methods(model)
     current_scope.find_or_create_by_strict(attrs) { |record| yield record }
   end
 
+  def self.create_or_find_by(**attrs) : {{ model }} | ::Grant::Error::ErrorBase
+    current_scope.create_or_find_by(**attrs)
+  end
+
+  def self.create_or_find_by(**attrs, &block : {{ model }} -> R) : {{ model }} | ::Grant::Error::ErrorBase forall R
+    current_scope.create_or_find_by(**attrs) { |record| yield record }
+  end
+
+  def self.create_or_find_by(attrs : Hash(K, V)) : {{ model }} | ::Grant::Error::ErrorBase forall K, V
+    current_scope.create_or_find_by(attrs)
+  end
+
+  def self.create_or_find_by(attrs : Hash(K, V), &block : {{ model }} -> R) : {{ model }} | ::Grant::Error::ErrorBase forall K, V, R
+    current_scope.create_or_find_by(attrs) { |record| yield record }
+  end
+
+  def self.create_or_find_by_strict(**attrs) : {{ model }} | ::Grant::Error::ErrorBase
+    current_scope.create_or_find_by_strict(**attrs)
+  end
+
+  def self.create_or_find_by_strict(**attrs, &block : {{ model }} -> R) : {{ model }} | ::Grant::Error::ErrorBase forall R
+    current_scope.create_or_find_by_strict(**attrs) { |record| yield record }
+  end
+
+  def self.create_or_find_by_strict(attrs : Hash(K, V)) : {{ model }} | ::Grant::Error::ErrorBase forall K, V
+    current_scope.create_or_find_by_strict(attrs)
+  end
+
+  def self.create_or_find_by_strict(attrs : Hash(K, V), &block : {{ model }} -> R) : {{ model }} | ::Grant::Error::ErrorBase forall K, V, R
+    current_scope.create_or_find_by_strict(attrs) { |record| yield record }
+  end
+
   def self.create(**args, &block : {{ model }} -> R) : {{ model }} forall R
     create(args) { |record| yield record }
   end
