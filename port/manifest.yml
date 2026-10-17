@@ -2031,7 +2031,7 @@
   target: test/grant_convenience_find_or_create_by_test.iyi
   area: associations
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/eager_loading/eager_loading_spec.cr
   target: test/grant_eager_loading_eager_loading_test.iyi
   area: associations

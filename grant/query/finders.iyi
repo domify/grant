@@ -1,12 +1,231 @@
 module grant/query/finders
 
 import grant/query/builder::{Builder}
+import grant/columns::{Type}
+import grant/query/where_field::{StructuredWhere}
+import std/text
 import grant/query/bind_value
 import grant/error::{ErrorBase}
 import grant/querying::{NotFound}
 import grant/adapter/driver::{Value}
 
 pub trait Finders(Model)
+  def scope_attributes : Hash(String, Type)
+    attrs = {} of String => Type
+    collect_equality_attributes(default_scope_where_fields, attrs)
+    collect_equality_attributes(where_fields, attrs)
+    attrs
+  end
+
+  private def collect_equality_attributes(fields, attrs : Hash(String, Type)) : Nil
+    fields.each do |condition|
+      next unless condition.is_a?(StructuredWhere)
+      next unless condition[:join] == :and && condition[:operator] == :eq
+      value = condition[:value]
+      next if value.nil? || !value.is_a?(Type)
+      field = condition[:field].gsub("\"", "").gsub("`", "")
+      parts = field.split(".")
+      next if parts.size > 1 && parts[0] != Model.table_name
+      column = parts.last
+      attrs[column] = value if Model.fields.includes?(column)
+    end
+    nil
+  end
+
+  private def attributes_for_new_record : Hash(String, Type)
+    scope_attributes
+  end
+
+  def build(**attrs) : Model | ErrorBase
+    build(attrs.to_h)
+  end
+
+  def build(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    build(attrs.to_h) { |record| yield record }
+  end
+
+  def build(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    build(attrs) { |record| nil }
+  end
+
+  def build(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    merged = attributes_for_new_record
+    attrs.each { |key, value| merged[key.to_s] = value }
+    Model.new(merged) { |record| yield record }
+  end
+
+  def create(**attrs) : Model | ErrorBase
+    create(attrs.to_h)
+  end
+
+  def create(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    create(attrs.to_h) { |record| yield record }
+  end
+
+  def create(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    create(attrs) { |record| nil }
+  end
+
+  def create(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    record = build(attrs) { |built| yield built }!
+    record.save
+    record
+  end
+
+  def create_strict(**attrs) : Model | ErrorBase
+    create_strict(attrs.to_h)
+  end
+
+  def create_strict(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    create_strict(attrs.to_h) { |record| yield record }
+  end
+
+  def create_strict(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    create_strict(attrs) { |record| nil }
+  end
+
+  def create_strict(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    record = build(attrs) { |built| yield built }!
+    record.save_strict!
+    record
+  end
+
+  def find_or_create_by(**attrs) : Model | ErrorBase
+    find_or_create_by(attrs.to_h)
+  end
+
+  def find_or_create_by(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    find_or_create_by(attrs.to_h) { |record| yield record }
+  end
+
+  def find_or_create_by(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    find_or_create_by(attrs) { |record| nil }
+  end
+
+  def find_or_create_by(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    found = find_by(attrs)!
+    return found unless found.nil?
+    record = build(attrs) { |built| yield built }!
+    record.save
+    record
+  end
+
+  def find_or_create_by_strict(**attrs) : Model | ErrorBase
+    find_or_create_by_strict(attrs.to_h)
+  end
+
+  def find_or_create_by_strict(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    find_or_create_by_strict(attrs.to_h) { |record| yield record }
+  end
+
+  def find_or_create_by_strict(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    find_or_create_by_strict(attrs) { |record| nil }
+  end
+
+  def find_or_create_by_strict(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    found = find_by(attrs)!
+    return found unless found.nil?
+    record = build(attrs) { |built| yield built }!
+    record.save_strict!
+    record
+  end
+
+  def find_or_initialize_by(**attrs) : Model | ErrorBase
+    find_or_initialize_by(attrs.to_h)
+  end
+
+  def find_or_initialize_by(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    find_or_initialize_by(attrs.to_h) { |record| yield record }
+  end
+
+  def find_or_initialize_by(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    find_or_initialize_by(attrs) { |record| nil }
+  end
+
+  def find_or_initialize_by(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    found = find_by(attrs)!
+    return found unless found.nil?
+    record = build(attrs) { |built| yield built }!
+    record
+  end
+
+  def first_or_create(**attrs) : Model | ErrorBase
+    first_or_create(attrs.to_h)
+  end
+
+  def first_or_create(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    first_or_create(attrs.to_h) { |record| yield record }
+  end
+
+  def first_or_create(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    first_or_create(attrs) { |record| nil }
+  end
+
+  def first_or_create(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    found = first!
+    return found unless found.nil?
+    record = build(attrs) { |built| yield built }!
+    record.save
+    record
+  end
+
+  def first_or_create_strict(**attrs) : Model | ErrorBase
+    first_or_create_strict(attrs.to_h)
+  end
+
+  def first_or_create_strict(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    first_or_create_strict(attrs.to_h) { |record| yield record }
+  end
+
+  def first_or_create_strict(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    first_or_create_strict(attrs) { |record| nil }
+  end
+
+  def first_or_create_strict(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    found = first!
+    return found unless found.nil?
+    record = build(attrs) { |built| yield built }!
+    record.save_strict!
+    record
+  end
+
+  def first_or_initialize(**attrs) : Model | ErrorBase
+    first_or_initialize(attrs.to_h)
+  end
+
+  def first_or_initialize(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    first_or_initialize(attrs.to_h) { |record| yield record }
+  end
+
+  def first_or_initialize(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    first_or_initialize(attrs) { |record| nil }
+  end
+
+  def first_or_initialize(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    found = first!
+    return found unless found.nil?
+    record = build(attrs) { |built| yield built }!
+    record
+  end
+
+  def new(**attrs) : Model | ErrorBase
+    new(attrs.to_h)
+  end
+
+  def new(**attrs, &block : Model -> R) : Model | ErrorBase forall R
+    new(attrs.to_h) { |record| yield record }
+  end
+
+  def new(attrs : Hash(K, V)) : Model | ErrorBase forall K, V
+    new(attrs) { |record| nil }
+  end
+
+  def new(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
+    merged = attributes_for_new_record
+    attrs.each { |key, value| merged[key.to_s] = value }
+    Model.new(merged) { |record| yield record }
+  end
+
   def find_by(criteria : Hash(K, V)) : Model | Nil | ErrorBase forall K, V
     chain_copy.where_in_place(criteria).first
   end
