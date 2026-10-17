@@ -220,7 +220,7 @@ pub abstract class Base
 
   macro column(decl, **options)
     ::Grant::Columns.dirty_column_methods({{ decl }})
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, default_sql: {{ options[:default_sql] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
@@ -1070,7 +1070,7 @@ pub abstract class Base
       migrator = ::Grant::Migrator::Migrator.new(__connection, table_name, [
         \{% for v in columns %}
           \{% ann = v.annotation(::Grant::Base::Column) %}
-          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}),
+          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ ann[:type] }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}, default_sql: \{{ ann[:default_sql] }}),
         \{% end %}
       ] of ::Grant::Migrator::MigratorColumn)
       \{% for method in @type.class.methods.select(&.name.starts_with?("__grant_index_")) %}
@@ -1112,7 +1112,7 @@ pub abstract class Base
         \{% elsif type.includes?("Float32") %}
           record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw.to_f32 : nil
         \{% elsif type.includes?("Time") %}
-          record.\{{ v.name }} = %raw.is_a?(String) ? ::Std::Time::Time.parse_rfc3339(%raw) : nil
+          record.\{{ v.name }} = %raw.is_a?(String) ? ::Grant::ColumnsHelpers.time_from_db(%raw) : nil
         \{% elsif type.includes?("Float") %}
           record.\{{ v.name }} = %raw.is_a?(Float64) ? %raw : nil
         \{% else %}

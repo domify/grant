@@ -1,6 +1,7 @@
 module grant/columns_helpers
 
 pub import grant/columns
+import std/time::{Time}
 
 # The upstream String overload reads the attribute's own value; the Symbol
 # overload in Columns converts to its database representation.
@@ -21,4 +22,15 @@ pub macro model_methods(model)
       end
     \{% end %}
   end
+end
+
+# SQLite CURRENT_TIMESTAMP and datetime() return UTC without a zone suffix.
+pub def time_from_db(value : String) : Time
+  if value.size >= 19 && value[10] == ' '
+    suffix = value[19...value.size]
+    if !suffix.includes?("+") && !suffix.includes?("-") && !suffix.ends_with?("Z")
+      return Time.parse_rfc3339("#{value}Z")
+    end
+  end
+  Time.parse_rfc3339(value)
 end

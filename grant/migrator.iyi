@@ -29,6 +29,7 @@ pub struct MigratorColumn
   getter primary : Bool
   getter auto : Bool
 
+  getter default_sql : String?
   getter literal_default : String
   getter limit : Int32?
   getter precision : Int32?
@@ -37,7 +38,7 @@ pub struct MigratorColumn
   getter collation : String?
   getter comment : String?
 
-  def initialize(@name : String, @type_name : String, @column_type : String?, @primary : Bool, @auto : Bool, @literal_default : String = "", @limit : Int32? = nil, @precision : Int32? = nil, @scale : Int32? = nil, @null : Bool? = nil, @collation : String? = nil, @comment : String? = nil)
+  def initialize(@name : String, @type_name : String, @column_type : String?, @primary : Bool, @auto : Bool, @literal_default : String = "", @limit : Int32? = nil, @precision : Int32? = nil, @scale : Int32? = nil, @null : Bool? = nil, @collation : String? = nil, @comment : String? = nil, @default_sql : String? = nil)
   end
 
   def nilable? : Bool
@@ -105,12 +106,19 @@ pub class Migrator
     end
   end
 
+  private def default_clause(spec : MigratorColumn) : String
+    expression = spec.default_sql
+    return spec.literal_default if expression.nil?
+    dialect = @connection.postgres? ? Dialect::Pg : Dialect::Sqlite
+    " DEFAULT #{dialect.default_expression(expression)}"
+  end
+
   private def column_sql(spec : MigratorColumn) : String
     name = quote_identifier(spec.name)
     if spec.primary
       type = native_type(spec)
       type += " NOT NULL" unless @connection.postgres? || !spec.auto
-      "#{name} #{type} PRIMARY KEY#{spec.literal_default}"
+      "#{name} #{type} PRIMARY KEY#{default_clause(spec)}"
     else
       type = native_type(spec)
       unless spec.column_type
@@ -121,7 +129,7 @@ pub class Migrator
         end
       end
       not_null = spec.null == false || (spec.null != true && !spec.nilable? && !spec.column_type && spec.name != "created_at" && spec.name != "updated_at")
-      "#{name} #{type}#{not_null ? " NOT NULL" : ""}#{spec.literal_default}"
+      "#{name} #{type}#{not_null ? " NOT NULL" : ""}#{default_clause(spec)}"
     end
   end
 

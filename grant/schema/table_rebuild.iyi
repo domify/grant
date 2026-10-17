@@ -49,6 +49,14 @@ pub class TableRebuild
     nil
   end
 
+  def change_column(name : String, &block : String -> String) : Nil | ErrorBase
+    item = items.find { |candidate| candidate.kind == :column && candidate.name_or_empty.downcase == name.downcase }
+    return InvalidDefinition.new("Column '#{name}' does not exist in '#{table}'") if item.nil?
+    item.text = yield item.text
+    item.name = name
+    nil
+  end
+
   def statements : Array(String)
     dialect = Dialect::Sqlite
     scratch = "__grant_rebuild_#{table}"
@@ -167,6 +175,28 @@ pub class TableRebuild
       end
       result << body[start...body.size].strip
       result
+    end
+
+    def self.default_clause(text : String) : String?
+      start = text.upcase.index(" DEFAULT ")
+      return nil if start.nil?
+      index = start + 9
+      return nil if index >= text.size
+      char = text[index]
+      stop = if char == '('
+        close = matching_paren(text, index)
+        return nil if close.nil?
+        close + 1
+      elsif char == '\'' || char == '"'
+        index + first_token(text[index...text.size]).size
+      else
+        ending = index
+        while ending < text.size && text[ending] != ' ' && text[ending] != ',' && text[ending] != '\n'
+          ending += 1
+        end
+        ending
+      end
+      text[start...stop].strip
     end
 
     def self.mentions?(text : String, name : String) : Bool

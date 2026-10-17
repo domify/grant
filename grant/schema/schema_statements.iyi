@@ -2,7 +2,7 @@ module grant/schema/schema_statements
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/column_info::{ColumnInfo, IndexInfo}
 import grant/schema/index_definition::{IndexDefinition, Naming}
-import grant/schema/table_definition::{TableDefinition}
+import grant/schema/table_definition::{TableDefinition, Unset, UNSET}
 import grant/transaction
 import grant/schema/introspection
 import grant/schema/table_rebuild::{TableRebuild}
@@ -129,6 +129,41 @@ pub macro methods
   def rename_index(*args) : Nil | ErrorBase | Cancelled
     execute_batch(rename_index_statements(*args)!)
   end
+  def change_column_default_statements(table : String | Symbol, column : String | Symbol,
+                                       to = UNSET, default_sql : String? = nil, from = UNSET) : Array(String) | ErrorBase | Cancelled
+    if default_sql.nil? && to.is_a?(Unset)
+      return InvalidDefinition.new("change_column_default needs to: or default_sql:")
+    end
+    if dialect == Dialect::Sqlite
+      catalog = catalog_sqlite_table(table.to_s)!
+      rebuild = TableRebuild.new(table.to_s, catalog[0], catalog[1])
+      edited = rebuild.change_column(column.to_s) do |old|
+        previous = TableRebuild::Scanner.default_clause(old)
+        text = previous.nil? ? old : old.sub(previous, "")
+        if default_sql
+          "#{text} DEFAULT #{dialect.default_expression(default_sql)}"
+        elsif to.nil?
+          text
+        else
+          "#{text} DEFAULT #{dialect.quote_literal(to)}"
+        end
+      end
+      edited!
+      rebuild.statements
+    else
+      head = "ALTER TABLE #{dialect.quote(table)} ALTER COLUMN #{dialect.quote(column)}"
+      if default_sql
+        ["#{head} SET DEFAULT #{dialect.default_expression(default_sql)}"]
+      elsif to.nil?
+        ["#{head} DROP DEFAULT"]
+      else
+        ["#{head} SET DEFAULT #{dialect.quote_literal(to)}"]
+      end
+    end
+  end
+  def change_column_default(*args, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(change_column_default_statements(*args, **options)!)
+  end
   def change_table(table : String | Symbol, &block : AlterTableDefinition(self) -> T) : Nil | ErrorBase | Cancelled forall T
     definition = AlterTableDefinition.new(table.to_s, self)
     result = yield definition
@@ -152,6 +187,9 @@ pub class RecordingStatements
   def lookup_column(table : String, column : String) : ColumnInfo?
     columns = @known_columns[table]?
     columns.nil? ? nil : columns.find { |info| info.name == column }
+  end
+  def catalog_sqlite_table(table : String) : Tuple(String, Array(String)) | ErrorBase
+    UnsupportedOperation.new("A SQLite table rebuild needs a database connection to read '#{table}'")
   end
   def lookup_indexes(table : String) : Array(IndexInfo)? | ErrorBase
     nil

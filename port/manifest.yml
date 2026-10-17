@@ -1376,7 +1376,7 @@
   target: test/grant_schema_column_defaults_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/comments_spec.cr
   target: test/grant_schema_comments_test.iyi
   area: query
