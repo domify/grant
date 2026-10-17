@@ -2092,6 +2092,25 @@
   area: associations
   examples: 12
   status: todo
+  children:
+  - target: test/grant_persistence_equality_test.iyi
+    status: done
+    examples:
+    - T-b59616f59a
+    - T-35bd41698d
+    - T-cce5423fd6
+    - T-6fa8b2400c
+    - T-d9a96590b7
+    - T-b917e536c2
+    - T-904a82179e
+    - T-e9a194ba30
+    - T-bc1863ded1
+    - T-9986dda6e7
+  - target: test/grant_persistence_equality_sti_test.iyi
+    status: todo
+    examples:
+    - T-0da699949d
+    - T-4063a6f8d1
 - source: crystal-upstream/spec/grant/persistence/readonly_attribute_spec.cr
   target: test/grant_persistence_readonly_attribute_test.iyi
   area: associations

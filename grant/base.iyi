@@ -87,6 +87,13 @@ pub abstract class Base
     !key.nil? && self.class.to_s == other.class.to_s && key == other.__primary_value
   end
 
+  # Equal persisted records must occupy the same Hash and Set bucket.
+  # Native iyi hashes return Int32 rather than taking Crystal's hasher.
+  def hash : Int32
+    key = __primary_value
+    key.nil? ? object_id.hash : {self.class.to_s, key}.hash
+  end
+
   def initialize(**args)
     assign_attributes(args)
     establish_initial_dirty_baseline
@@ -154,6 +161,7 @@ pub abstract class Base
   end
 
   def assignable_attribute?(name : String | Symbol) : Bool
+    return true if name.to_s == __primary_name
     return true if __column_names.includes?(name.to_s)
     {% for method in @type.methods %}
       {% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
