@@ -2026,7 +2026,7 @@
   target: test/grant_connection_w6_no_database_error_test.iyi
   area: associations
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/find_or_create_by_spec.cr
   target: test/grant_convenience_find_or_create_by_test.iyi
   area: associations

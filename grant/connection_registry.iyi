@@ -47,6 +47,14 @@ pub class ConnectionRegistry
     nil
   end
 
+  def self.establish_connection(database : String, adapter : T.class, url : String, *, retry_attempts : Int32, role : Symbol = :primary, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, max_idle_pool_size : Int32 = 25, checkout_timeout : Span = Span.seconds(5_i64), verify_idle_after : Span? = Span.seconds(30_i64)) : Nil | ErrorBase forall T
+    establish_connection(database: database, adapter: adapter, url: url, role: role,
+      pool_size: pool_size, initial_pool_size: initial_pool_size, max_idle_pool_size: max_idle_pool_size,
+      checkout_timeout: checkout_timeout, verify_idle_after: verify_idle_after)!
+    get_adapter(database, role).retry_attempts = retry_attempts
+    nil
+  end
+
   def self.get_adapter?(database : String, role : Symbol = :primary) : Base?
     role = normalize_role(role)
     requested = @@adapters[key_for(database, role)]?

@@ -945,6 +945,11 @@ pub abstract class Base
     end
 
     def self.adapter
+      context_database = connection_context_database
+      unless context_database.nil?
+        contextual = ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter?(context_database, ::Grant::ConnectionManagement.registry_role(current_role))
+        return contextual unless contextual.nil?
+      end
       unless connection_config.empty?
         role = should_use_reader? ? ::Grant::Settings.settings.reading_role : ::Grant::Settings.settings.writing_role
         return resolve_adapter_for_role(role)
@@ -1333,7 +1338,12 @@ pub abstract class Base
     end
 
     def self.count : Int64 | ::Grant::Errors::DatabaseError
-      __connection.query("SELECT COUNT(*) AS count FROM #{::Grant::Base.quote_identifier(table_name)}")![0]["count"].as(Int64)
+      result = adapter.open do |db|
+        rows = db.query("SELECT COUNT(*) AS count FROM #{::Grant::Base.quote_identifier(table_name)}")
+        rows.is_a?(::Grant::Errors::DatabaseError) ? rows : rows[0]["count"].as(Int64)
+      end
+      return result if result.is_a?(Int64) || result.is_a?(::Grant::Errors::DatabaseError)
+      raise result.message
     end
 
     def __primary_name : String

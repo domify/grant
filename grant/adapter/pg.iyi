@@ -2,6 +2,7 @@ module grant/adapter/pg
 
 pub import grant/adapter/pg_connection
 import grant/adapter/base::{Base}
+import grant/database::{ConnectionRefused}
 import grant/adapter/placeholder_scanner::{PlaceholderScanner}
 import std/time::{Span}
 import grant/adapter/driver::{Value, Mutation}
@@ -36,6 +37,19 @@ pub class Pg < Base
   # Maps a PostgreSQL failure to the matching taxonomy error. An error Grant does
   # not recognize is returned unchanged.
   def translate_exception(error : E, sql : String? = nil, binds : Array(Value)? = nil) : E | ErrorBase forall E
+    if error.is_a?(::Grant::ErrorTaxonomy::NoDatabaseError)
+      translated = ::Grant::ErrorTaxonomy::NoDatabaseError.new(error.code, error.operation,
+        "Could not connect to #{name}: #{error.detail}", error.sql, error.cause || error)
+      translated.binds = error.binds
+      return translated
+    end
+    if error.is_a?(StatementInvalid)
+      cause = error.cause
+      if cause.is_a?(PQError) && (cause.sqlstate || "").starts_with?("08")
+        refused = ::Grant::Database::ConnectionRefused.new
+        return ::Grant::ErrorTaxonomy::ConnectionFailed.new("Could not connect to #{name}: #{error.message}", refused)
+      end
+    end
     if error.is_a?(PQError)
       described = binds.nil? ? [] of String : StatementInvalid.describe_binds(binds)
       kind = Pg.error_kind(error.sqlstate, error.message)

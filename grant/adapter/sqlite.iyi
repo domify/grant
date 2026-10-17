@@ -117,7 +117,7 @@ pub class Sqlite < Base
     # SQLITE_CANTOPEN: SQLite creates files, so an inaccessible database path
     # is its native equivalent of the upstream missing-directory translation.
     if error.is_a?(DatabaseError) && error.code == 14 && !Dir.exists?(File.dirname(database_path))
-      NoDatabaseError.new(error.code, error.operation, error.detail, error.sql)
+      NoDatabaseError.new(error.code, error.operation, "Could not connect to #{name}: #{error.detail}", error.sql, error.cause || error)
     else
       super(error, sql, binds)
     end
