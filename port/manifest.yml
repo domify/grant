@@ -590,7 +590,7 @@
   target: test/grant_attributes_introspection_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/normalized_query_spec.cr
   target: test/grant_attributes_normalized_query_test.iyi
   area: query
@@ -1976,7 +1976,7 @@
   target: test/grant_attributes_assign_attributes_test.iyi
   area: associations
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/inspect_filter_spec.cr
   target: test/grant_attributes_inspect_filter_test.iyi
   area: associations
@@ -2436,7 +2436,7 @@
   target: test/grant_attributes_reflection_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/bulk/chunking_spec.cr
   target: test/grant_bulk_chunking_test.iyi
   area: other
