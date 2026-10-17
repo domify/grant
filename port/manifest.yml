@@ -1621,7 +1621,7 @@
   target: test/grant_validations_multi_attribute_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/numericality_constraints_spec.cr
   target: test/grant_validations_numericality_constraints_test.iyi
   area: query
