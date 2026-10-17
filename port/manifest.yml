@@ -1436,7 +1436,7 @@
   target: test/grant_schema_timestamps_ddl_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_change_column_default_sqlite_spec.cr
   target: test/grant_schema_w6b_change_column_default_sqlite_test.iyi
   area: query

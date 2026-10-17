@@ -50,7 +50,7 @@ pub class TableDefinition
   end
   def column(name : String | Symbol, type : String | Symbol, null : Bool = true,
              comment : String? = nil, limit : Int32? = nil, collation : String? = nil,
-             array : Bool = false, default = UNSET, default_sql : String? = nil) : Nil | ErrorBase
+             array : Bool = false, default = UNSET, default_sql : String? = nil, precision : Int32? = nil) : Nil | ErrorBase
     if @columns.any? { |column| column.name == name.to_s }
       @definition_error = InvalidDefinition.new("Column '#{name}' is already defined in '#{table}'")
       return @definition_error
@@ -67,7 +67,7 @@ pub class TableDefinition
       when :bigint then "BIGINT"
       when :text then "TEXT"
       when :boolean then dialect == Dialect::Mysql ? "TINYINT(1)" : "BOOLEAN"
-      when :datetime then dialect == Dialect::Pg ? "TIMESTAMP(6)" : (dialect == Dialect::Mysql ? "DATETIME(6)" : "DATETIME")
+      when :datetime then dialect == Dialect::Pg ? "TIMESTAMP(#{precision || 6})" : (dialect == Dialect::Mysql ? "DATETIME(#{precision || 6})" : "DATETIME")
       else type.to_s
       end
     end
@@ -89,15 +89,15 @@ pub class TableDefinition
   {% for kind in ["string", "integer", "bigint", "text", "boolean", "datetime"] %}
     def {{kind.id}}(name : String | Symbol, null : Bool = true, comment : String? = nil,
                    limit : Int32? = nil, collation : String? = nil, array : Bool = false,
-                   default = UNSET, default_sql : String? = nil) : Nil | ErrorBase
+                   default = UNSET, default_sql : String? = nil, precision : Int32? = nil) : Nil | ErrorBase
       column(name, :{{kind.id}}, null: null, comment: comment, limit: limit, collation: collation,
-        array: array, default: default, default_sql: default_sql)
+        array: array, default: default, default_sql: default_sql, precision: precision)
     end
   {% end %}
 
-  def timestamps : Nil | ErrorBase
-    datetime(:created_at)!
-    datetime(:updated_at)
+  def timestamps(null : Bool = false, precision : Int32? = 6, default = UNSET, default_sql : String? = nil) : Nil | ErrorBase
+    datetime(:created_at, null: null, precision: precision, default: default, default_sql: default_sql)!
+    datetime(:updated_at, null: null, precision: precision, default: default, default_sql: default_sql)
   end
   {% for kind in ["hstore", "citext", "inet", "cidr", "macaddr", "ltree", "money", "jsonb"] %}
     def {{kind.id}}(name : String | Symbol, null : Bool = true) : Nil

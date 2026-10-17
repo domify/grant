@@ -118,6 +118,25 @@ pub macro methods
   def rename_index(*args) : Nil | ErrorBase | Cancelled
     execute_batch(rename_index_statements(*args)!)
   end
+  def add_timestamps_statements(table : String | Symbol, null : Bool = false, precision : Int32? = 6,
+                                default = UNSET, default_sql : String? = nil) : Array(String) | ErrorBase | Cancelled
+    definition = TableDefinition.new(table.to_s, dialect)
+    definition.timestamps(null, precision, default, default_sql)!
+    steps = [] of AlterStep
+    definition.columns.each { |column| steps << step_add_column(table.to_s, column)! }
+    render_steps(table.to_s, steps, true)
+  end
+  def add_timestamps(*args, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(add_timestamps_statements(*args, **options)!)
+  end
+  def remove_timestamps_statements(table : String | Symbol) : Array(String)
+    drops = ["created_at", "updated_at"].map { |name| "DROP COLUMN #{dialect.quote(name)}" }
+    head = "ALTER TABLE #{dialect.quote(table)}"
+    dialect == Dialect::Sqlite ? drops.map { |drop| "#{head} #{drop}" } : ["#{head} #{drops.join(", ")}"]
+  end
+  def remove_timestamps(table : String | Symbol) : Nil | ErrorBase | Cancelled
+    execute_batch(remove_timestamps_statements(table))
+  end
   def change_column_default_statements(table : String | Symbol, column : String | Symbol,
                                        to = UNSET, default_sql : String? = nil, from = UNSET) : Array(String) | ErrorBase | Cancelled
     if default_sql.nil? && to.is_a?(Unset)
