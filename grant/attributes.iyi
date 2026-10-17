@@ -54,6 +54,40 @@ end
 # Reflective reader and encrypted-inspection slice of upstream Attributes.
 # Deferred column introspection expands in each concrete Base subclass.
 pub macro model_methods(model)
+  @attributes_before_type_cast : Hash(String, ::Grant::Columns::Type)?
+
+  def attribute_before_type_cast(name : String | Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute = self.class.resolve_attribute_alias(name.to_s)
+    return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute) unless has_attribute?(attribute)
+    store = @attributes_before_type_cast
+    if store && store.has_key?(attribute)
+      store[attribute]
+    else
+      read_column_value(attribute)
+    end
+  end
+
+  protected def capture_before_type_cast(attribute : String, raw : ::Grant::Columns::Type) : Nil
+    store = @attributes_before_type_cast
+    unless store
+      store = {} of String => ::Grant::Columns::Type
+      @attributes_before_type_cast = store
+    end
+    store[attribute] = raw
+    nil
+  end
+
+  protected def discard_before_type_cast(attribute : String) : Nil
+    store = @attributes_before_type_cast
+    store.delete(attribute) if store
+    nil
+  end
+
+  def clear_before_type_cast : Nil
+    @attributes_before_type_cast = nil
+    nil
+  end
+
   def self.columns : Array(::Grant::Attributes::ColumnInfo)
     ::Grant::Attributes.columns_for(self.to_s) do
       \{% begin %}

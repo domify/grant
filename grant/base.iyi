@@ -317,6 +317,7 @@ pub abstract class Base
         ::Grant::Encryption::Sealed.guard_plaintext_strict({{ decl.var.stringify }}, value)!
       {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
+      discard_before_type_cast({{ decl.var.stringify }})
       @{{decl.var}} = value
       {% if options[:original] %}
         {% if options[:guarded] %}
@@ -1664,7 +1665,16 @@ pub abstract class Base
             {% else %}
               self.{{ key.id }} = converted
             {% end %}
+            capture_before_type_cast({{ key.stringify }}, value)
           end
+        else
+          self.{{ key.id }} = value
+        end
+      {% elsif column && column.annotation(::Grant::Base::Column)[:type].includes?("Bool") %}
+        value = args[{{ original_key.symbolize }}]
+        if value.is_a?(String)
+          self.{{ key.id }} = value == "true" || value == "1"
+          capture_before_type_cast({{ key.stringify }}, value)
         else
           self.{{ key.id }} = value
         end
@@ -1698,22 +1708,29 @@ pub abstract class Base
             self.{{ column.name }} = {{ column.annotation(::Grant::Base::Column)[:converter] }}.from_db(value)
           {% elsif type.includes?("Int32") %}
             converted = value.is_a?(String) ? value.to_i64? : (value.is_a?(Int) ? value.to_i64 : nil)
-            if converted.nil?
+            if value.nil?
+              self.{{ column.name }} = nil
+            elsif converted.nil?
               errors.clear_conversion_error({{ column.name.symbolize }})
               errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, "Expected integer")
             else
               self.{{ column.name }} = converted.to_i32
+              capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
             end
           {% elsif type.includes?("Int64") %}
             converted = value.is_a?(String) ? value.to_i64? : (value.is_a?(Int) ? value.to_i64 : nil)
-            if converted.nil?
+            if value.nil?
+              self.{{ column.name }} = nil
+            elsif converted.nil?
               errors.clear_conversion_error({{ column.name.symbolize }})
               errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, "Expected integer")
             else
               self.{{ column.name }} = converted
+              capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
             end
           {% elsif type.includes?("Bool") %}
-            self.{{ column.name }} = value.is_a?(Bool) ? value : (value.is_a?(String) ? value == "true" : nil)
+            self.{{ column.name }} = value.is_a?(Bool) ? value : (value.is_a?(String) ? (value == "true" || value == "1") : nil)
+            capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
           {% else %}
             {% if column.annotation(::Grant::Base::Column)[:guarded] %}
               result = (self.{{ column.name }} = value.as?({{ type.id }}))
