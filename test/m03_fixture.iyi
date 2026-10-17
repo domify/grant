@@ -1,9 +1,11 @@
 module test/m03_fixture
+import std/dir::{Dir}
+import std/file::{File}
 
 import grant/schema/migration::{Migration}
 import grant/error::{ErrorBase}
 import grant/schema/introspection
-import grant/schema/schema_migration::{SchemaMigration}
+import grant/schema/schema_migration::{SchemaMigration, Tracking}
 import grant/adapter/base::{Base}
 import grant/connection_registry::{ConnectionRegistry}
 import test/spec_helper::{CURRENT_ADAPTER}
@@ -35,8 +37,8 @@ pub def column?(table : String, column : String, target : Base = adapter) : Bool
   target.schema.table_exists?(table).or_panic && target.schema.columns(table).or_panic.any? { |info| info.name == column }
 end
 
-pub def versions(target : Base = adapter) : Array(Int64)
-  SchemaMigration.new(target).versions.or_panic.to_a.sorted
+pub def versions(target : Base = adapter, tracking : Tracking = Tracking::Grant) : Array(Int64)
+  SchemaMigration.new(target, tracking).versions.or_panic.to_a.sorted
 end
 
 pub class M03CreateUsers < Migration
@@ -63,4 +65,18 @@ pub class M03CreatePosts < Migration
   def down : Nil | ErrorBase | Cancelled
     drop_table(:m03_posts)
   end
+end
+
+@@tmp_counter : Int32 = 0
+pub def tmpdir(&block : String -> T) : T forall T
+  @@tmp_counter += 1
+  dir = "build/tmp/m03_#{IyiScheduler.current.object_id}_#{@@tmp_counter}"
+  Dir.mkdir_p(dir)
+  defer cleanup_tmpdir(dir)
+  yield dir
+end
+private def cleanup_tmpdir(dir : String) : Nil
+  Dir.each_child(dir) { |child| File.delete(File.join(dir, child)) }
+  Dir.delete(dir)
+  nil
 end

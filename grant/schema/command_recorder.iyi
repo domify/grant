@@ -1,0 +1,5 @@
+module grant/schema/command_recorder
+import grant/error::{ErrorBase}
+
+pub class IrreversibleMigration < ErrorBase
+end

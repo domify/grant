@@ -1,13 +1,16 @@
 module grant/schema/migration_context
 
-import grant/schema/migration::{Migration, MigrationEntry, InvalidMigration}
-import grant/schema/schema_migration::{SchemaMigration}
+import grant/schema/migration::{Migration, MigrationEntry, InvalidMigration, SqlFileMigration}
+import grant/schema/schema_migration::{SchemaMigration, Tracking}
 import grant/schema/schema_statements::{AdapterStatements}
 import grant/adapter/base::{Base}
 import grant/advisory_lock
 import grant/error::{ErrorBase}
 import std/time::{Span}
 import std/enumerable
+import std/dir::{Dir}
+import std/file::{File}
+import std/text
 
 pub class PendingMigrationError < ErrorBase
   getter versions : Array(Int64)
@@ -22,30 +25,70 @@ pub class MigrationContext
   getter lock_timeout : Span
   @entries : Array(MigrationEntry)
   @executor : AdapterStatements
+  @paths : Array(String)
+  @loaded : Array(MigrationEntry)? = nil
+  getter tracking : Tracking
 
   def initialize(@adapter : Base, migrations : Array(MigrationEntry) = [] of MigrationEntry,
-                 @verbose : Bool = true, @lock_timeout : Span = Span.seconds(600_i64))
+                 @verbose : Bool = true, @lock_timeout : Span = Span.seconds(600_i64), paths : Array(String) = [] of String, @tracking : Tracking = Tracking::Grant)
     @entries = migrations
-    @schema_migration = SchemaMigration.new(adapter)
+    @schema_migration = SchemaMigration.new(adapter, tracking)
+    @paths = paths
     @executor = AdapterStatements.new(adapter)
   end
 
   def self.for(adapter : Base, *classes, **options) : MigrationContext
     entries = [] of MigrationEntry
-    classes.each { |klass| entries << klass.entry }
+    classes.each { |klass| entries << require_entry(klass.entry) }
     new(adapter, entries, **options)
   end
 
-  def migrations : Array(MigrationEntry)
-    @entries.sorted_by { |entry| entry.version }
+  private def self.require_entry(entry : MigrationEntry | ErrorBase) : MigrationEntry
+    if entry.is_a?(::Error)
+      raise entry.message.to_s
+    else
+      entry
+    end
   end
 
+  def migrations : Array(MigrationEntry) | ErrorBase
+    loaded = @loaded
+    return loaded unless loaded.nil?
+    all = @entries.dup
+    @paths.each do |directory|
+      Dir.glob(File.join(directory, "*.sql")).sorted.each { |path| all << sql_entry(path)! }
+    end
+    all = all.sorted_by { |entry| entry.version }
+    index = 1
+    while index < all.size
+      if all[index - 1].version == all[index].version
+        return InvalidMigration.new("Two migrations have version #{all[index].version}: #{all[index - 1].name} and #{all[index].name}")
+      end
+      index += 1
+    end
+    @loaded = all
+    all
+  end
+  private def sql_entry(path : String) : MigrationEntry | ErrorBase
+    file = File.basename(path)
+    split = file.index('_')
+    return InvalidMigration.new("#{path}: a migration file is named <version>_<name>.sql") if split.nil? || !file.ends_with?(".sql")
+    version = file[0...split].to_i64?
+    return InvalidMigration.new("#{path}: a migration file is named <version>_<name>.sql") if version.nil?
+    name = file[(split + 1)...-4].split('_').map { |word| word.capitalize }.join
+    return InvalidMigration.new("#{path}: a migration file is named <version>_<name>.sql") if name.empty?
+    migration = SqlFileMigration.parse(version, name, File.read(path))!
+    MigrationEntry.new(version, name, -> { migration.as(Migration) })
+  end
+  def current_version : Int64 | ErrorBase | Cancelled
+    applied_versions!.to_a.sorted.last? || 0_i64
+  end
   def applied_versions : Set(Int64) | ErrorBase | Cancelled
     schema_migration.versions
   end
   def pending : Array(MigrationEntry) | ErrorBase | Cancelled
     applied = applied_versions!
-    migrations.reject { |entry| applied.includes?(entry.version) }
+    migrations!.reject { |entry| applied.includes?(entry.version) }
   end
   def needs_migration? : Bool | ErrorBase | Cancelled
     !pending!.empty?
@@ -65,7 +108,7 @@ pub class MigrationContext
     with_migration_lock do
       applied = schema_migration.versions!
       ran = [] of Int64
-      migrations.each do |entry|
+      migrations!.each do |entry|
         next if applied.includes?(entry.version)
         run_entry(entry, true, applied)!
         ran << entry.version
@@ -79,7 +122,7 @@ pub class MigrationContext
       applied = schema_migration.versions!
       ran = [] of Int64
       applied.to_a.sorted.reversed.first(step).each do |version|
-        entry = migrations.find { |candidate| candidate.version == version }
+        entry = migrations!.find { |candidate| candidate.version == version }
         return InvalidMigration.new("No migration with version number #{version}") if entry.nil?
         run_entry(entry, false, applied)!
         ran << version

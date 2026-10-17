@@ -1406,7 +1406,7 @@
   target: test/grant_schema_micrate_sql_files_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/migrator_options_spec.cr
   target: test/grant_schema_migrator_options_test.iyi
   area: query

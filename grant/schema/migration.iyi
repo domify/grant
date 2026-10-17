@@ -3,6 +3,9 @@ module grant/schema/migration
 import grant/adapter/base::{Base}
 import grant/schema/schema_statements::{AdapterStatements}
 import grant/schema/table_definition::{TableDefinition}
+pub import grant/schema/command_recorder
+import grant/schema/command_recorder::{IrreversibleMigration}
+import std/text
 import grant/error::{ErrorBase}
 
 pub class InvalidMigration < ErrorBase
@@ -36,6 +39,10 @@ pub abstract class Migration
   def self.register(entry : MigrationEntry) : Nil
     @@registry << entry
     nil
+  end
+
+  def self.entry : MigrationEntry | ErrorBase
+    InvalidMigration.new("#{self} declares no migration_version")
   end
 
   macro migration_version(version)
@@ -94,6 +101,10 @@ pub abstract class Migration
     InvalidMigration.new("#{name} defines up but no down or change")
   end
 
+  def execute(sql : String) : Nil | ErrorBase | Cancelled
+    statements.execute_batch([sql])
+  end
+
   def create_table(*args, **options, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
     statements.create_table(*args, **options) { |table| yield table }
   end
@@ -103,4 +114,72 @@ pub abstract class Migration
       statements.{{method.id}}(*args, **options)
     end
   {% end %}
+end
+
+pub class SqlFileMigration < Migration
+  getter version : Int64
+  getter name : String
+  getter up_statements : Array(String)
+  getter down_statements : Array(String)
+  getter no_transaction : Bool
+  def initialize(@version : Int64, @name : String, @up_statements : Array(String),
+                 @down_statements : Array(String), @no_transaction : Bool = false)
+  end
+  def no_transaction? : Bool
+    no_transaction
+  end
+  def self.parse(version : Int64, name : String, text : String) : SqlFileMigration | ErrorBase
+    sections = {up: [] of String, down: [] of String}
+    section = nil.as(Symbol?)
+    buffer = [] of String
+    block = false
+    no_transaction = false
+    flush = ->(target : Array(String)) do
+      sql = buffer.join("\n").strip
+      target << sql unless sql.empty?
+      buffer.clear
+    end
+    text.split('\n').each do |raw|
+      line = raw.rstrip
+      stripped = line.lstrip
+      marker = stripped.starts_with?("--") ? stripped[2...stripped.size].lstrip : ""
+      tokens = marker.split
+      if tokens.size >= 2 && tokens[0].downcase == "+micrate"
+        case tokens[1].downcase
+        when "up"
+          return InvalidMigration.new("#{name}: unterminated StatementBegin") if block
+          section = :up
+        when "down"
+          return InvalidMigration.new("#{name}: unterminated StatementBegin") if block
+          section = :down
+        when "statementbegin" then block = true
+        when "statementend"
+          block = false
+          flush.call(section == :down ? sections[:down] : sections[:up])
+        when "notransaction" then no_transaction = true
+        else return InvalidMigration.new("#{name}: unknown Micrate marker #{tokens[1].inspect}")
+        end
+        next
+      end
+      next if !block && (stripped.empty? || stripped.starts_with?("--"))
+      return InvalidMigration.new("#{name}: SQL before the -- +micrate Up marker") if section.nil?
+      buffer << line
+      flush.call(section == :down ? sections[:down] : sections[:up]) if !block && stripped.ends_with?(";")
+    end
+    return InvalidMigration.new("#{name}: unterminated StatementBegin") if block
+    return InvalidMigration.new("#{name}: the last statement is missing its semicolon") unless buffer.empty?
+    new(version, name, sections[:up], sections[:down], no_transaction)
+  end
+  def disable_ddl_transaction? : Bool
+    no_transaction
+  end
+  def up : Nil | ErrorBase | Cancelled
+    up_statements.each { |sql| execute(sql)! }
+    nil
+  end
+  def down : Nil | ErrorBase | Cancelled
+    return IrreversibleMigration.new("#{name} has no -- +micrate Down section") if down_statements.empty?
+    down_statements.each { |sql| execute(sql)! }
+    nil
+  end
 end
