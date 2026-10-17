@@ -31,6 +31,65 @@ pub macro has_many(model, scope = nil, **options)
   end
 end
 
+pub macro has_one(model, scope = nil, **options)
+  {% if model.is_a?(TypeDeclaration) %}
+    {% method_name = model.var %}
+    {% class_name = model.type %}
+  {% else %}
+    {% method_name = model.id %}
+    {% class_name = options[:class_name] || model.id.camelcase %}
+  {% end %}
+  {% foreign_key = options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" %}
+  {% primary_key = options[:primary_key] || "id" %}
+  @[::Grant::Associations::Relationship(target: {{ class_name }}, type: :has_one,
+    primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }}, scope: {{ scope }})]
+  def {{ method_name }} : {{ class_name }} | Nil | ::Grant::Error::ErrorBase
+    loaded = get_loaded_association({{ method_name.stringify }})
+    return loaded.first?.as({{ class_name }}?) unless loaded.nil?
+    key = read_attribute({{ primary_key.id.stringify }})!
+    result = {{ class_name }}.where({{ foreign_key.id.stringify }}, :eq, key).first!
+    records = [] of {{ class_name }}
+    records << result unless result.nil?
+    set_loaded_association({{ method_name.stringify }}, records)
+    result
+  end
+
+  def {{ method_name }}_strict : {{ class_name }} | ::Grant::Error::ErrorBase
+    was_loaded = association_loaded?({{ method_name.stringify }})
+    result = {{ method_name }}!
+    return result unless result.nil?
+    return ::Grant::Querying::NotFound.new("No " + {{ class_name }}.to_s + " found") if was_loaded
+    key = read_attribute({{ primary_key.id.stringify }})!
+    ::Grant::Querying::NotFound.new("No " + {{ class_name }}.to_s + " found where " + {{ foreign_key.id.stringify }} + " = #{key}")
+  end
+
+  def {{ method_name }}=(child : {{ class_name }}?) : {{ class_name }} | Nil | ::Grant::Error::ErrorBase
+    key = read_attribute({{ primary_key.id.stringify }})!
+    if persisted?
+      current = {{ method_name }}!
+      outcome = self.class.transaction do
+        if !current.nil? && (child.nil? || current.__primary_value != child.__primary_value)
+          current.assign_attributes({ {{ foreign_key.id.stringify }} => nil })
+          current.save_strict!
+        end
+        unless child.nil?
+          child.assign_attributes({ {{ foreign_key.id.stringify }} => key })
+          child.save_strict!
+        end
+        nil
+      end
+      outcome!
+    end
+    records = [] of {{ class_name }}
+    unless child.nil?
+      child.assign_attributes({ {{ foreign_key.id.stringify }} => key })
+      records << child
+    end
+    set_loaded_association({{ method_name.stringify }}, records)
+    child
+  end
+end
+
 pub macro model_methods(model)
   @__loaded_associations = {} of String => Array(::Grant::Base::Base)
 
