@@ -83,12 +83,18 @@ pub macro model_methods(model)
   end
 
   def self.default_database_name : String
-    @@default_database_name
+    own = @@own_default_database_name
+    return own unless own.nil?
+    {% if model.resolve.superclass.stringify != "Grant::Base::Base" %}
+      {{ model.resolve.superclass }}.default_database_name
+    {% else %}
+      "primary"
+    {% end %}
   end
 
   def self.default_database_name=(database : String) : String
     @@connection_name = database
-    @@default_database_name = database
+    @@own_default_database_name = database
   end
 
   def self.connection_context : ::Grant::ConnectionContext::ConnectionContext?
