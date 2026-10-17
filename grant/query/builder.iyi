@@ -18,6 +18,7 @@ import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
+import grant/query/ordering::{Ordering, OrderSupport}
 import grant/query/sql_expression
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
@@ -679,7 +680,7 @@ pub class Builder(Model)
       implicit_order_columns.each { |column| own_order_fields << {field: column, direction: Sort::Descending} }
       return self
     end
-    @order_fields = @order_fields.map { |field| {field: field[:field], direction: field[:direction].reverse} }
+    @order_fields = @order_fields.map { |field| OrderSupport.reverse(field) }
     self
   end
 
@@ -1335,4 +1336,7 @@ impl WhereChainMethods(Model) for Builder(Model) forall Model
 end
 
 impl WhereComposition(Model) for Builder(Model) forall Model
+end
+
+impl Ordering(Model) for Builder(Model) forall Model
 end

@@ -1031,7 +1031,7 @@
   target: test/grant_query_in_order_of_test.iyi
   area: query
   examples: 16
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/joins_integration_spec.cr
   target: test/grant_query_joins_integration_test.iyi
   area: query
