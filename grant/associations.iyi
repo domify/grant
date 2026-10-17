@@ -1,6 +1,7 @@
 module grant/associations
 
 pub import grant/association_collection
+import grant/dependent
 
 pub annotation Relationship
 end
@@ -29,6 +30,10 @@ pub macro has_many(model, scope = nil, **options)
       self, {{ foreign_key.id.stringify }}, primary_key: {{ options[:primary_key] ? primary_key.id.stringify : nil }},
       scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
   end
+  {% if options[:dependent] == :delete_all %}
+    ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_many, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
+  {% end %}
+
 end
 
 pub macro belongs_to(model, scope = nil, **options)
@@ -131,6 +136,10 @@ pub macro has_one(model, scope = nil, **options)
     set_loaded_association({{ method_name.stringify }}, records)
     child
   end
+  {% if options[:dependent] == :delete %}
+    ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_one, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
+  {% end %}
+
 end
 
 pub macro model_methods(model)

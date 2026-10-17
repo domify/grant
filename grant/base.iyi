@@ -8,6 +8,7 @@ pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
 pub import grant/associations
+import grant/dependent
 pub import grant/columns
 pub import grant/schema/verify
 pub import grant/schema/model_indexes
@@ -703,6 +704,7 @@ pub abstract class Base
   macro __process_columns
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
+    ::Grant::Dependent.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
@@ -1915,6 +1917,7 @@ pub abstract class Base
     self.before_destroy!
     delete
     self.after_destroy!
+    self.__destroy_dependents!
     queue_commit_callbacks(:destroy)!
     true
   end
