@@ -16,6 +16,6 @@ You are one of several parallel workers porting Crystal Grant (crystal-upstream/
 ## Process
 
 - Commit after each spec file (tests passing on both adapters, manifest entry set to `done`), with a descriptive message ending in the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` if you are Claude (Codex: no trailer).
-- Check your files with `bin/port-check --fast <targets>`; before finishing run `bin/port-check --integrate` and make sure it reports no failures other than unfinished entries.
+- Check your files with `bin/port-check --fast <targets>`; never run the full gate; the reviewer runs `bin/port-check --integrate` after merging.
 - Never edit crystal-upstream/. Never weaken, skip, delete or mark pending an assertion. Never flatten an adapter branch (port/HINTS.md).
 - When you stop, report: commits made, spec files completed (examples), files attempted but not finished and what blocks them, any shared-core changes, and any iyi compiler bugs found (with a minimal reproduction).
