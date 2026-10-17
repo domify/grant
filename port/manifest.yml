@@ -2170,7 +2170,7 @@
   target: test/grant_schema_type_mapping_test.iyi
   area: associations
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_add_timestamps_sqlite_spec.cr
   target: test/grant_schema_w6b_add_timestamps_sqlite_test.iyi
   area: associations

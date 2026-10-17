@@ -52,6 +52,7 @@ pub abstract class ResultSet
 
   abstract def column_names : Array(String)
   abstract def each(&block : -> T) : Nil | T | DatabaseError forall T
+  abstract def move_next : Bool | DatabaseError
   abstract def read : Value | DatabaseError
 
   def column_count : Int32
@@ -124,6 +125,12 @@ pub class LibraryResultSet < ResultSet
     @result.column_count.times { |index| @column_names << @result.column_name(index) }
   end
 
+  def move_next : Bool | DatabaseError
+    return false if closed?
+    result = @result.move_next
+    result.is_a?(DBError) ? @owner.statement_error(result, "query", @sql, @parameters) : result
+  end
+
   def each(&block : -> T) : Nil | T | DatabaseError forall T
     until closed?
       next_row = @result.move_next
@@ -138,6 +145,7 @@ pub class LibraryResultSet < ResultSet
   def read : Value | DatabaseError
     value = @result.read
     return @owner.statement_error(value, "query", @sql, @parameters) if value.is_a?(DBError)
+    return value if value.is_a?(Bytes)
     @owner.normalize(value)
   end
 end

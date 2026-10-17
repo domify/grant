@@ -1,5 +1,5 @@
 module grant/schema/table_definition
-import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
+import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition, TypeCatalog}
 import grant/schema/index_definition::{IndexDefinition}
 import grant/errors::{ErrorBase}
 import grant/schema/table_definition_constraints
@@ -50,7 +50,7 @@ pub class TableDefinition
   end
   def column(name : String | Symbol, type : String | Symbol, null : Bool = true,
              comment : String? = nil, limit : Int32? = nil, collation : String? = nil,
-             array : Bool = false, default = UNSET, default_sql : String? = nil, precision : Int32? = nil) : Nil | ErrorBase
+             array : Bool = false, default = UNSET, default_sql : String? = nil, precision : Int32? = nil, scale : Int32? = nil) : Nil | ErrorBase
     if @columns.any? { |column| column.name == name.to_s }
       @definition_error = InvalidDefinition.new("Column '#{name}' is already defined in '#{table}'")
       return @definition_error
@@ -63,9 +63,25 @@ pub class TableDefinition
     if type.is_a?(Symbol)
       native = case type
       when :string then limit ? "VARCHAR(#{limit})" : (dialect == Dialect::Pg ? "VARCHAR" : "VARCHAR(255)")
-      when :integer then dialect == Dialect::Mysql ? "INT" : "INTEGER"
+      when :integer then TypeCatalog.integer_type(dialect, limit || 4)!
+      when :smallint then TypeCatalog.integer_type(dialect, 2)!
+      when :tinyint then TypeCatalog.integer_type(dialect, 1)!
       when :bigint then "BIGINT"
-      when :text then "TEXT"
+      when :text then dialect == Dialect::Mysql ? TypeCatalog.sized("TEXT", {255 => "TINYTEXT", 65535 => "TEXT", 16777215 => "MEDIUMTEXT"}, "LONGTEXT", limit) : "TEXT"
+      when :float then dialect == Dialect::Pg ? "REAL" : "FLOAT"
+      when :double then dialect == Dialect::Pg ? "DOUBLE PRECISION" : (dialect == Dialect::Mysql ? "DOUBLE" : "REAL")
+      when :decimal
+        if scale && precision.nil?
+          @definition_error = InvalidDefinition.new("scale: #{scale} on '#{name}' needs a precision:")
+          return @definition_error
+        end
+        word = dialect == Dialect::Mysql ? "DECIMAL" : "NUMERIC"
+        precision ? "#{word}(#{precision}, #{scale || 0})" : word
+      when :date then "DATE"
+      when :time then dialect == Dialect::Sqlite ? "TIME" : "TIME(#{precision || 6})"
+      when :binary then dialect == Dialect::Pg ? "BYTEA" : (dialect == Dialect::Mysql ? TypeCatalog.sized("BLOB", {255 => "TINYBLOB", 65535 => "BLOB", 16777215 => "MEDIUMBLOB"}, "LONGBLOB", limit) : "BLOB")
+      when :json then "JSON"
+      when :uuid then dialect == Dialect::Pg ? "UUID" : "CHAR(36)"
       when :boolean then dialect == Dialect::Mysql ? "TINYINT(1)" : "BOOLEAN"
       when :datetime then dialect == Dialect::Pg ? "TIMESTAMP(#{precision || 6})" : (dialect == Dialect::Mysql ? "DATETIME(#{precision || 6})" : "DATETIME")
       else type.to_s
@@ -86,12 +102,12 @@ pub class TableDefinition
     nil
   end
 
-  {% for kind in ["string", "integer", "bigint", "text", "boolean", "datetime"] %}
+  {% for kind in ["string", "integer", "smallint", "tinyint", "bigint", "text", "boolean", "datetime", "date", "time", "binary", "float", "double", "decimal", "json", "uuid"] %}
     def {{kind.id}}(name : String | Symbol, null : Bool = true, comment : String? = nil,
                    limit : Int32? = nil, collation : String? = nil, array : Bool = false,
-                   default = UNSET, default_sql : String? = nil, precision : Int32? = nil) : Nil | ErrorBase
+                   default = UNSET, default_sql : String? = nil, precision : Int32? = nil, scale : Int32? = nil) : Nil | ErrorBase
       column(name, :{{kind.id}}, null: null, comment: comment, limit: limit, collation: collation,
-        array: array, default: default, default_sql: default_sql, precision: precision)
+        array: array, default: default, default_sql: default_sql, precision: precision, scale: scale)
     end
   {% end %}
 
