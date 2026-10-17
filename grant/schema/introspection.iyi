@@ -2,12 +2,24 @@ module grant/schema/introspection
 import grant/adapter/base::{Base}
 import grant/adapter/schema::{Dialect}
 import grant/schema/table_rebuild::{TableRebuild}
-import grant/schema/column_info::{ColumnInfo, IndexInfo}
+import grant/schema/column_info::{ColumnInfo, IndexInfo, TypeFamily, ForeignKeyInfo, ReferentialAction}
 import grant/errors::{ErrorBase}
 import std/text
+import std/enumerable
+pub class TableNotFound < ErrorBase
+  getter table_name : String
+  def initialize(@table_name : String)
+    super("Table '#{table_name}' does not exist")
+  end
+end
+
 pub class Introspection
   getter adapter : Base
   def initialize(@adapter : Base)
+  end
+  def tables : Array(String) | ErrorBase | Cancelled
+    sql = adapter.postgres? ? "SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p') ORDER BY c.relname" : "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    adapter.open { |db| db.query(sql)!.map { |row| row["name"].as(String) } }
   end
   def table_exists?(table : String | Symbol) : Bool | ErrorBase | Cancelled
     literal = Dialect.for(@adapter).quote_literal(table.to_s)
@@ -20,21 +32,73 @@ pub class Introspection
     @adapter.open { |db| db.scalar(sql)!.as(String?) }
   end
   def columns(table : String | Symbol) : Array(ColumnInfo) | ErrorBase | Cancelled
+    return TableNotFound.new(table.to_s) unless table_exists?(table)!
     dialect = Dialect.for(@adapter)
     sql = if @adapter.postgres?
-      "SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS required, col_description(a.attrelid, a.attnum) AS comment, pg_get_expr(d.adbin, d.adrelid) AS default_value FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum WHERE a.attrelid = to_regclass(#{dialect.quote_literal(table.to_s)}) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
+      "SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS required, col_description(a.attrelid, a.attnum) AS comment, pg_get_expr(d.adbin, d.adrelid) AS default_value, COALESCE(array_position(i.indkey::int2[], a.attnum) + 1, 0)::int AS pk_position, (a.attidentity IN ('a', 'd') OR COALESCE(pg_get_expr(d.adbin, d.adrelid) LIKE 'nextval(%', false)) AS auto_increment, a.attnum::int AS position FROM pg_attribute a LEFT JOIN pg_index i ON i.indrelid = a.attrelid AND i.indisprimary LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum WHERE a.attrelid = to_regclass(#{dialect.quote_literal(table.to_s)}) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
     else
       "PRAGMA table_info(#{dialect.quote(table)})"
     end
     @adapter.open do |db|
-      db.query(sql)!.map do |row|
+      rows = db.query(sql)!
+      key_size = adapter.postgres? ? 0 : rows.count { |row| row["pk"].as(Int64) > 0 }
+      rows.map do |row|
         if @adapter.postgres?
-          ColumnInfo.new(table.to_s, row["name"].as(String), row["type"].as(String), !row["required"].as(Bool), default: row["default_value"].as(String?), comment: row["comment"].as(String?))
+          ColumnInfo.new(table.to_s, row["name"].as(String), row["type"].as(String), !row["required"].as(Bool), default: row["default_value"].as(String?), primary_key_position: row["pk_position"].as(Int64).to_i32, auto_increment: row["auto_increment"].as(Bool), position: row["position"].as(Int64).to_i32, comment: row["comment"].as(String?))
         else
-          ColumnInfo.new(table.to_s, row["name"].as(String), row["type"].as(String), row["notnull"].as(Int64) == 0, row["dflt_value"].as(String?), row["pk"].as(Int64).to_i32)
+          key_position = row["pk"].as(Int64).to_i32
+          rowid = key_position == 1 && key_size == 1 && row["type"].as(String).upcase == "INTEGER"
+          ColumnInfo.new(table.to_s, row["name"].as(String), row["type"].as(String), row["notnull"].as(Int64) == 0 && !rowid, row["dflt_value"].as(String?), key_position, rowid, row["cid"].as(Int64).to_i32 + 1)
         end
       end
     end
+  end
+  def column_exists?(table : String | Symbol, column : String | Symbol, type : TypeFamily? = nil) : Bool | ErrorBase | Cancelled
+    return false unless table_exists?(table)!
+    columns(table)!.any? { |info| info.name == column.to_s && (type.nil? || info.type_family == type) }
+  end
+  def primary_key(table : String | Symbol) : Array(String) | ErrorBase | Cancelled
+    columns(table)!.select { |info| info.primary_key? }.sorted_by { |info| info.primary_key_position }.map { |info| info.name }
+  end
+  def foreign_keys(table : String | Symbol) : Array(ForeignKeyInfo) | ErrorBase | Cancelled
+    return TableNotFound.new(table.to_s) unless table_exists?(table)!
+    sql = if adapter.postgres?
+      "SELECT c.conname AS name, ft.relname AS target, a.attname AS local_column, fa.attname AS foreign_column, c.confupdtype::text AS on_update, c.confdeltype::text AS on_delete FROM pg_constraint c JOIN pg_class ft ON ft.oid = c.confrelid CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(local_attnum, foreign_attnum, ord) JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.local_attnum JOIN pg_attribute fa ON fa.attrelid = c.confrelid AND fa.attnum = k.foreign_attnum WHERE c.contype = 'f' AND c.conrelid = to_regclass(#{Dialect::Pg.quote_literal(table.to_s)}) ORDER BY c.conname, k.ord"
+    else
+      "SELECT id, \"table\" AS target, \"from\" AS local_column, \"to\" AS foreign_column, on_update, on_delete FROM pragma_foreign_key_list(#{Dialect::Sqlite.quote_literal(table.to_s)}) ORDER BY id, seq"
+    end
+    adapter.open do |db|
+      grouped = {} of String => ForeignKeyInfo
+      db.query(sql)!.each do |row|
+        id = adapter.postgres? ? row["name"].as(String) : row["id"].as(Int64).to_s
+        target = row["target"].as(String)
+        local = row["local_column"].as(String)
+        foreign_column = row["foreign_column"].as(String?)
+        referenced = foreign_column || primary_key(target)!.first
+        if current = grouped[id]?
+          current.columns << local
+          current.primary_key_columns << referenced
+        else
+          update = referential_action(row["on_update"].as(String))
+          delete = referential_action(row["on_delete"].as(String))
+          grouped[id] = ForeignKeyInfo.new(table.to_s, adapter.postgres? ? id : nil, [local], target, [referenced], update, delete)
+        end
+      end
+      grouped.values
+    end
+  end
+  private def referential_action(text : String) : ReferentialAction
+    case text
+    when "c" then ReferentialAction::Cascade
+    when "r" then ReferentialAction::Restrict
+    when "n" then ReferentialAction::SetNull
+    when "d" then ReferentialAction::SetDefault
+    else ReferentialAction.parse(text)
+    end
+  end
+  def foreign_key_exists?(table : String | Symbol, to_table : String | Symbol? = nil, column : String | Symbol? = nil) : Bool | ErrorBase | Cancelled
+    return false unless table_exists?(table)!
+    foreign_keys(table)!.any? { |key| (to_table.nil? || key.to_table == to_table.to_s) && (column.nil? || key.columns == [column.to_s]) }
   end
   def indexes(table : String | Symbol) : Array(IndexInfo) | ErrorBase | Cancelled
     dialect = Dialect.for(adapter)
