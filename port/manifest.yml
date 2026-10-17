@@ -1566,7 +1566,7 @@
   target: test/grant_tasks_truncate_all_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/token_for_spec.cr
   target: test/grant_token_for_test.iyi
   area: query
