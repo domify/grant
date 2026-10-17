@@ -1207,6 +1207,46 @@
   area: query
   examples: 30
   status: todo
+  children:
+  - target: test/grant_query_where_not_or_and_not_test.iyi
+    status: done
+    examples:
+    - T-00979d0fb9
+    - T-ed36ab141c
+    - T-e784588137
+    - T-f94fa2b9b4
+    - T-94cef8b469
+    - T-57e2689689
+    - T-ba9ad009c0
+    - T-896aa3f118
+    - T-22d97ca296
+    - T-675d469bf0
+  - target: test/grant_query_where_not_or_and_relations_test.iyi
+    status: todo
+    examples:
+    - T-56508ba665
+    - T-7b300fb25b
+    - T-70cfb0fa2d
+    - T-80896bc022
+    - T-ec72e8acc3
+    - T-75701d1ed7
+    - T-830959a224
+    - T-b088054ad5
+    - T-b8b4c98c50
+    - T-6454921a07
+    - T-bfb0c8b136
+    - T-eea36360f6
+    - T-6c49d480f6
+    - T-a6f2fb6949
+    - T-54dd13d48d
+    - T-5da0cb7030
+    - T-ce52d3a2fc
+  - target: test/grant_query_where_not_or_and_test.iyi
+    status: todo
+    examples:
+    - T-9293a03531
+    - T-3e87eefa98
+    - T-5b80b89ecc
 - source: crystal-upstream/spec/grant/query/where_range_spec.cr
   target: test/grant_query_where_range_test.iyi
   area: query

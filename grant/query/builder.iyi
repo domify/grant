@@ -22,6 +22,7 @@ import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
 import grant/querying::{NotFound, NotUnique}
 import grant/query/where_chain::{WhereChainMethods}
+import grant/query/where_composition::{WhereComposition}
 
 # Native counterpart of Grant::Query::Builder(Model)
 # (crystal-upstream/src/grant/query/builder.cr).
@@ -494,7 +495,9 @@ pub class Builder(Model)
 
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
-    if value.is_a?(Array)
+    if value.is_a?(Range)
+      add_range_condition(join, field, value)
+    elsif value.is_a?(Array)
       add_array_condition(join, field, :in, value)
     else
       own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(value)}
@@ -1315,4 +1318,7 @@ impl ExistenceEnumerable(Model) for Builder(Model) forall Model
 end
 
 impl WhereChainMethods(Model) for Builder(Model) forall Model
+end
+
+impl WhereComposition(Model) for Builder(Model) forall Model
 end

@@ -1,0 +1,55 @@
+module grant/query/where_composition
+
+import grant/adapter/driver::{Value}
+import grant/error::{ErrorBase}
+import grant/query/predicate_renderer::{PredicateRenderer}
+import grant/query/bind_value::{to_value}
+
+# Value-shaped conditions and grouped negation, as in upstream
+# src/grant/query/where_composition.cr.
+pub trait WhereComposition(Model)
+  def where_not(matches : T) : self forall T
+    chain_copy.where_not_in_place(matches)
+  end
+
+  def where_not_in_place(matches : T) : self forall T
+    scope = chain_copy
+    scope.clear_where_fields
+    scope.clear_default_scope_where_fields
+    matches.each { |field, value| scope.add_condition(:and, field.to_s, value) }
+    return self if scope.where_fields.empty?
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, scope.join_clauses)
+    renderer.rendering_where_group = true
+    rendered = renderer.render_where_fields(scope.where_fields)
+    if rendered.is_a?(ErrorBase)
+      self.defer(rendered)
+    else
+      own_where_fields << {join: :and, stmt: "NOT (#{rendered})", values: values}
+    end
+    self
+  end
+
+  protected def add_range_condition(join : Symbol, field : String, value : Range(B, E)) : self forall B, E
+    safe_field = structured_field_sql(field)
+    return self if safe_field.nil?
+    parts = [] of String
+    values = [] of Value
+    first = value.begin
+    last = value.end
+    unless first.nil?
+      parts << "#{safe_field} >= ?"
+      values << to_value(first)
+    end
+    unless last.nil?
+      parts << "#{safe_field} #{value.exclusive? ? "<" : "<="} ?"
+      values << to_value(last)
+    end
+    own_where_fields << {join: join, stmt: "(#{parts.empty? ? "1=1" : parts.join(" AND ")})", values: values}
+    self
+  end
+end
