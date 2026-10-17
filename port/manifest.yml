@@ -1461,7 +1461,7 @@
   target: test/grant_scoping_scoping_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/secure_token_spec.cr
   target: test/grant_secure_token_test.iyi
   area: query

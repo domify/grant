@@ -106,6 +106,22 @@ pub macro model_methods(model)
     {% end %}
   {% end %}
 
+  def self.merge(other_scope : ::Grant::Query::Builder::Builder({{ model }})) : ::Grant::Query::Builder::Builder({{ model }})
+    current = current_scope
+    current.own_where_fields.concat(other_scope.where_fields)
+    current.own_order_fields.concat(other_scope.order_fields)
+    current.own_group_fields.concat(other_scope.group_fields)
+    if incoming = other_scope.limit
+      existing = current.limit
+      current.limit_in_place(existing.nil? || incoming < existing ? incoming : existing)
+    end
+    if incoming = other_scope.offset
+      existing = current.offset
+      current.offset_in_place(existing.nil? || incoming > existing ? incoming : existing)
+    end
+    current
+  end
+
   def self.delete(id : T) : Int64 | ::Grant::Error::ErrorBase forall T
     delete([id])
   end

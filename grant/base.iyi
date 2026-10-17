@@ -226,7 +226,7 @@ pub abstract class Base
   macro column(decl, **options)
     ::Grant::Columns.dirty_column_methods({{ decl }})
     @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, default_sql: {{ options[:default_sql] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
-    @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
+    @{{decl.var}} : {{decl.type}} | Nil = {% if decl.value.is_a?(BoolLiteral) %}{{ decl.value }}{% else %}{{ decl.value || nil }}{% end %}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
     {% if options[:lazy] %}
@@ -1233,7 +1233,7 @@ pub abstract class Base
       scoped = ::Grant::Scoping.current_relation(self)
       return scoped unless scoped.nil?
       query = ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
-      !_unscoped? && _has_default_scope? ? apply_default_scope(query) : query
+      !_unscoped? && _has_default_scope? ? apply_default_scope(query).promote_where_to_default_scope : query
     end
 
     def self.scoping(relation : ::Grant::Query::Builder::Builder({{ @type }}), &block : -> T) : T forall T
