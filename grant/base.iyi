@@ -66,6 +66,27 @@ pub abstract class Base
   @_current_callback : String? = nil
   getter errors = ::Grant::Errors::Errors.new
 
+  @readonly : Bool = false
+
+  def readonly? : Bool
+    @readonly
+  end
+
+  def readonly_in_place : Nil
+    mark_readonly
+  end
+
+  def mark_readonly(value : Bool = true) : Nil
+    @readonly = value
+    nil
+  end
+
+  def ==(other : Base) : Bool
+    return true if object_id == other.object_id
+    key = __primary_value
+    !key.nil? && self.class.to_s == other.class.to_s && key == other.__primary_value
+  end
+
   def initialize(**args)
     assign_attributes(args)
     establish_initial_dirty_baseline

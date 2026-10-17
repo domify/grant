@@ -2341,7 +2341,7 @@
   target: test/grant_persistence_dup_clone_test.iyi
   area: dirty_state
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/partial_updates_spec.cr
   target: test/grant_persistence_partial_updates_test.iyi
   area: dirty_state

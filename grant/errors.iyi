@@ -112,6 +112,10 @@ end
 pub class Errors
   @errors = [] of ::Grant::Error::Error
 
+  def add(field : String | Symbol, message : String) : self
+    self << ::Grant::Error::Error.new(field, message)
+  end
+
   def <<(error : ::Grant::Error::Error) : self
     @errors << error
     self
