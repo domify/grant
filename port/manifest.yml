@@ -2340,7 +2340,7 @@
   target: test/grant_normalization_test.iyi
   area: dirty_state
   examples: 17
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/perf/w6_lazy_dirty_spec.cr
   target: test/grant_perf_w6_lazy_dirty_test.iyi
   area: dirty_state
