@@ -34,6 +34,54 @@ pub class ConnectionState
 end
 
 pub macro model_methods(model)
+  def self.connection_context_owner?(owner : String?) : Bool
+    return true if owner == {{ model.stringify }}
+    {% for ancestor in model.resolve.ancestors %}
+      return true if owner == {{ ancestor.stringify }}
+    {% end %}
+    false
+  end
+
+  def self.connected_to?(role : Symbol? = nil, shard : Symbol? = nil) : Bool | ::Grant::Error::ArgumentError
+    if role.nil? && shard.nil?
+      return ::Grant::Error::ArgumentError.new("connected_to? needs a role or a shard")
+    end
+    unless role.nil?
+      return false unless ::Grant::ConnectionManagement.registry_role(current_role) ==
+                          ::Grant::ConnectionManagement.registry_role(role)
+    end
+    return false if !shard.nil? && (current_shard || :default) != shard
+    true
+  end
+
+  def self.connecting_to(database : String? = nil, role : Symbol? = nil,
+                         shard : Symbol? = nil, prevent_writes : Bool = false) : Nil
+    previous = connection_context
+    inherited = !previous.nil? && previous.prevent_writes
+    if inherited && !role.nil? && !previous.nil? &&
+       ::Grant::ConnectionManagement.registry_role(role) == :writing &&
+       ::Grant::ConnectionManagement.registry_role(previous.role) == :reading
+      inherited = false
+    end
+    implied = !role.nil? && ::Grant::ConnectionManagement.registry_role(role) == :reading
+    ::Grant::ConnectionContext::ConnectionState.current.contexts <<
+      ::Grant::ConnectionContext::ConnectionContext.new(database, role || current_role,
+        shard || current_shard, prevent_writes || implied || inherited, {{ model.stringify }})
+    nil
+  end
+
+  def self.reset_connecting_to : Nil
+    state = ::Grant::ConnectionContext::ConnectionState.current?
+    return nil if state.nil?
+    index = state.contexts.size - 1
+    while index >= state.block_floor
+      state.contexts.delete_at(index) if state.contexts[index].owner == {{ model.stringify }}
+      index -= 1
+    end
+    ::Grant::ConnectionContext::ConnectionState.release_if_empty
+    nil
+  end
+
   def self.default_database_name : String
     @@connection_name
   end
@@ -46,7 +94,7 @@ pub macro model_methods(model)
     state = ::Grant::ConnectionContext::ConnectionState.current?
     return nil if state.nil?
     state.contexts.reverse_each do |context|
-      return context if context.owner.nil? || context.owner == {{ model.stringify }}
+      return context if context.owner.nil? || self.connection_context_owner?(context.owner)
     end
     nil
   end
@@ -55,7 +103,7 @@ pub macro model_methods(model)
     state = ::Grant::ConnectionContext::ConnectionState.current?
     return nil if state.nil?
     state.contexts.reverse_each do |context|
-      if context.owner.nil? || context.owner == {{ model.stringify }}
+      if context.owner.nil? || self.connection_context_owner?(context.owner)
         return context.database unless context.database.nil?
       end
     end

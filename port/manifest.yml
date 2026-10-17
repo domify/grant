@@ -690,7 +690,7 @@
   target: test/grant_connection_connected_to_predicates_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/context_scoping_spec.cr
   target: test/grant_connection_context_scoping_test.iyi
   area: query
