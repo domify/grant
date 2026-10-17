@@ -2606,7 +2606,7 @@
   target: test/grant_schema_environment_protection_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/m02a_review_spec.cr
   target: test/grant_schema_m02a_review_test.iyi
   area: other
