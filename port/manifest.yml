@@ -2155,7 +2155,7 @@
   target: test/grant_schema_generator_test.iyi
   area: associations
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/migration_context_spec.cr
   target: test/grant_schema_migration_context_test.iyi
   area: associations
@@ -2180,7 +2180,7 @@
   target: test/grant_schema_w6b_execute_schema_qualified_test.iyi
   area: associations
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_migrator_foreign_keys_spec.cr
   target: test/grant_schema_w6b_migrator_foreign_keys_test.iyi
   area: associations
@@ -2195,7 +2195,7 @@
   target: test/grant_schema_w6b_mysql_live_test.iyi
   area: associations
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_type_catalog_spec.cr
   target: test/grant_schema_w6b_type_catalog_test.iyi
   area: associations
