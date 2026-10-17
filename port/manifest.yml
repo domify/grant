@@ -820,7 +820,7 @@
   target: test/grant_errors_errors_api_test.iyi
   area: query
   examples: 62
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/errors/taxonomy_spec.cr
   target: test/grant_errors_taxonomy_test.iyi
   area: query

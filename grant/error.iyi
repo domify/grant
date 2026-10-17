@@ -1,6 +1,7 @@
 module grant/error
 
 import std/json
+import std/text
 
 pub class ErrorBase
   getter message : String
@@ -22,6 +23,14 @@ pub class Error
   property type : Symbol?
 
   def initialize(@field : String | Symbol, @message : String = "", @type : Symbol? = nil)
+  end
+
+  def full_message : String
+    name = @field.to_s
+    return message if name == "base"
+    name = name[0, name.size - 3] if name.ends_with?("_id")
+    name = name.gsub("_", " ")
+    "#{name.capitalize} #{message}"
   end
 
   def to_s : String
