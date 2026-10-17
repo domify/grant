@@ -1,6 +1,7 @@
 module grant/schema/migration_context
 
 import grant/schema/migration::{Migration, MigrationEntry, InvalidMigration, SqlFileMigration}
+import grant/schema/internal_metadata::{InternalMetadata, ProtectedEnvironmentError}
 import grant/schema/schema_migration::{SchemaMigration, Tracking}
 import grant/schema/schema_statements::{AdapterStatements}
 import grant/adapter/base::{Base}
@@ -27,12 +28,17 @@ pub class MigrationContext
   @executor : AdapterStatements
   @paths : Array(String)
   @loaded : Array(MigrationEntry)? = nil
+  getter internal_metadata : InternalMetadata
+  getter environment : String?
+  getter protected_environments : Array(String)
   getter tracking : Tracking
 
   def initialize(@adapter : Base, migrations : Array(MigrationEntry) = [] of MigrationEntry,
-                 @verbose : Bool = true, @lock_timeout : Span = Span.seconds(600_i64), paths : Array(String) = [] of String, @tracking : Tracking = Tracking::Grant)
+                 @verbose : Bool = true, @lock_timeout : Span = Span.seconds(600_i64), paths : Array(String) = [] of String, @tracking : Tracking = Tracking::Grant, @environment : String? = nil,
+                 @protected_environments : Array(String) = InternalMetadata::DEFAULT_PROTECTED)
     @entries = migrations
     @schema_migration = SchemaMigration.new(adapter, tracking)
+    @internal_metadata = InternalMetadata.new(adapter)
     @paths = paths
     @executor = AdapterStatements.new(adapter)
   end
@@ -100,8 +106,30 @@ pub class MigrationContext
   def with_migration_lock(&block : -> T) : T | ErrorBase | Cancelled forall T
     ::Grant::AdvisoryLock.synchronize(adapter, "grant-migrations:#{adapter.current_database}:#{schema_migration.table_name}", lock_timeout) do
       created = schema_migration.create_table
-      created.is_a?(::Error) ? created : yield
+      return created if created.is_a?(::Error)
+      if current = environment
+        internal_metadata.record_environment(current)! if internal_metadata.environment!.nil?
+      end
+      yield
     end
+  end
+
+  def recorded_environment : String? | ErrorBase | Cancelled
+    internal_metadata.environment
+  end
+  def check_protected_environments_strict(force : Bool = false) : Nil | ErrorBase | Cancelled
+    return nil if force
+    if current = environment
+      internal_metadata.check_protected_environments_strict(current, protected_environments, false)!
+    elsif stored = internal_metadata.environment!
+      return ProtectedEnvironmentError.new(stored) if protected_environments.includes?(stored)
+    end
+    nil
+  end
+  def set_environment_strict : Nil | ErrorBase | Cancelled
+    current = environment
+    return InvalidMigration.new("set_environment! needs a context created with environment:") if current.nil?
+    internal_metadata.record_environment(current)
   end
 
   def migrate : Array(Int64) | ErrorBase | Cancelled

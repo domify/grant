@@ -4,6 +4,8 @@ import grant/adapter/driver::{Connection}
 import grant/errors::{DatabaseError, ErrorBase}
 import grant/schema/index_definition::{IndexDefinition}
 import grant/adapter/schema::{Dialect}
+import grant/adapter/base::{Base}
+import grant/schema/internal_metadata::{InternalMetadata, ProtectedEnvironmentError}
 
 # Literal defaults follow src/grant/migrator.cr; expressions are not inferred.
 pub def default_clause_for(value : T) : String forall T
@@ -72,6 +74,7 @@ pub class Migrator
 
   getter table : String
   getter connection : Connection
+  property schema_adapter : Base? = nil
   @specs : Array(MigratorColumn)
 
   def initialize(@connection : Connection, @table : String, @specs : Array(MigratorColumn))
@@ -172,7 +175,21 @@ pub class Migrator
     nil
   end
 
-  def drop_and_create : Nil | DatabaseError | ErrorBase
+  private def check_protected_environment_strict(force : Bool, environment : String?, protected_environments : Array(String)) : Nil | ErrorBase | Cancelled
+    return nil if force
+    target = schema_adapter
+    return nil if target.nil?
+    metadata = InternalMetadata.new(target)
+    if environment
+      metadata.check_protected_environments_strict(environment, protected_environments, false)!
+    elsif stored = metadata.environment!
+      return ProtectedEnvironmentError.new(stored) if protected_environments.includes?(stored)
+    end
+    nil
+  end
+
+  def drop_and_create(force : Bool = false, environment : String? = nil, protected_environments : Array(String) = InternalMetadata::DEFAULT_PROTECTED) : Nil | DatabaseError | ErrorBase | Cancelled
+    check_protected_environment_strict(force, environment, protected_environments)!
     drop(cascade: @connection.postgres?)!
     create!
   end

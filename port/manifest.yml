@@ -1446,7 +1446,7 @@
   target: test/grant_schema_w6b_internal_metadata_wired_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/scoping/default_scope_everywhere_spec.cr
   target: test/grant_scoping_default_scope_everywhere_test.iyi
   area: query
