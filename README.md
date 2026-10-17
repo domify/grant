@@ -8,22 +8,23 @@ The upstream Crystal sources live read-only in `crystal-upstream/`.
 **Status: work in progress, not released.** Expect breaking changes. SQLite and PostgreSQL are in
 scope; MySQL is not.
 
-## Progress (2026-10-14)
+## Progress (2026-10-17)
 
 Upstream specs are translated near line by line, keeping every assertion. Each test runs against
 both SQLite and PostgreSQL 17.
 
-| Area         | Spec files | Examples   |
-|--------------|-----------:|-----------:|
-| transactions |    39 / 53 |  389 / 496 |
-| query        |   19 / 225 | 123 / 2564 |
-| other        |    15 / 65 |   34 / 276 |
-| associations |   1 / 109  | 21 / 1121  |
-| dirty_state  |     0 / 27 |    0 / 279 |
-| **total**    |  74 / 479  | 567 / 4736 |
+| Area         | Spec files | Examples    |
+|--------------|-----------:|------------:|
+| transactions |    45 / 53 |   429 / 496 |
+| query        |   57 / 225 |  453 / 2564 |
+| other        |    35 / 65 |   100 / 276 |
+| associations |    9 / 109 |   70 / 1121 |
+| dirty_state  |     2 / 27 |    14 / 279 |
+| **total**    |  148 / 479 | 1066 / 4736 |
 
-About 12% of the upstream examples are ported. The transaction and connection core is nearly
-complete; associations, dirty tracking and most of the query surface are still to do.
+About 22% of the upstream examples are ported. The transaction and connection core is nearly
+complete, and schema migrations (DDL, renames, references, reversible migrations, verification)
+are largely done; associations, dirty tracking and most of the query surface are still to do.
 
 ## What you can use today
 
