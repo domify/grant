@@ -684,12 +684,16 @@ pub abstract class Base
     end
   end
 
+  macro belongs_to(model, scope = nil, **options)
+    ::Grant::Associations.belongs_to({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  end
+
   macro has_one(model, scope = nil, **options)
     ::Grant::Associations.has_one({{ model }}, {{ scope }}, foreign_key: {{ options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" }}, {% for key, value in options %}{% unless key == :foreign_key %}{{ key.id }}: {{ value }}, {% end %}{% end %})
   end
 
   macro has_many(model, scope = nil, **options)
-    ::Grant::Associations.has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+    ::Grant::Associations.has_many({{ model }}, {{ scope }}, foreign_key: {{ options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" }}, {% for key, value in options %}{% unless key == :foreign_key %}{{ key.id }}: {{ value }}, {% end %}{% end %})
   end
 
   macro index(columns, **options)

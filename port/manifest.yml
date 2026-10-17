@@ -1806,7 +1806,7 @@
   target: test/grant_associations_has_many_test.iyi
   area: associations
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/has_many_through_spec.cr
   target: test/grant_associations_has_many_through_test.iyi
   area: associations
