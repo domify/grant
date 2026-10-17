@@ -2106,7 +2106,7 @@
   target: test/grant_persistence_w6_assign_unknown_key_test.iyi
   area: associations
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/w6_touch_cascade_spec.cr
   target: test/grant_persistence_w6_touch_cascade_test.iyi
   area: associations

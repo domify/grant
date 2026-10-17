@@ -2,6 +2,25 @@ module grant/attributes
 
 pub import grant/columns
 
+pub class UnknownAttributeError < ::Grant::Error::ErrorBase
+  getter model_name : String
+  getter attribute_name : String
+
+  def initialize(@model_name : String, @attribute_name : String)
+    super("Unknown attribute '#{@attribute_name}' for #{@model_name}")
+  end
+end
+
+impl ::Error for UnknownAttributeError
+  def message : String
+    @message
+  end
+end
+
+pub annotation AttributeAlias
+end
+
+
 # Reflective reader and encrypted-inspection slice of upstream Attributes.
 # Deferred column introspection expands in each concrete Base subclass.
 pub macro model_methods(model)

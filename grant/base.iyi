@@ -142,6 +142,31 @@ pub abstract class Base
     end
   end
 
+  macro alias_attribute(new_name, old_name)
+    @[::Grant::Attributes::AttributeAlias(name: {{ new_name.id.stringify }}, column: {{ old_name.id.stringify }})]
+    def {{ new_name.id }}
+      {{ old_name.id }}
+    end
+
+    def {{ new_name.id }}=(value)
+      self.{{ old_name.id }} = value
+    end
+  end
+
+  def assignable_attribute?(name : String | Symbol) : Bool
+    return true if __column_names.includes?(name.to_s)
+    {% for method in @type.methods %}
+      {% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
+        return true if name.to_s == {{ ann[:name] }}
+      {% end %}
+    {% end %}
+    false
+  end
+
+  def attributes=(args : Hash(K, V)) forall K, V
+    assign_attributes(args)
+  end
+
   macro table(name)
     @@table_name = {{ name.is_a?(StringLiteral) ? name : name.id.stringify }}
   end
@@ -1565,11 +1590,29 @@ pub abstract class Base
     end
   end
 
+  def assign_attributes(**args)
+    assign_attributes(args)
+  end
+
   def assign_attributes(args : T) forall T
     {% for key in T.keys %}
+      unless assignable_attribute?({{ key.stringify }})
+        return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, {{ key.stringify }})
+      end
+    {% end %}
+    {% for key in T.keys %}
+      {% if @type.has_method?((key.stringify + "=").id) %}
+      {% original_key = key %}
+      {% for method in @type.methods %}
+        {% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
+          {% if ann[:name] == key.stringify %}
+            {% key = ann[:column].id %}
+          {% end %}
+        {% end %}
+      {% end %}
       {% column = @type.instance_vars.find { |v| v.name.stringify == key.stringify && v.annotation(::Grant::Base::Column) } %}
       {% if column && column.annotation(::Grant::Base::Column)[:type].includes?("Int") %}
-        value = args[{{ key.symbolize }}]
+        value = args[{{ original_key.symbolize }}]
         if value.is_a?(String)
           converted = value.to_i64?
           if converted.nil?
@@ -1587,19 +1630,25 @@ pub abstract class Base
         end
       {% else %}
         {% if column && column.annotation(::Grant::Base::Column)[:guarded] %}
-          result = (self.{{ key.id }} = args[{{ key.symbolize }}])
+          result = (self.{{ key.id }} = args[{{ original_key.symbolize }}])
           if result.is_a?(::Grant::Encryption::Sealed::ArgumentError)
             errors.clear_conversion_error({{ key.symbolize }})
             errors << ::Grant::Error::ConversionError.new({{ key.symbolize }}, result.message)
           end
         {% else %}
-          self.{{ key.id }} = args[{{ key.symbolize }}]
+          self.{{ key.id }} = args[{{ original_key.symbolize }}]
         {% end %}
+      {% end %}
       {% end %}
     {% end %}
   end
 
   def assign_attributes(args : Hash(K, V)) forall K, V
+    args.each do |key, value|
+      unless assignable_attribute?(key)
+        return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, key.to_s)
+      end
+    end
     {% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
       args.each do |key, value|
         if key.to_s == {{ column.name.stringify }}
