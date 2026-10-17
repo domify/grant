@@ -1,5 +1,7 @@
 module grant/schema/schema_statements
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
+import grant/schema/constraint_catalog
+import grant/schema/constraint_definition::{CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
 import grant/schema/column_info::{ColumnInfo, IndexInfo}
 import grant/schema/index_definition::{IndexDefinition, Naming}
 import grant/schema/table_definition::{TableDefinition, ColumnDefinition, Unset, UNSET}
@@ -22,6 +24,8 @@ pub macro methods
       columns << auto_id_sql(dialect, primary_key.to_s, id.is_a?(Symbol) ? id : :bigint)!
     end
     definition.columns.each { |column| columns << column.to_sql(dialect)! }
+    definition.unique_constraints.each { |constraint| columns << constraint.constraint_sql(dialect)! }
+    definition.check_constraints.each { |constraint| columns << constraint.constraint_sql(dialect)! }
     sql = "CREATE #{temporary ? "TEMPORARY " : ""}TABLE #{if_not_exists ? "IF NOT EXISTS " : ""}#{dialect.quote(table)} (\n  #{columns.join(",\n  ")}\n)"
     sql += " COMMENT=#{dialect.quote_literal(comment)}" if dialect == Dialect::Mysql && comment
     statements = force != false ? ["DROP TABLE IF EXISTS #{dialect.quote(table)}#{force == :cascade && dialect == Dialect::Pg ? " CASCADE" : ""}", sql] : [sql]

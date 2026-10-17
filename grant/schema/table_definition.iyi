@@ -2,6 +2,7 @@ module grant/schema/table_definition
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/index_definition::{IndexDefinition}
 import grant/errors::{ErrorBase}
+import grant/schema/table_definition_constraints
 import std/text
 pub struct Unset
 end
@@ -32,6 +33,7 @@ pub class ColumnDefinition
   end
 end
 pub class TableDefinition
+  ::Grant::Schema::TableDefinitionConstraints.methods
   getter definition_error : ErrorBase? = nil
   getter indexes = [] of IndexDefinition
   getter columns = [] of ColumnDefinition

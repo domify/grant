@@ -67,6 +67,22 @@ pub class TableRebuild
     nil
   end
 
+  def add_constraint(text : String) : Nil | ErrorBase
+    @items << classify(text)
+    nil
+  end
+  def remove_check(name : String? = nil, expression : String? = nil) : Int32
+    before = items.size
+    @items = items.reject do |item|
+      item.kind == :check && ((!name.nil? && item.name == name) || (!expression.nil? && Scanner.normalize(Scanner.check_expression(item.text)) == Scanner.normalize(expression)))
+    end
+    before - items.size
+  end
+  def remove_unique(name : String? = nil, columns : Array(String)? = nil) : Int32
+    before = items.size
+    @items = items.reject { |item| item.kind == :unique && ((!name.nil? && item.name == name) || (!columns.nil? && Scanner.fk_columns(item.text) == columns)) }
+    before - items.size
+  end
   def statements : Array(String)
     dialect = Dialect::Sqlite
     scratch = "__grant_rebuild_#{table}"
@@ -89,7 +105,15 @@ pub class TableRebuild
 
   private def classify(text : String) : Item
     stripped = text.strip
-    lowered = stripped.downcase
+    constraint_name = nil.as(String?)
+    body = stripped
+    if stripped.downcase.starts_with?("constraint ")
+      tail = stripped[11...stripped.size].strip
+      token = Scanner.first_token(tail)
+      constraint_name = Scanner.unquote(token)
+      body = tail[token.size...tail.size].strip
+    end
+    lowered = body.downcase
     kind = if lowered.starts_with?("primary key")
       :primary_key
     elsif lowered.starts_with?("foreign key")
@@ -104,7 +128,7 @@ pub class TableRebuild
       :column
     end
     token = Scanner.first_token(stripped)
-    Item.new(kind, kind == :column ? Scanner.unquote(token) : nil, stripped)
+    Item.new(kind, kind == :column ? Scanner.unquote(token) : constraint_name, stripped)
   end
 
   pub class Scanner
@@ -187,6 +211,22 @@ pub class TableRebuild
       result
     end
 
+    def self.check_expression(text : String) : String
+      open = text.index('(')
+      return text if open.nil?
+      close = matching_paren(text, open)
+      close.nil? ? text : text[(open + 1)...close]
+    end
+    def self.fk_columns(text : String) : Array(String)
+      split_items(check_expression(text)).map { |part| unquote(part.strip).downcase }
+    end
+    def self.normalize(expression : String) : String
+      trimmed = expression.strip
+      while trimmed.starts_with?("(") && matching_paren(trimmed, 0) == trimmed.size - 1
+        trimmed = trimmed[1...-1].strip
+      end
+      trimmed.split.join(" ").downcase
+    end
     def self.default_clause(text : String) : String?
       start = text.upcase.index(" DEFAULT ")
       return nil if start.nil?

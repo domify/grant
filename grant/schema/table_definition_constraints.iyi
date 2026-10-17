@@ -1,0 +1,17 @@
+module grant/schema/table_definition_constraints
+pub import grant/schema/constraint_definition
+pub import grant/schema/index_definition
+import grant/errors::{ErrorBase}
+
+pub macro methods
+  getter check_constraints = [] of ::Grant::Schema::ConstraintDefinition::CheckConstraintDefinition
+  getter unique_constraints = [] of ::Grant::Schema::ConstraintDefinition::UniqueConstraintDefinition
+  def check_constraint(expression : String, name : String? = nil, validate : Bool = true) : Nil
+    @check_constraints << ::Grant::Schema::ConstraintDefinition::CheckConstraintDefinition.new(table, expression, name, validate)
+    nil
+  end
+  def unique_constraint(columns : C, name : String? = nil, deferrable : Bool | Symbol? = nil) : Nil forall C
+    @unique_constraints << ::Grant::Schema::ConstraintDefinition::UniqueConstraintDefinition.new(table, ::Grant::Schema::IndexDefinition::IndexDefinition.to_names(columns), name, deferrable)
+    nil
+  end
+end

@@ -1,6 +1,8 @@
 module grant/schema/alter_table
 import grant/adapter/schema::{Dialect, UnsupportedOperation, InvalidDefinition}
 import grant/schema/column_info::{ColumnInfo}
+import grant/schema/constraint_definition::{CheckConstraintDefinition, UniqueConstraintDefinition, ExclusionConstraintDefinition}
+import grant/schema/index_definition::{IndexDefinition, Naming}
 import grant/errors::{ErrorBase}
 import grant/schema/table_rebuild::{TableRebuild}
 import grant/schema/table_definition::{TableDefinition, ColumnDefinition, Unset, UNSET}
@@ -51,6 +53,81 @@ pub class AlterTableDefinition(S)
 end
 
 pub macro methods
+  def add_check_constraint_statements(table : String | Symbol, expression : String, name : String? = nil, validate : Bool = true) : Array(String) | ErrorBase | Cancelled
+    definition = CheckConstraintDefinition.new(table.to_s, expression, name, validate)
+    step = AlterStep.new
+    sql = definition.constraint_sql(dialect)!
+    if dialect == Dialect::Sqlite
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) { rebuild.add_constraint(sql) }
+    else
+      step.clauses << "ADD #{sql}#{!validate && dialect == Dialect::Pg ? " NOT VALID" : ""}"
+    end
+    render_steps(table.to_s, [step], false)
+  end
+  def validate_check_constraint_statements(table : String | Symbol, name : String) : Array(String)
+    dialect == Dialect::Pg ? ["ALTER TABLE #{dialect.quote(table)} VALIDATE CONSTRAINT #{dialect.quote(name)}"] : [] of String
+  end
+  def remove_check_constraint_statements(table : String | Symbol, expression : String? = nil, name : String? = nil) : Array(String) | ErrorBase | Cancelled
+    selected = name
+    if selected.nil? && expression
+      selected = CheckConstraintDefinition.new(table.to_s, expression).name
+    end
+    return InvalidDefinition.new("A check constraint needs name: or expression") if selected.nil?
+    step = AlterStep.new
+    if dialect == Dialect::Sqlite
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) do
+        (rebuild.remove_check(selected, expression) == 0 ? InvalidDefinition.new("Table '#{table}' has no such check constraint") : nil).as(Nil | ErrorBase)
+      end
+    else
+      step.clauses << "DROP #{dialect == Dialect::Mysql ? "CHECK" : "CONSTRAINT"} #{dialect.quote(selected)}"
+    end
+    render_steps(table.to_s, [step], false)
+  end
+  def add_unique_constraint_statements(table : String | Symbol, columns : C, name : String? = nil, deferrable : Bool | Symbol? = nil, using_index : String? = nil) : Array(String) | ErrorBase | Cancelled forall C
+    definition = UniqueConstraintDefinition.new(table.to_s, IndexDefinition.to_names(columns), name, deferrable, using_index)
+    sql = definition.constraint_sql(dialect)!
+    step = AlterStep.new
+    if dialect == Dialect::Sqlite
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) { rebuild.add_constraint(sql) }
+    else
+      step.clauses << "ADD #{sql}"
+    end
+    render_steps(table.to_s, [step], false)
+  end
+  def remove_unique_constraint_statements(table : String | Symbol, columns = nil, name : String? = nil) : Array(String) | ErrorBase | Cancelled
+    names = columns.nil? ? nil : IndexDefinition.to_names(columns)
+    selected = name || (names.nil? ? nil : Naming.constraint_name("uniq", table, names.join("_")))
+    return InvalidDefinition.new("A unique constraint needs columns: or name:") if selected.nil?
+    step = AlterStep.new
+    if dialect == Dialect::Sqlite
+      step.rebuild = true
+      step.edit = ->(rebuild : TableRebuild) do
+        (rebuild.remove_unique(selected, names) == 0 ? InvalidDefinition.new("Table '#{table}' has no such unique constraint") : nil).as(Nil | ErrorBase)
+      end
+    else
+      step.clauses << "DROP #{dialect == Dialect::Mysql ? "INDEX" : "CONSTRAINT"} #{dialect.quote(selected)}"
+    end
+    render_steps(table.to_s, [step], false)
+  end
+  def add_exclusion_constraint_statements(table : String | Symbol, expression : String, using index_method : String | Symbol? = nil, name : String? = nil, where : String? = nil, deferrable : Bool | Symbol? = nil) : Array(String) | ErrorBase
+    definition = ExclusionConstraintDefinition.new(table.to_s, expression, index_method.nil? ? nil : index_method.to_s, where, name, deferrable)
+    ["ALTER TABLE #{dialect.quote(table)} ADD #{definition.constraint_sql(dialect)!}"]
+  end
+  def remove_exclusion_constraint_statements(table : String | Symbol, name : String) : Array(String) | ErrorBase
+    return UnsupportedOperation.new("Exclusion constraints are only supported on PostgreSQL") unless dialect == Dialect::Pg
+    ["ALTER TABLE #{dialect.quote(table)} DROP CONSTRAINT #{dialect.quote(name)}"]
+  end
+  def validate_check_constraint(*args, **options) : Nil | ErrorBase | Cancelled
+    execute_batch(validate_check_constraint_statements(*args, **options))
+  end
+  {% for method in ["add_check_constraint", "remove_check_constraint", "add_unique_constraint", "remove_unique_constraint", "add_exclusion_constraint", "remove_exclusion_constraint"] %}
+    def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
+      execute_batch({{method.id}}_statements(*args, **options)!)
+    end
+  {% end %}
   def step_add_column(table : String, definition : ColumnDefinition, if_not_exists : Bool = false) : AlterStep | ErrorBase | Cancelled
     step = AlterStep.new
     if if_not_exists && dialect != Dialect::Pg

@@ -1,11 +1,20 @@
 module grant/schema/index_definition
 
 import std/text
+import std/digest::{CRC32}
 import grant/adapter/schema::{Dialect, InvalidDefinition, UnsupportedOperation}
 import grant/schema/column_info::{IndexInfo}
 import grant/error::{ErrorBase}
 
 pub class Naming
+  def self.digest(text : String) : String
+    CRC32.hexdigest(text)
+  end
+  def self.constraint_name(prefix : String, table : String | Symbol, detail : String) : String
+    name = "#{prefix}_#{table.to_s.split('.').last}_#{detail}"
+    return name if name.size <= 60
+    "#{name[0, 50]}_#{digest(name)}"
+  end
   def self.schema_of(table : String | Symbol) : String?
     parts = table.to_s.split('.')
     return nil if parts.size <= 1
