@@ -65,6 +65,12 @@ pub struct TransactionState
 end
 
 pub abstract class Base
+  def self.connected_to(database : String? = nil, role : Symbol? = nil,
+                        shard : Symbol? = nil, prevent_writes : Bool = false,
+                        &block : -> T) : T forall T
+    ::Grant::ConnectionContext.connected_to(database, role, shard, prevent_writes) { yield }
+  end
+
   @new_record : Bool = true
   @destroyed : Bool = false
   @_current_callback : String? = nil
@@ -1024,6 +1030,12 @@ pub abstract class Base
       \{% end %}
       configured_role = role == :primary ? ::Grant::Settings.settings.writing_role : role
       name = connection_config[configured_role]? || connection_config[role]? || name
+      shard = current_shard
+      unless shard.nil?
+        shard_roles = shard_config[shard]?
+        name = shard_roles[configured_role]? || name unless shard_roles.nil?
+      end
+      name = connection_context_database || name
       ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter?(name, ::Grant::ConnectionManagement.registry_role(role)) || ::Grant::Connections::Connections[name]
       \{% end %}
     end

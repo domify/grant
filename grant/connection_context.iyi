@@ -1,5 +1,6 @@
 module grant/connection_context
 
+import grant/settings
 pub struct ConnectionContext
   property database : String?
   property role : Symbol
@@ -31,6 +32,28 @@ pub class ConnectionState
     @@states.delete(IyiScheduler.current.object_id) if !state.nil? && state.contexts.empty?
     nil
   end
+end
+
+# Base contexts apply to every model, as upstream's nil owner does.
+pub def connected_to(database : String? = nil, role : Symbol? = nil, shard : Symbol? = nil,
+                     prevent_writes : Bool = false, &block : -> T) : T forall T
+  state = ConnectionState.current
+  previous = state.contexts.last?
+  inherited = !previous.nil? && previous.prevent_writes
+  actual_role = role || (previous.nil? ? :primary : previous.role)
+  implied = actual_role == ::Grant::Settings.settings.reading_role
+  depth = state.contexts.size
+  outer_floor = state.block_floor
+  state.contexts << ConnectionContext.new(database, actual_role, shard,
+    prevent_writes || implied || inherited, nil)
+  state.block_floor = depth + 1
+  result = yield
+  while state.contexts.size > depth
+    state.contexts.pop
+  end
+  state.block_floor = outer_floor
+  ConnectionState.release_if_empty
+  result
 end
 
 pub macro model_methods(model)
