@@ -7,6 +7,30 @@ import grant/querying::{NotFound}
 import grant/adapter/driver::{Value}
 
 pub trait Finders(Model)
+  def find_by(criteria : Hash(K, V)) : Model | Nil | ErrorBase forall K, V
+    chain_copy.where_in_place(criteria).first
+  end
+
+  def find_by_strict(criteria : Hash(K, V)) : Model | ErrorBase forall K, V
+    record = find_by(criteria)!
+    if record.nil?
+      parts = [] of String
+      criteria.each do |key, value|
+        parts << (value.nil? ? "#{key} is NULL" : "#{key} = #{value}")
+      end
+      return NotFound.new("No #{Model} found where #{parts.join(" and ")}")
+    end
+    record
+  end
+
+  def find_sole_by(**criteria) : Model | ErrorBase
+    chain_copy.where_in_place(**criteria).sole
+  end
+
+  def find_sole_by(criteria : Hash(K, V)) : Model | ErrorBase forall K, V
+    chain_copy.where_in_place(criteria).sole
+  end
+
   def find(id : T) : Model | Nil | ErrorBase forall T
     chain_copy.where_in_place(Model.primary_name, :eq, id).first
   end

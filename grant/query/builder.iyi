@@ -1237,7 +1237,13 @@ pub class Builder(Model)
 
   def find_by_strict(**criteria) : Model | RecordNotFound | ErrorBase
     record = find_by(**criteria)!
-    return RecordNotFound.new("No record found") if record.nil?
+    if record.nil?
+      parts = [] of String
+      criteria.each do |key, value|
+        parts << (value.nil? ? "#{key} is NULL" : "#{key} = #{value}")
+      end
+      return NotFound.new("No #{Model} found where #{parts.join(" and ")}")
+    end
     record
   end
 

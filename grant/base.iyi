@@ -143,6 +143,10 @@ pub abstract class Base
     query
   end
 
+  macro scope(name, body)
+    ::Grant::Scoping.named_scope({{ name }}, {{ body }}, {{ @type }})
+  end
+
   macro default_scope(&block)
     def self._has_default_scope? : Bool
       true
