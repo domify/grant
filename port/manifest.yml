@@ -2046,7 +2046,7 @@
   target: test/grant_errors_statement_invalid_test.iyi
   area: associations
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/instrumentation/logging_spec.cr
   target: test/grant_instrumentation_logging_test.iyi
   area: associations

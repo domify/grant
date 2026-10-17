@@ -22,6 +22,12 @@ pub abstract class Base
   abstract def supports_lock_mode?(mode : LockMode) : Bool
   abstract def quote(name : String) : String
 
+  def exists?(table_name : String, criteria : String, params : Array(Value) = [] of Value) : Bool | ErrorBase | Cancelled
+    statement = "SELECT EXISTS(SELECT 1 FROM #{table_name} WHERE #{ensure_clause_template(criteria)})"
+    value = open(statement, params) { |db| db.scalar(statement, params) }!
+    value == true || value == 1 || value == 1_i64
+  end
+
   def supports_ddl_transactions? : Bool
     sqlite? || postgres?
   end
