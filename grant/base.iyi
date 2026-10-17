@@ -16,6 +16,7 @@ pub import grant/dirty
 pub import grant/record_copy
 pub import grant/validation_helpers/uniqueness
 pub import grant/validation_helpers/length
+pub import grant/validation_helpers/inequality
 pub import grant/validation_helpers/choice
 pub import grant/validation_helpers/exclusion
 pub import grant/validation_helpers/nil
@@ -117,6 +118,7 @@ pub abstract class Base
   macro inherited
     ::Grant::ValidationHelpers::Uniqueness.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Length.model_methods({{ @type }})
+    ::Grant::ValidationHelpers::Inequality.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Choice.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Exclusion.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Nil.model_methods({{ @type }})
