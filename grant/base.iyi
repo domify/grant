@@ -129,6 +129,7 @@ pub abstract class Base
     ::Grant::Validators.model_methods({{ @type }})
     @@table_name : String = {{ @type.name.split("::").last.underscore }}
     @@connection_name : String = "sqlite"
+    @@implicit_order_columns : Array(String) = [] of String
     @@own_connection_config : Hash(Symbol, String)? = nil
 
     macro finished
@@ -178,6 +179,10 @@ pub abstract class Base
 
   def attributes=(args : Hash(K, V)) forall K, V
     assign_attributes(args)
+  end
+
+  macro implicit_order_column(*columns)
+    @@implicit_order_columns = [{% for column in columns %}{{ column.id.stringify }}, {% end %}] of String
   end
 
   macro table(name)
@@ -1339,7 +1344,7 @@ pub abstract class Base
     # The columns finders order by before the primary key; empty unless the
     # model declares an implicit order column.
     def self.implicit_order_columns : Array(String)
-      [] of String
+      @@implicit_order_columns
     end
 
     def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
@@ -1392,9 +1397,19 @@ pub abstract class Base
     end
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
-      rows = __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
-      row = rows.empty? ? nil : rows[0]
-      row.nil? ? nil : from_row(row)
+      all.first
+    end
+
+    def self.last : {{ @type }} | Nil | ::Grant::Error::ErrorBase
+      all.last
+    end
+
+    def self.second : {{ @type }} | Nil | ::Grant::Error::ErrorBase
+      all.second
+    end
+
+    def self.third : {{ @type }} | Nil | ::Grant::Error::ErrorBase
+      all.third
     end
 
     def self.first_strict : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase

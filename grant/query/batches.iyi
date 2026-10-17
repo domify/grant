@@ -3,21 +3,44 @@ module grant/query/batches
 import grant/adapter/driver::{Value}
 import grant/errors::{DatabaseError, ErrorBase}
 
-# Structural primary-key/default-order slice of Grant::Query::Batches(Model).
-# Pages use the last seen key, so deleting rows in a block cannot skip a page.
+import grant/error::{ArgumentError}
+import grant/query/where_field::{Sort}
+
+# State for the upstream keyset batch scan. Each page follows all cursor columns.
+pub class BatchPlan
+  getter size : Int32
+  getter fields : Array(String)
+  getter ascending : Array(Bool)
+  getter limit : Int64?
+  getter offset : Int64?
+
+  def initialize(@size : Int32, @fields : Array(String), @ascending : Array(Bool),
+                 @limit : Int64?, @offset : Int64?)
+  end
+end
+
+pub class BatchPosition
+  property last_values : Array(Value)? = nil
+  property remaining : Int64?
+  property started : Bool = false
+  property finished : Bool = false
+
+  def initialize(plan : BatchPlan)
+    @remaining = plan.limit
+  end
+end
+
 pub trait Batches(Model)
   DEFAULT_BATCH_SIZE = 1000
 
   def find_in_batches(batch_size : Int32 = DEFAULT_BATCH_SIZE, &block : Array(Model) -> T) : Nil | T | ErrorBase forall T
-    return ErrorBase.new("batch_size must be positive") if batch_size <= 0
-    last_value : Value = nil
+    plan = batch_plan(batch_size)!
+    position = BatchPosition.new(plan)
     loop do
-      rows = next_batch_rows(last_value, batch_size)!
-      break if rows.empty?
-      last_value = rows.last[Model.primary_name]
-      result = yield rows.map { |row| Model.from_row(row)! }
+      records = next_batch_records(plan, position)!
+      break if records.nil?
+      result = yield records
       return result if result.is_a?(::Error)
-      break if rows.size < batch_size
     end
     nil
   end
@@ -31,4 +54,80 @@ pub trait Batches(Model)
       nil
     end
   end
+  private def batch_plan(batch_size : Int32) : BatchPlan | ErrorBase
+    return ArgumentError.new("batch_size must be >= 1") if batch_size < 1
+    fields = [] of String
+    ascending = [] of Bool
+    if order_fields.empty?
+      implicit_order_columns.each { |column| fields << column; ascending << true }
+    else
+      order_fields.each do |field|
+        direction = field[:direction]
+        return ArgumentError.new("Cannot batch #{Model} by a raw ORDER BY term") if direction == Sort::Raw
+        fields << field[:field]
+        ascending << !direction.sorts_descending?
+      end
+      unless fields.any? { |field| field.split('.').last == Model.primary_name }
+        fields << Model.primary_name
+        ascending << true
+      end
+    end
+    BatchPlan.new(batch_size, fields, ascending, limit, offset)
+  end
+
+  def next_batch_records(plan : BatchPlan, position : BatchPosition) : Array(Model)? | ErrorBase
+    return nil if position.finished || is_none?
+    remaining = position.remaining
+    return nil if !remaining.nil? && remaining <= 0
+    page_size = !remaining.nil? && remaining < plan.size ? remaining.to_i32 : plan.size
+    records = batch_page(plan, position, page_size).select!
+    position.started = true
+    unless records.empty?
+      last = records.last
+      values = [] of Value
+      plan.fields.each do |field|
+        value = last.read_attribute(field.split('.').last)!
+        return ArgumentError.new("Cannot batch #{Model} by #{field}: a row has NULL there") if value.nil?
+        values << value
+      end
+      position.last_values = values
+    end
+    position.remaining = remaining - records.size unless remaining.nil?
+    position.finished = records.size < page_size || records.empty?
+    records.empty? ? nil : records
+  end
+
+  private def batch_page(plan : BatchPlan, position : BatchPosition, page_size : Int32) : self
+    page = chain_copy
+    page.clear_order_fields
+    plan.fields.each_with_index do |field, index|
+      direction = plan.ascending[index] ? Sort::Ascending : Sort::Descending
+      page.own_order_fields << {field: field, direction: direction}
+    end
+    page.limit_in_place(page_size)
+    page.offset_in_place(nil) if position.started
+    last = position.last_values
+    unless last.nil?
+      statement, values = keyset_condition(plan, last)
+      page.and_in_place(statement, values)
+    end
+    page
+  end
+
+  private def keyset_condition(plan : BatchPlan, last : Array(Value)) : Tuple(String, Array(Value))
+    alternatives = [] of String
+    values = [] of Value
+    plan.fields.each_with_index do |field, index|
+      terms = [] of String
+      index.times do |earlier|
+        terms << "#{Model.quote(plan.fields[earlier])} = ?"
+        values << last[earlier]
+      end
+      terms << "#{Model.quote(field)} #{plan.ascending[index] ? ">" : "<"} ?"
+      values << last[index]
+      alternatives << "(#{terms.join(" AND ")})"
+    end
+    {"(#{alternatives.join(" OR ")})", values}
+  end
+
 end
