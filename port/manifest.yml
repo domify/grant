@@ -1456,7 +1456,7 @@
   target: test/grant_scoping_named_scope_chaining_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/scoping/scoping_spec.cr
   target: test/grant_scoping_scoping_test.iyi
   area: query
