@@ -7,6 +7,7 @@ pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
+pub import grant/select
 pub import grant/associations
 pub import grant/columns
 pub import grant/schema/verify
@@ -181,6 +182,14 @@ pub abstract class Base
 
   def attributes=(args : Hash(K, V)) forall K, V
     assign_attributes(args)
+  end
+
+  def self.custom_select_statement : String?
+    nil
+  end
+
+  macro select_statement(text)
+    ::Grant::Select.select_statement({{ text }})
   end
 
   macro table(name)

@@ -1471,7 +1471,7 @@
   target: test/grant_select_select_test.iyi
   area: query
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/sharding/cross_shard_join_spec.cr
   target: test/grant_sharding_cross_shard_join_test.iyi
   area: query
