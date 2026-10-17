@@ -1030,6 +1030,15 @@ pub class Builder(Model)
     record
   end
 
+  {% for name in %w(second third fourth fifth forty_two second_to_last third_to_last) %}
+    # Like `{{name.id}}`, but returns `RecordNotFound` when missing.
+    def {{name.id}}_strict : Model | RecordNotFound | ErrorBase
+      record = {{name.id}}!
+      return RecordNotFound.new("No record found") if record.nil?
+      record
+    end
+  {% end %}
+
   def second : Model | Nil | ErrorBase
     nth_record(1)
   end

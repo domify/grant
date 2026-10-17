@@ -1021,7 +1021,7 @@
   target: test/grant_query_implicit_order_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/in_batches_relation_spec.cr
   target: test/grant_query_in_batches_relation_test.iyi
   area: query

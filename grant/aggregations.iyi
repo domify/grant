@@ -8,4 +8,14 @@ pub macro model_methods(model)
                      column : Symbol | String? = nil) : ::Grant::Query::Aggregations::CalculationResult | ::Grant::Error::ErrorBase
     current_scope.calculate(operation, column)
   end
+
+  # Get the last record
+  def self.last : {{ model }} | Nil | ::Grant::Error::ErrorBase
+    current_scope.last
+  end
+
+  # Get the last record, error if not found
+  def self.last_strict : {{ model }} | ::Grant::Error::ErrorBase
+    current_scope.last_strict
+  end
 end

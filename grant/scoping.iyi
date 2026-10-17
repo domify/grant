@@ -146,6 +146,23 @@ pub macro model_methods(model)
   def self.find_strict(first : A, second : B, *rest) : Array({{ model }}) | ::Grant::Error::ErrorBase forall A, B
     current_scope.find_strict(first, second, *rest)
   end
+
+  # Returns the last *count* records of the current scope in ascending order.
+  def self.last(count : Int32) : Array({{ model }}) | ::Grant::Error::ErrorBase
+    current_scope.last(count)
+  end
+
+  {% for name in %w(second third fourth fifth forty_two second_to_last third_to_last) %}
+    # Returns the {{name.id.gsub(/_/, " ")}} record of the current scope, or `nil`.
+    def self.{{name.id}} : {{ model }} | Nil | ::Grant::Error::ErrorBase
+      current_scope.{{name.id}}
+    end
+
+    # Like `{{name.id}}`, but returns `RecordNotFound` when missing.
+    def self.{{name.id}}_strict : {{ model }} | ::Grant::Error::ErrorBase
+      current_scope.{{name.id}}_strict
+    end
+  {% end %}
 end
 
 # Upstream's query-argument named-scope entry point.
