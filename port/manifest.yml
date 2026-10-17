@@ -2452,7 +2452,7 @@
   target: test/grant_columns_uuid_test.iyi
   area: other
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/config/url_scheme_spec.cr
   target: test/grant_config_url_scheme_test.iyi
   area: other

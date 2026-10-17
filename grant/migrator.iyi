@@ -86,7 +86,7 @@ pub class Migrator
       if array_type = arrays[key]?
         return array_type
       end
-      return PG_TYPES["AUTO_#{key}"]? || "BIGSERIAL" if spec.primary && spec.auto
+      return PG_TYPES["AUTO_#{key}"]? || "BIGSERIAL" if spec.primary && spec.auto && key.starts_with?("Int")
       return PG_TYPES[spec.name]? || "TIMESTAMP" if spec.name == "created_at" || spec.name == "updated_at"
       return PG_TYPES[key]? || "TEXT"
     end

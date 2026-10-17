@@ -5,6 +5,7 @@ import std/time::{Time}
 
 import pg/pg/core::{PGConnection}
 import pg/pg/numeric::{Numeric}
+import pg/pg/decoder::{UUIDValue}
 import pg/pg/pq/errors
 import pg/pg/pq/conninfo::{ConnInfo}
 import db/db/errors::{DBError}
@@ -150,6 +151,7 @@ pub class Connection < ::Grant::Adapter::Driver::LibraryConnection
   end
 
   def normalize(value : DBValue) : Value | DatabaseError
+    return value.uuid.to_s if value.is_a?(UUIDValue)
     if value.is_a?(Numeric)
       text = value.to_s
       return text.includes?(".") ? value.to_f : (text.to_i64? || value.to_f)

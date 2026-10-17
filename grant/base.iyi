@@ -184,7 +184,7 @@ pub abstract class Base
 
   macro column(decl, **options)
     ::Grant::Columns.dirty_column_methods({{ decl }})
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? decl.type.stringify.includes?("Int") : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
@@ -1052,6 +1052,8 @@ pub abstract class Base
           record.__load_\{{ v.name }}(%raw.is_a?(String) ? %raw : nil)
         \{% elsif v.annotation(::Grant::Base::Column)[:converter] %}
           record.\{{ v.name }} = \{{ v.annotation(::Grant::Base::Column)[:converter].id }}.from_db(%raw.is_a?(String) ? %raw : nil)!
+        \{% elsif type.includes?("UUID") %}
+          record.\{{ v.name }} = %raw.is_a?(String) ? ::Std::Uuid::UUID.parse(%raw) : nil
         \{% elsif type.includes?("Int32") %}
           record.\{{ v.name }} = %raw.is_a?(Int64) ? %raw.to_i32 : nil
         \{% elsif type.includes?("Int64") %}
@@ -1350,9 +1352,19 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      \{% if primary.annotation(::Grant::Base::Column)[:auto] %}
+      \{% if primary.annotation(::Grant::Base::Column)[:auto] && primary.annotation(::Grant::Base::Column)[:type].includes?("Int") %}
       self.\{{ primary.name }} = \{% if primary.annotation(::Grant::Base::Column)[:type].includes?("Int32") %} value.to_i32 \{% else %} value \{% end %}
       \{% end %}
+      \{% end %}
+    end
+
+    def __generate_primary_uuid : Nil
+      \{% begin %}
+      \{% primary = @type.instance_vars.find { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:primary] } %}
+      \{% if primary.annotation(::Grant::Base::Column)[:auto] && primary.annotation(::Grant::Base::Column)[:type].includes?("UUID") %}
+        @\{{ primary.name }} ||= ::Std::Uuid::UUID.v4
+      \{% end %}
+      nil
       \{% end %}
     end
 
@@ -1604,6 +1616,7 @@ pub abstract class Base
 
   abstract def __primary_name : String
   abstract def __primary_value : ::Grant::Adapter::Driver::Value
+  abstract def __generate_primary_uuid : Nil
   abstract def __primary_auto? : Bool
   abstract def __set_primary_value(value : Int64) : Nil
   abstract def __column_names : Array(String)
@@ -1724,6 +1737,7 @@ pub abstract class Base
     names = __column_names
     values = __column_values!
     if @new_record
+      __generate_primary_uuid
       primary_value = __primary_value
       unless primary_value.nil?
         names << __primary_name
