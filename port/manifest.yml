@@ -820,7 +820,7 @@
   target: test/grant_errors_errors_api_test.iyi
   area: query
   examples: 62
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/errors/taxonomy_spec.cr
   target: test/grant_errors_taxonomy_test.iyi
   area: query
@@ -1631,7 +1631,7 @@
   target: test/grant_validations_presence_blank_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/strict_spec.cr
   target: test/grant_validations_strict_test.iyi
   area: query
@@ -1681,7 +1681,7 @@
   target: test/grant_validators_uniqueness_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/verbose_logs_spec.cr
   target: test/grant_verbose_logs_test.iyi
   area: query
@@ -2706,7 +2706,7 @@
   target: test/grant_validations_validate_bang_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/validator_info_evaluation_spec.cr
   target: test/grant_validations_validator_info_evaluation_test.iyi
   area: other
