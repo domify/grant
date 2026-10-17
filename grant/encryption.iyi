@@ -43,14 +43,14 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
     {% raise "encrypts #{attr_name}: lazy: true applies to String attributes only; other types are decrypted when the row loads" %}
   {% end %}
 
-  {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}} = ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}})
+  {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}} = ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new({{model.stringify}}, {{attr_name}}, {{deterministic}}, {{attr_name}}, {{downcase}}, {{ignore_case}}, {{compress}}, {{compress_threshold}})
   def self.{{attr}}_encrypted_attribute : ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute
     attribute = {{("ENCRYPTED_ATTRIBUTE_" + attr_name.upcase).id}}
     ::Grant::Encryption::EncryptedAttribute::EncryptedAttributeRegistry.register({{model.stringify}}, {{attr_name}}, attribute)
     attribute
   end
 
-  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", encrypted: true, guarded: {{lazy == true}}, lazy: {{lazy == true}}, original: {{ignore_case ? "original_" + attr_name : nil}}
+  column {{attr}} : {{base}}?, converter: {{attr_name.camelcase.id}}EncryptionConverter, column_type: "TEXT", encrypted: true, guarded: {{lazy == true}}, lazy: {{lazy == true}}, original: {{ignore_case ? "original_" + attr_name : nil}}, downcase: {{downcase}}
 
   class {{attr_name.camelcase.id}}EncryptionConverter
     def self.to_db(value : {{base}}?)
@@ -77,6 +77,15 @@ pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case
       \{% end %}
     end
   end
+
+  {% if deterministic %}
+    def self.where_{{attr}}(value : {{base}}) : ::Grant::Query::Builder::Builder({{model}})
+      where({{attr}}: value)
+    end
+    def self.find_by_{{attr}}(value : {{base}}) : {{model}}? | ::Grant::Error::ErrorBase
+      where_{{attr}}(value).first
+    end
+  {% end %}
 
   {% if ignore_case %}
     encrypts {{("original_" + attr_name).id}} : String, lazy: {{lazy}}

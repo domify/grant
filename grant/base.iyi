@@ -317,7 +317,11 @@ pub abstract class Base
         ::Grant::Encryption::Sealed.guard_plaintext_strict({{ decl.var.stringify }}, value)!
       {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
-      @{{decl.var}} = value
+      {% if options[:downcase] %}
+        @{{decl.var}} = value.nil? ? nil : value.downcase
+      {% else %}
+        @{{decl.var}} = value
+      {% end %}
       {% if options[:original] %}
         {% if options[:guarded] %}
           (self.{{options[:original].id}} = value)!
