@@ -34,7 +34,7 @@ pub trait WhereComposition(Model)
     self
   end
 
-  protected def add_range_condition(join : Symbol, field : String, value : Range(B, E)) : self forall B, E
+  protected def add_range_condition(join : Symbol, field : String, value : T) : self forall T
     safe_field = structured_field_sql(field)
     return self if safe_field.nil?
     parts = [] of String
@@ -49,7 +49,39 @@ pub trait WhereComposition(Model)
       parts << "#{safe_field} #{value.exclusive? ? "<" : "<="} ?"
       values << to_value(last)
     end
-    own_where_fields << {join: join, stmt: "(#{parts.empty? ? "1=1" : parts.join(" AND ")})", values: values}
+    return self if parts.empty?
+    own_where_fields << {join: join, stmt: "(#{parts.join(" AND ")})", values: values}
+    self
+  end
+
+  protected def add_value_array_condition(join : Symbol, field : String, items : Array(T)) : self forall T
+    scope = chain_copy
+    scope.clear_where_fields
+    scope.clear_default_scope_where_fields
+    scalars = [] of Value
+    items.each do |item|
+      if item.is_a?(Range)
+        scope.add_range_condition(:or, field, item)
+      else
+        scalars << to_value(item)
+      end
+    end
+    # Preserve the ordinary IN/list path, including its nil-aware predicate.
+    return add_array_condition(join, field, :in, scalars) if scope.where_fields.empty?
+    scope.or_in_in_place(field, scalars) unless scalars.empty?
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, scope.join_clauses)
+    renderer.rendering_where_group = true
+    rendered = renderer.render_where_fields(scope.where_fields)
+    if rendered.is_a?(ErrorBase)
+      self.defer(rendered)
+    else
+      own_where_fields << {join: join, stmt: "(#{rendered})", values: values}
+    end
     self
   end
 end

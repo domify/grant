@@ -1251,7 +1251,7 @@
   target: test/grant_query_where_range_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query_logs_spec.cr
   target: test/grant_query_logs_test.iyi
   area: query

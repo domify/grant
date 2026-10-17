@@ -498,7 +498,7 @@ pub class Builder(Model)
     if value.is_a?(Range)
       add_range_condition(join, field, value)
     elsif value.is_a?(Array)
-      add_array_condition(join, field, :in, value)
+      add_value_array_condition(join, field, value)
     else
       own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(value)}
       self

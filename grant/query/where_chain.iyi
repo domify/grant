@@ -3,6 +3,11 @@ module grant/query/where_chain
 # Native trait slice of upstream WhereChain(Model). The existing no-argument
 # where surface returns Builder, so chain methods apply to that relation.
 pub trait WhereChainMethods(Model)
+  def between(field : Symbol | String, range : Range(B, E)) : self forall B, E
+    copy = chain_copy
+    copy.add_range_condition(:and, field.to_s, range)
+  end
+
   def not(field : Symbol | String, value : T) : self forall T
     and_where(field, :neq, value)
   end
