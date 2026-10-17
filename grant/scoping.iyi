@@ -86,3 +86,10 @@ pub macro model_methods(model)
     current_scope.find_strict(first, second, *rest)
   end
 end
+
+# Upstream's query-argument named-scope entry point.
+pub macro named_scope(name, body, model)
+  def self.{{ name.id }}(*args) : ::Grant::Query::Builder::Builder({{ model }})
+    ({{ body }}).call(current_scope, *args)
+  end
+end

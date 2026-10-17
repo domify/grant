@@ -760,7 +760,7 @@
   target: test/grant_convenience_create_or_find_by_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/create_with_spec.cr
   target: test/grant_convenience_create_with_test.iyi
   area: query
@@ -775,7 +775,7 @@
   target: test/grant_convenience_relation_finders_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience_methods_spec.cr
   target: test/grant_convenience_methods_test.iyi
   area: query
@@ -2031,7 +2031,7 @@
   target: test/grant_convenience_find_or_create_by_test.iyi
   area: associations
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/eager_loading/eager_loading_spec.cr
   target: test/grant_eager_loading_eager_loading_test.iyi
   area: associations
