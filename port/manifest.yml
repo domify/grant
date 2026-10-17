@@ -590,7 +590,7 @@
   target: test/grant_attributes_introspection_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/normalized_query_spec.cr
   target: test/grant_attributes_normalized_query_test.iyi
   area: query

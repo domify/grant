@@ -130,11 +130,74 @@ pub macro model_methods(model)
     self.class.attribute_names
   end
 
+  def self.has_column?(name : String | Symbol) : Bool
+    fields.includes?(resolve_attribute_alias(name.to_s))
+  end
+
+  def has_attribute?(name : String | Symbol) : Bool
+    self.class.has_column?(name)
+  end
+
+  def [](name : String | Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute = self.class.resolve_attribute_alias(name.to_s)
+    return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute) unless has_attribute?(attribute)
+    read_column_value(attribute)
+  end
+
+  private def read_column_value(attribute : String) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    \{% begin %}
+      case attribute
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      when \{{ v.name.stringify }}
+        \{% if v.annotation(::Grant::Base::Column)[:converter] %}
+          \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})
+        \{% else %}
+          @\{{ v.name }}
+        \{% end %}
+      \{% end %}
+      else
+        ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute)
+      end
+    \{% end %}
+  end
+
+  def []=(name : String | Symbol, value : ::Grant::Columns::Type) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute = self.class.resolve_attribute_alias(name.to_s)
+    return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute) unless has_attribute?(attribute)
+    assign_attributes({attribute => value})!
+    value
+  end
+
+  def attribute_present?(name : String | Symbol) : Bool | ::Grant::Error::ErrorBase
+    value = self[name]!
+    if value.nil?
+      false
+    elsif value.is_a?(String)
+      !value.empty?
+    else
+      true
+    end
+  end
+
+  def slice(*names : String | Symbol) : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    result = {} of String => ::Grant::Columns::Type
+    names.each { |name| result[name.to_s] = self[name]! }
+    result
+  end
+
+  def values_at(*names : String | Symbol) : Array(::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    result = [] of ::Grant::Columns::Type
+    names.each { |name| result << self[name]! }
+    result
+  end
+
   def attributes : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
     result = {} of String => ::Grant::Columns::Type
     \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
       \{% if v.annotation(::Grant::Base::Column)[:converter] %}
-        result[\{{ v.name.stringify }}] = \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})!
+        converted = \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})
+        return converted if converted.is_a?(::Grant::Error::ErrorBase)
+        result[\{{ v.name.stringify }}] = converted
       \{% else %}
         result[\{{ v.name.stringify }}] = @\{{ v.name }}
       \{% end %}
