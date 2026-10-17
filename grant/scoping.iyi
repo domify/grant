@@ -59,8 +59,69 @@ private def push_entry(model_name : String, entry : ScopeEntry, &block : -> T) :
   result
 end
 
+pub annotation NamedScope
+end
+
+pub macro scope(name, body)
+  @[::Grant::Scoping::NamedScope(name: {{ name }}, body: {{ body }})]
+  def __named_scope_{{ name.id }} : Nil
+    nil
+  end
+end
+
 # Class finder and delete delegations from upstream Grant::Scoping.
 pub macro model_methods(model)
+  {% scopes = model.resolve.methods.select { |method| method.annotation(::Grant::Scoping::NamedScope) } %}
+  {% unless scopes.empty? %}
+    pub class BuildNamedScopeRelation < ::Grant::Query::Builder::Builder({{ model }})
+      def self.adopt(result : ::Grant::Query::Builder::Builder({{ model }})) : BuildNamedScopeRelation
+        relation = new(result.db_type, result.boolean_operator)
+        relation.copy_state_from(result)
+        relation
+      end
+
+      def chain_copy : self
+        copy = BuildNamedScopeRelation.new(db_type, boolean_operator)
+        copy.copy_state_from(self)
+        copy
+      end
+
+      {% for method in scopes %}
+        {% ann = method.annotation(::Grant::Scoping::NamedScope) %}
+        {% body = ann[:body] %}
+        def {{ ann[:name].id }}(*args) : BuildNamedScopeRelation
+          {% if body.args.size > 0 && body.args.first.restriction.stringify.includes?("Builder") %}
+            BuildNamedScopeRelation.adopt(({{ body }}).call(self, *args))
+          {% else %}
+            BuildNamedScopeRelation.adopt(merge(BuildNamedScopeRelation.adopt(({{ body }}).call(*args))))
+          {% end %}
+        end
+      {% end %}
+    end
+    {% for method in scopes %}
+      {% ann = method.annotation(::Grant::Scoping::NamedScope) %}
+      def self.{{ ann[:name].id }}(*args) : BuildNamedScopeRelation
+        BuildNamedScopeRelation.adopt(current_scope).{{ ann[:name].id }}(*args)
+      end
+    {% end %}
+  {% end %}
+
+  def self.merge(other_scope : ::Grant::Query::Builder::Builder({{ model }})) : ::Grant::Query::Builder::Builder({{ model }})
+    current = current_scope
+    current.own_where_fields.concat(other_scope.where_fields)
+    current.own_order_fields.concat(other_scope.order_fields)
+    current.own_group_fields.concat(other_scope.group_fields)
+    if incoming = other_scope.limit
+      existing = current.limit
+      current.limit_in_place(existing.nil? || incoming < existing ? incoming : existing)
+    end
+    if incoming = other_scope.offset
+      existing = current.offset
+      current.offset_in_place(existing.nil? || incoming > existing ? incoming : existing)
+    end
+    current
+  end
+
   def self.delete(id : T) : Int64 | ::Grant::Error::ErrorBase forall T
     delete([id])
   end

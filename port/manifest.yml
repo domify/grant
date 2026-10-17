@@ -1321,7 +1321,7 @@
   target: test/grant_querying_query_builder_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/relation_calculations_spec.cr
   target: test/grant_querying_relation_calculations_test.iyi
   area: query
@@ -1456,12 +1456,12 @@
   target: test/grant_scoping_named_scope_chaining_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/scoping/scoping_spec.cr
   target: test/grant_scoping_scoping_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/secure_token_spec.cr
   target: test/grant_secure_token_test.iyi
   area: query
