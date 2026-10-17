@@ -6,6 +6,9 @@ import grant/schema/table_definition::{TableDefinition}
 pub import grant/schema/command_recorder
 import grant/schema/command_recorder::{IrreversibleMigration, CommandRecorder, Command, SchemaStatements}
 import std/text
+import std/io
+import std/time::{Time}
+import std/int
 import grant/error::{ErrorBase}
 
 pub class InvalidMigration < ErrorBase
@@ -32,6 +35,8 @@ pub abstract class Migration
   @statements : SchemaStatements? = nil
   @recorder = CommandRecorder.new
   @adapter : Base? = nil
+  @output : IO? = nil
+  @verbose : Bool = true
 
   def self.registry : Array(MigrationEntry)
     @@registry
@@ -76,9 +81,11 @@ pub abstract class Migration
     false
   end
 
-  def attach(statements : SchemaStatements, adapter : Base, output = nil, verbose : Bool = true) : self
+  def attach(statements : SchemaStatements, adapter : Base, output : IO? = nil, verbose : Bool = true) : self
     @statements = statements
     @adapter = adapter
+    @output = output
+    @verbose = verbose
     self
   end
 
@@ -125,7 +132,7 @@ pub abstract class Migration
     end
   end
   def replay(commands : Array(Command)) : Nil | ErrorBase | Cancelled
-    commands.each { |command| command.apply(statements)! }
+    commands.each { |command| say_with_time(command.name) { command.apply(statements) }! }
     nil
   end
   def revert(&block : -> T) : Nil | ErrorBase | Cancelled forall T
@@ -155,7 +162,7 @@ pub abstract class Migration
   end
 
   def execute(sql : String) : Nil | ErrorBase | Cancelled
-    @recorder.recording? ? @recorder.execute(sql) : statements.execute_batch([sql])
+    @recorder.recording? ? @recorder.execute(sql) : say_with_time("execute(#{sql.inspect})") { statements.execute_batch([sql]) }
   end
 
   def create_table(*args, **options, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
@@ -165,15 +172,67 @@ pub abstract class Migration
       return result if result.is_a?(ErrorBase) || result.is_a?(Cancelled)
       @recorder.create_table(*args, **options) { |table| table.absorb(definition) }
     else
-      statements.create_table(*args, **options) { |table| yield table }
+      say_with_time("create_table(#{argument_text(args)})") do
+        statements.create_table(*args, **options) { |table| yield table }
+      end
     end
   end
 
   {% for method in ["create_join_table", "remove_timestamps", "drop_table", "add_column", "remove_column", "add_index", "remove_index", "rename_column", "rename_table", "add_foreign_key", "add_reference", "add_timestamps", "enable_extension"] %}
     def {{method.id}}(*args, **options) : Nil | ErrorBase | Cancelled
-      @recorder.recording? ? @recorder.{{method.id}}(*args, **options) : statements.{{method.id}}(*args, **options)
+      if @recorder.recording?
+        @recorder.{{method.id}}(*args, **options)
+      else
+        say_with_time("{{method.id}}(#{argument_text(args)})") { statements.{{method.id}}(*args, **options) }
+      end
     end
   {% end %}
+  private def argument_text(args) : String
+    parts = [] of String
+    args.each { |arg| parts << (arg.is_a?(Symbol) ? ":#{arg}" : arg.inspect) }
+    parts.join(", ")
+  end
+  def say(message : String, subitem : Bool = false) : Nil
+    write("#{subitem ? "   ->" : "--"} #{message}")
+  end
+  def announce(message : String) : Nil
+    text = "#{name}: #{message}"
+    padding = 75 - text.size
+    write("== #{text} #{"=" * (padding > 0 ? padding : 0)}")
+  end
+  def self.elapsed_text(nanoseconds : UInt64) : String
+    units = (nanoseconds + 50_000_u64) // 100_000_u64
+    fraction = (units % 10_000_u64).to_s.rjust(4, '0')
+    "#{units // 10_000_u64}.#{fraction}s"
+  end
+  def say_with_time(message : String, &block : -> T) : T forall T
+    say(message)
+    started = Time.monotonic_nanoseconds
+    result = yield
+    say(Migration.elapsed_text(Time.monotonic_nanoseconds - started), true)
+    say("#{result} rows", true) if result.is_a?(Int32) || result.is_a?(Int64)
+    result
+  end
+  def write(text : String = "") : Nil
+    return nil unless @verbose
+    if io = @output
+      io.puts(text)
+    else
+      puts(text)
+    end
+    nil
+  end
+  private def restore_verbose(value : Bool) : Nil
+    @verbose = value
+    nil
+  end
+  def suppress_messages(&block : -> T) : T forall T
+    previous = @verbose
+    @verbose = false
+    defer restore_verbose(previous)
+    yield
+  end
+
 end
 
 pub class SqlFileMigration < Migration
