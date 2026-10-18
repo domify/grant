@@ -34,3 +34,5 @@ Schema `verify!` and model `verify_schema!` use the `_strict` suffix.
 Errors collection `merge!` becomes `merge_in_place`.
 
 Database task `guard!` becomes `guard_strict`.
+
+Schema cache `reset!` becomes `reset_in_place`; `load_all!` becomes `load_all_in_place`.

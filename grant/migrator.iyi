@@ -5,6 +5,7 @@ import grant/errors::{DatabaseError, ErrorBase}
 import grant/schema/index_definition::{IndexDefinition}
 import grant/adapter/schema::{Dialect}
 import grant/adapter/base::{Base}
+import grant/schema/introspection
 import grant/schema/internal_metadata::{InternalMetadata, ProtectedEnvironmentError}
 
 # Literal defaults follow src/grant/migrator.cr; expressions are not inferred.
@@ -171,11 +172,17 @@ pub class Migrator
 
   def drop(if_exists : Bool = true, cascade : Bool = false) : Nil | DatabaseError
     @connection.execute(drop_sql(if_exists, cascade))!
+    if target = @schema_adapter
+      target.reset_schema_caches_in_place(table)
+    end
     nil
   end
 
   def create(if_not_exists : Bool = false, temporary : Bool = false, comment : String? = nil) : Nil | DatabaseError | ErrorBase
     create_statements(if_not_exists, temporary, comment)!.each { |sql| @connection.execute(sql)! }
+    if target = @schema_adapter
+      target.reset_schema_caches_in_place(table)
+    end
     nil
   end
 

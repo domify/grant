@@ -34,6 +34,7 @@ pub class InternalMetadata
       db.exec("CREATE TABLE IF NOT EXISTS #{TABLE} (#{dialect.quote("key")} VARCHAR(255) NOT NULL PRIMARY KEY, value VARCHAR(255), created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")!
       nil
     end!
+    adapter.reset_schema_caches_in_place(TABLE)
     @table_present = true
     nil
   end
