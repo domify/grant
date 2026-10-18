@@ -2,6 +2,7 @@ module grant/connection_registry
 
 import std/time::{Span}
 import grant/adapter/base::{Base}
+import grant/adapter/registry::{Registry, UnknownAdapterError}
 import grant/settings
 import grant/connections::{Connections}
 import grant/errors::{ErrorBase}
@@ -9,6 +10,7 @@ import grant/errors::{ErrorBase}
 # The eager registration slice of Grant::ConnectionRegistry.
 pub class ConnectionRegistry
   pub struct ConnectionSpec
+    property adapter_class : Base.class = Base
     property database : String
     property role : Symbol
     property url : String
@@ -42,6 +44,12 @@ pub class ConnectionRegistry
     shard.nil? ? key : "#{key}:#{shard}"
   end
 
+  def self.establish_connection(database : String, url : String,
+                                role : Symbol = :primary) : Nil | ErrorBase
+    adapter = Registry.for_url(url)!
+    establish_connection(database: database, adapter: adapter, url: url, role: role)
+  end
+
   def self.establish_connection(database : String, adapter : T.class, url : String, role : Symbol = :primary, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, max_idle_pool_size : Int32 = 25, checkout_timeout : Span = Span.seconds(5_i64), verify_idle_after : Span? = Span.seconds(30_i64)) : Nil | ErrorBase forall T
     role = normalize_role(role)
     key = key_for(database, role)
@@ -51,7 +59,9 @@ pub class ConnectionRegistry
     instance.pool_size = adapter.single_connection_url?(url) ? 1 : pool_size
     instance.checkout_timeout = checkout_timeout
     @@default_database ||= database
-    @@specifications[key] = ConnectionSpec.new(database, url, role, verify_idle_after)
+    specification = ConnectionSpec.new(database, url, role, verify_idle_after)
+    specification.adapter_class = adapter
+    @@specifications[key] = specification
     @@adapters[key] = instance
     Connections.register(database, instance) if role == :primary
     previous.disconnect_strict! unless previous.nil?

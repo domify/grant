@@ -131,6 +131,7 @@ pub macro model_methods(model)
 
   def self.should_use_reader? : Bool
     return false unless connection_config.has_key?(::Grant::Settings.settings.reading_role)
+    return false unless connection_context.nil?
     return false if ::Grant::Transaction.in_explicit_transaction?
     ::Grant::ConnectionManagement::ReplicaLagRegistry.for({{ model.stringify }}, @@connection_name).can_use_replica?(::Std::Time::Span.milliseconds(connection_switch_wait_period.to_i64))
   end

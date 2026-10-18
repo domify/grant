@@ -675,12 +675,12 @@
   target: test/grant_config_database_configurations_adapters_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/config/database_configurations_spec.cr
   target: test/grant_config_database_configurations_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/abstract_inheritance_spec.cr
   target: test/grant_connection_abstract_inheritance_test.iyi
   area: query
@@ -2021,7 +2021,7 @@
   target: test/grant_connection_w6_abstract_class_routing_test.iyi
   area: associations
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/w6_no_database_error_spec.cr
   target: test/grant_connection_w6_no_database_error_test.iyi
   area: associations
@@ -2476,7 +2476,7 @@
   target: test/grant_config_url_scheme_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/disconnect_spec.cr
   target: test/grant_connection_disconnect_test.iyi
   area: other
@@ -2496,7 +2496,7 @@
   target: test/grant_connection_routing_two_files_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/w6_connected_to_role_hash_spec.cr
   target: test/grant_connection_w6_connected_to_role_hash_test.iyi
   area: other

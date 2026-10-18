@@ -38,6 +38,7 @@ pub import grant/locking/pessimistic
 pub import grant/adapter/sqlite
 pub import grant/adapter/base
 import grant/adapter/driver::{Connection, Value, Row}
+pub import grant/database_configurations
 pub import grant/connection_handling
 pub import grant/connection_management
 pub import grant/connection_pool
@@ -68,6 +69,12 @@ pub struct TransactionState
 end
 
 pub abstract class Base
+  def self.connected_to(database : String? = nil, role : Symbol? = nil,
+                        shard : Symbol? = nil, prevent_writes : Bool = false,
+                        &block : -> T) : T forall T
+    ::Grant::ConnectionContext.connected_to(database, role, shard, prevent_writes) { yield }
+  end
+
   @new_record : Bool = true
   @destroyed : Bool = false
   @_current_callback : String? = nil
@@ -142,6 +149,7 @@ pub abstract class Base
       \{% if @type.abstract? %}
         ::Grant::ConnectionHandling.model_methods(\{{ @type }})
         ::Grant::ConnectionManagement.model_methods(\{{ @type }})
+        ::Grant::DatabaseConfigurations.model_methods(\{{ @type }})
       \{% else %}
         __process_columns
       \{% end %}
@@ -777,6 +785,7 @@ pub abstract class Base
     ::Grant::Dependent.model_methods({{ @type }})
     ::Grant::ConnectionHandling.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
+    ::Grant::DatabaseConfigurations.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
@@ -1064,6 +1073,12 @@ pub abstract class Base
       \{% end %}
       configured_role = role == :primary ? ::Grant::Settings.settings.writing_role : role
       name = connection_config[configured_role]? || connection_config[role]? || name
+      shard = current_shard
+      unless shard.nil?
+        shard_roles = shard_config[shard]?
+        name = shard_roles[configured_role]? || name unless shard_roles.nil?
+      end
+      name = connection_context_database || name
       ::Grant::ConnectionRegistry::ConnectionRegistry.get_adapter?(name, ::Grant::ConnectionManagement.registry_role(role)) || ::Grant::Connections::Connections[name]
       \{% end %}
     end
@@ -1075,7 +1090,7 @@ pub abstract class Base
         return contextual unless contextual.nil?
       end
       unless connection_config.empty?
-        role = should_use_reader? ? ::Grant::Settings.settings.reading_role : ::Grant::Settings.settings.writing_role
+        role = current_role
         return resolve_adapter_for_role(role)
       end
       \{% begin %}
@@ -1096,6 +1111,7 @@ pub abstract class Base
       original = __transaction_connection
       current = ::Grant::Base::Base.current_transaction_connection(original)
       return current unless current.nil?
+      return adapter.checkout.or_panic unless connection_context.nil?
       if should_use_reader?
         return resolve_adapter_for_role(::Grant::Settings.settings.reading_role).checkout.or_panic
       end
@@ -1902,6 +1918,7 @@ pub abstract class Base
 
   # Crystal `save!`.
   def save_strict(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
+    __guard_context_writes!
     result = __run_save_transaction(validate: validate, skip_timestamps: skip_timestamps)
     if result.is_a?(::Grant::Callbacks::Abort)
       errors << ::Grant::Error::Error.new(:base, result.message)
