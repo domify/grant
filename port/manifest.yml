@@ -790,7 +790,7 @@
   target: test/grant_encryption_migration_helpers_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/options_spec.cr
   target: test/grant_encryption_options_test.iyi
   area: query
@@ -810,7 +810,7 @@
   target: test/grant_encryption_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/enum_attributes_spec.cr
   target: test/grant_enum_attributes_test.iyi
   area: query
@@ -2315,7 +2315,7 @@
   target: test/grant_encryption_database_test.iyi
   area: dirty_state
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/locking/locking_column_spec.cr
   target: test/grant_locking_locking_column_test.iyi
   area: dirty_state
@@ -2541,12 +2541,12 @@
   target: test/grant_encryption_context_test.iyi
   area: other
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/previous_schemes_spec.cr
   target: test/grant_encryption_previous_schemes_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/error/error_spec.cr
   target: test/grant_error_error_test.iyi
   area: other

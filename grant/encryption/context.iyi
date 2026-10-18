@@ -1,12 +1,16 @@
 module grant/encryption/context
 
+pub import grant/encryption/key_provider
+import grant/encryption/key_provider::{KeySet, KeyProvider, KeyError}
 pub import grant/error
 import grant/error::{ErrorBase}
 
 # Mode slice of the upstream immutable context. Native scheduler identities
 # supply fiber-local storage without reopening the runtime's Fiber class.
 pub struct Context
-  def initialize(@encryption_disabled : Bool = false, @data_protected : Bool = false)
+  getter key_set : KeySet?
+
+  def initialize(@encryption_disabled : Bool = false, @data_protected : Bool = false, @key_set : KeySet? = nil)
   end
 
   def encryption_disabled? : Bool
@@ -17,8 +21,8 @@ pub struct Context
     @data_protected
   end
 
-  def replace(encryption_disabled : Bool = @encryption_disabled, data_protected : Bool = @data_protected) : Context
-    Context.new(encryption_disabled, data_protected)
+  def replace(encryption_disabled : Bool = @encryption_disabled, data_protected : Bool = @data_protected, key_set : KeySet? = @key_set) : Context
+    Context.new(encryption_disabled, data_protected, key_set)
   end
 end
 
@@ -49,6 +53,13 @@ end
 
 pub def protecting_encrypted_data(&block : -> T) : T forall T
   swap_context(current_context.replace(encryption_disabled: false, data_protected: true)) { yield }
+end
+
+pub def with_context(primary_key : String? = nil, deterministic_key : String? = nil, key_derivation_salt : String? = nil, &block : -> T) : T | KeyError forall T
+  primary = primary_key.nil? ? nil : KeyProvider.decode_key(primary_key)!
+  deterministic = deterministic_key.nil? ? nil : KeyProvider.decode_key(deterministic_key)!
+  keys = KeySet.new(primary, deterministic, key_derivation_salt || KeyProvider.key_derivation_salt)
+  swap_context(current_context.replace(key_set: keys)) { yield }
 end
 
 private def swap_context(context : Context, &block : -> T) : T forall T
