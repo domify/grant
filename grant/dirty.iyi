@@ -15,6 +15,13 @@ pub UNFILTERED = Unfiltered.new
 # Scalar pre-save predicates share the column baselines already captured by
 # Base on construction, hydration, successful persistence and rollback.
 pub macro model_methods(model)
+  def clear_dirty_tracking_for(names : Array(String)) : Nil
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      @__persisted_\{{ column.name }} = @\{{ column.name }} if names.includes?(\{{ column.name.stringify }})
+    \{% end %}
+    nil
+  end
+
   alias SavedValue = ::Grant::Dirty::DirtyValue {% for method in model.resolve.methods.select { |method| method.name.starts_with?("__raw_") && !method.name.ends_with?("=") } %} | {{method.return_type}}{% end %}
   @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
 
