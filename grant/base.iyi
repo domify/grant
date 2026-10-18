@@ -6,6 +6,8 @@ pub import std/time
 pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/scoping
+pub import grant/sti
+pub import grant/eager_loading
 pub import grant/querying
 pub import grant/select
 pub import grant/associations
@@ -697,6 +699,10 @@ pub abstract class Base
     end
   end
 
+  macro belongs_to(model, scope = nil, **options)
+    ::Grant::Associations.belongs_to({{ model }}, {{ scope }}, {{ options.double_splat }})
+  end
+
   macro has_many(model, scope = nil, **options)
     ::Grant::Associations.has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
   end
@@ -706,6 +712,8 @@ pub abstract class Base
   end
 
   macro __process_columns
+    ::Grant::STI.model_methods({{ @type }})
+    ::Grant::EagerLoading.model_methods({{ @type }})
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
@@ -956,7 +964,7 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      @@table_name
+      __sti_table_name || @@table_name
       \{% end %}
     end
 
@@ -1109,7 +1117,9 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
-      __connection.execute("DELETE FROM #{::Grant::Base.quote_identifier(table_name)}")!
+      %result = current_scope.delete_all
+      return %result if %result.is_a?(::Grant::Errors::DatabaseError)
+      return ::Grant::Errors::DatabaseError.new(%result.message) if %result.is_a?(::Grant::Error::ErrorBase)
       nil
       \{% end %}
     end
@@ -1118,6 +1128,8 @@ pub abstract class Base
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
+      %sti = __sti_rehome_row(row)
+      return %sti unless %sti.nil?
       record = \{{ @type }}.allocate_record
       \{% for v in columns %}
         \{% type = v.annotation(::Grant::Base::Column)[:type] %}
@@ -1242,6 +1254,7 @@ pub abstract class Base
       scoped = ::Grant::Scoping.current_relation(self)
       return scoped unless scoped.nil?
       query = ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
+      query = apply_sti_scope(query)
       !_unscoped? && _has_default_scope? ? apply_default_scope(query).promote_where_to_default_scope : query
     end
 
@@ -1386,7 +1399,7 @@ pub abstract class Base
 
     def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase forall V
       params = values.map { |value| ::Grant::Base.sqlite_value(value) }
-      __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} #{clause}", params)!.map { |row| from_row(row)! }
+      raw_all(clause, params)
     end
 
     def self.first(clause : String, values : Array(V)) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase forall V
@@ -1402,9 +1415,7 @@ pub abstract class Base
     end
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
-      rows = __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
-      row = rows.empty? ? nil : rows[0]
-      row.nil? ? nil : from_row(row)
+      current_scope.first
     end
 
     def self.first_strict : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
@@ -1414,12 +1425,10 @@ pub abstract class Base
     end
 
     def self.count : Int64 | ::Grant::Errors::DatabaseError
-      result = adapter.open do |db|
-        rows = db.query("SELECT COUNT(*) AS count FROM #{::Grant::Base.quote_identifier(table_name)}")
-        rows.is_a?(::Grant::Errors::DatabaseError) ? rows : rows[0]["count"].as(Int64)
-      end
+      result = current_scope.count
       return result if result.is_a?(Int64) || result.is_a?(::Grant::Errors::DatabaseError)
-      raise result.message
+      return ::Grant::Errors::DatabaseError.new(result.message) if result.is_a?(::Grant::Error::ErrorBase)
+      result.values.sum
     end
 
     def __primary_name : String

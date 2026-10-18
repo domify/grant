@@ -20,6 +20,7 @@ import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
+import grant/eager_loading::{QueryMethods}
 import grant/querying::{NotFound, NotUnique}
 import grant/query/where_chain::{WhereChainMethods}
 import grant/query/where_composition::{WhereComposition}
@@ -68,6 +69,7 @@ pub class Builder(Model)
   property from_source : String? = nil
   property with_source : String? = nil
   # A chain step upstream would raise ArgumentError for; terminals return it.
+  property preload_association_names : Array(String) = [] of String
   property deferred_error : ErrorBase? = nil
   # Memoized result of `load`. Cleared by every mutation and by `reset`.
   @records : Array(Model)? = nil
@@ -201,6 +203,7 @@ pub class Builder(Model)
   end
 
   protected def copy_state_from(source : Builder(Model)) : Nil
+    @preload_association_names = source.preload_association_names.dup
     @where_fields = source.where_fields.empty? ? EmptyClauses::WHERE_FIELDS : source.where_fields.dup
     @default_scope_where_fields = source.default_scope_where_fields.empty? ? EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS : source.default_scope_where_fields.dup
     @order_fields = source.order_fields.empty? ? EmptyClauses::ORDER_FIELDS : source.order_fields.dup
@@ -910,7 +913,9 @@ pub class Builder(Model)
 
   def select : Array(Model) | ErrorBase
     return [] of Model if is_none?
-    prepared { |query_assembler| query_assembler.select }!.run
+    records = prepared { |query_assembler| query_assembler.select }!.run!
+    Model.preload_associations(records, @preload_association_names)! unless @preload_association_names.empty?
+    records
   end
 
   def all : self
@@ -1323,4 +1328,7 @@ impl WhereChainMethods(Model) for Builder(Model) forall Model
 end
 
 impl WhereComposition(Model) for Builder(Model) forall Model
+end
+
+impl QueryMethods(Model) for Builder(Model) forall Model
 end

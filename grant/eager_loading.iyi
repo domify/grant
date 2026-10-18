@@ -1,0 +1,43 @@
+module grant/eager_loading
+
+# Initial direct-association preload surface; all entry points retain current_scope.
+pub macro model_methods(model)
+  {% for operation in [:includes, :preload, :eager_load] %}
+    def self.{{ operation.id }}(*names : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+      current_scope.{{ operation.id }}(*names)
+    end
+  {% end %}
+
+  def self.preload_associations(records : Array({{ model }}), names : Array(String)) : Nil | ::Grant::Error::ErrorBase
+    names.each do |name|
+      found = false
+      {% for method in model.resolve.methods %}
+        {% ann = method.annotation(::Grant::Associations::Relationship) %}
+        {% if ann && ann[:type] == :has_many && ann[:through] == nil %}
+          if name == {{ method.name.stringify }}
+            found = true
+            keys = records.map { |record| record.read_attribute({{ ann[:primary_key].id.stringify }})! }
+            targets = {{ ann[:target] }}.where({{ ann[:foreign_key].id.stringify }}, :in, keys).select!
+            records.each do |record|
+              key = record.read_attribute({{ ann[:primary_key].id.stringify }})!
+              matches = targets.select { |target| target.read_attribute({{ ann[:foreign_key].id.stringify }}).or_panic == key }
+              record.set_loaded_association(name, matches)
+            end
+          end
+        {% end %}
+      {% end %}
+      return ::Grant::Error::ArgumentError.new("Unknown association: #{name}") unless found
+    end
+    nil
+  end
+end
+
+pub trait QueryMethods(Model)
+  {% for operation in [:includes, :preload, :eager_load] %}
+    def {{ operation.id }}(*names : Symbol) : self
+      copy = chain_copy
+      copy.preload_association_names.concat(names.to_a.map { |name| name.to_s })
+      copy
+    end
+  {% end %}
+end
