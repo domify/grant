@@ -314,10 +314,14 @@ pub class AdapterStatements
   end
 
   def catalog_sqlite_table(table : String) : Tuple(String, Array(String)) | ErrorBase | Cancelled
-    literal = dialect.quote_literal(table)
+    bare = table.split('.').last
+    namespace = Naming.schema_of(table)
+    master = namespace.nil? ? "sqlite_master" : "#{dialect.quote(namespace)}.sqlite_master"
+    literal = dialect.quote_literal(bare)
     adapter.open do |db|
-      create = db.scalar("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = #{literal}")!.as(String)
-      indexes = db.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = #{literal} AND sql IS NOT NULL")!.map { |row| row["sql"].as(String) }
+      create = db.scalar("SELECT sql FROM #{master} WHERE type = 'table' AND name = #{literal}")!.as(String?)
+      return InvalidDefinition.new("Table '#{table}' does not exist") if create.nil?
+      indexes = db.query("SELECT sql FROM #{master} WHERE type = 'index' AND tbl_name = #{literal} AND sql IS NOT NULL")!.map { |row| row["sql"].as(String) }
       {create, indexes}
     end
   end

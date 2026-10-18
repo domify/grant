@@ -18,8 +18,10 @@ import grant/query/batches::{Batches}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
+import grant/query/sql_expression
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
+import grant/columns::{Type}
 import grant/querying::{NotFound, NotUnique}
 import grant/query/where_chain::{WhereChainMethods}
 import grant/query/where_composition::{WhereComposition}
@@ -37,6 +39,8 @@ import grant/query/where_composition::{WhereComposition}
 # aggregations, …); iyi has no open classes, so those parts are traits in
 # their own modules with `impl Trait(Model) for Builder(Model)` beside them.
 pub class Builder(Model)
+  include Enumerable(Model)
+
   pub enum DbType
     Mysql
     Sqlite
@@ -76,6 +80,7 @@ pub class Builder(Model)
   end
 
   getter db_type : DbType
+  getter boolean_operator : Symbol
 
   # The DbType of *adapter*, as the model passes it to new relations.
   def self.db_type_for(adapter : ::Grant::Adapter::Base::Base) : DbType
@@ -194,9 +199,40 @@ pub class Builder(Model)
 
   # A copy of this relation; every non-mutating chain method starts here.
   def chain_copy : self
-    copy = Builder(Model).new(@db_type, @boolean_operator)
+    copy = self.class.new(@db_type, @boolean_operator)
     copy.copy_state_from(self)
     copy
+  end
+
+  def boolean_operator : Symbol
+    @boolean_operator
+  end
+
+  # create_with defaults travel with the relation state (upstream finders.cr).
+  @create_with_defaults : Hash(String, Type)? = nil
+
+  def create_with_attributes : Hash(String, Type)
+    defaults = @create_with_defaults
+    copy = {} of String => Type
+    defaults.each { |key, value| copy[key] = value } unless defaults.nil?
+    copy
+  end
+
+  def clear_create_with_defaults : Nil
+    @create_with_defaults = nil
+    nil
+  end
+
+  def adopt_create_with_defaults(defaults : Hash(String, Type)) : Nil
+    return if defaults.empty?
+    merged = create_with_attributes
+    defaults.each { |key, value| merged[key] = value }
+    @create_with_defaults = merged
+    nil
+  end
+
+  def copy_state_to(target : Builder(Model)) : Nil
+    target.copy_state_from(self)
   end
 
   protected def copy_state_from(source : Builder(Model)) : Nil
@@ -220,6 +256,7 @@ pub class Builder(Model)
     @index_hint_sql = source.index_hint_sql
     @from_source = source.from_source
     @with_source = source.with_source
+    adopt_create_with_defaults(source.create_with_attributes)
     @deferred_error = source.deferred_error
     nil
   end
@@ -609,7 +646,16 @@ pub class Builder(Model)
   end
 
   def group_by_in_place(field : Symbol | String) : self
-    own_group_fields << {field: field.to_s}
+    if field.is_a?(String)
+      stripped = ::Grant::Query::SqlExpression.validate_strict(field, "GROUP BY expression")
+      if stripped.is_a?(ErrorBase)
+        self.defer(stripped)
+        return self
+      end
+      own_group_fields << {field: stripped.as(String)}
+    else
+      own_group_fields << {field: field.to_s}
+    end
     self
   end
 
@@ -912,6 +958,16 @@ pub class Builder(Model)
     prepared { |query_assembler| query_assembler.select }!.run
   end
 
+  # Enumerable#count over the loaded records.
+  def count(&block : Model -> Bool) : Int32 | ErrorBase
+    records!.count { |record| yield record }
+  end
+
+  # Enumerable#select over the loaded records.
+  def select(&block : Model -> Bool) : Array(Model) | ErrorBase
+    records!.select { |record| yield record }
+  end
+
   def all : self
     chain_copy
   end
@@ -1018,6 +1074,15 @@ pub class Builder(Model)
     return RecordNotFound.new(Model.to_s, "last") if record.nil?
     record
   end
+
+  {% for name in %w(second third fourth fifth forty_two second_to_last third_to_last) %}
+    # Like `{{name.id}}`, but returns `RecordNotFound` when missing.
+    def {{name.id}}_strict : Model | RecordNotFound | ErrorBase
+      record = {{name.id}}!
+      return RecordNotFound.new("No record found") if record.nil?
+      record
+    end
+  {% end %}
 
   def second : Model | Nil | ErrorBase
     nth_record(1)
@@ -1237,7 +1302,13 @@ pub class Builder(Model)
 
   def find_by_strict(**criteria) : Model | RecordNotFound | ErrorBase
     record = find_by(**criteria)!
-    return RecordNotFound.new("No record found") if record.nil?
+    if record.nil?
+      parts = [] of String
+      criteria.each do |key, value|
+        parts << (value.nil? ? "#{key} is NULL" : "#{key} = #{value}")
+      end
+      return NotFound.new("No #{Model} found where #{parts.join(" and ")}")
+    end
     record
   end
 
@@ -1250,7 +1321,9 @@ pub class Builder(Model)
     @group_fields.each_with_index do |field, index|
       fields << "#{field[:field]} AS \"grant_group_#{index}\""
     end
-    fields << "#{function}(#{column}) AS \"grant_aggregate\""
+    aggregate = "#{function}(#{column})"
+    aggregate = "CAST(#{aggregate} AS DOUBLE PRECISION)" if function == "AVG" && Model.adapter.postgres?
+    fields << "#{aggregate} AS \"grant_aggregate\""
     sql = query_assembler.build_sql([
       query_assembler.with_clause, "#{query_assembler.select_prefix} #{fields.join(", ")}", query_assembler.from_clause,
       query_assembler.joins, query_assembler.where, query_assembler.group_by, query_assembler.having,

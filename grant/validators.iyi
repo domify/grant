@@ -1,6 +1,97 @@
 module grant/validators
 
+import std/text
+pub import grant/validators/uniqueness
+pub import grant/validators/numericality
+
+pub def blank?(value : T) : Bool forall T
+  if value.is_a?(Nil)
+    true
+  elsif value.is_a?(Bool)
+    !value
+  elsif value.is_a?(String)
+    value.strip.empty?
+  elsif value.responds_to?(:empty?)
+    value.empty?
+  else
+    false
+  end
+end
+
 pub macro model_methods(model)
+  @validation_contexts : Array(Symbol)? = nil
+
+  def __active_validation_contexts : Array(Symbol)
+    @validation_contexts || [new_record? ? :create : :update]
+  end
+
+  def valid?(context : Symbol | Array(Symbol) | Nil) : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    previous = @validation_contexts
+    @validation_contexts = context.is_a?(Array(Symbol)) ? context : (context.nil? ? nil : [context])
+    result = valid?
+    @validation_contexts = previous
+    result
+  end
+
+  def validate(context : Symbol | Array(Symbol) | Nil = nil) : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    valid?(context)
+  end
+
+  def validate_strict(context : Symbol | Array(Symbol) | Nil = nil) : self | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase | ::Grant::Errors::RecordInvalid
+    valid = valid?(context)!
+    return ::Grant::Errors::RecordInvalid.new(self) unless valid
+    self
+  end
+
+
+  macro validate(field, message, predicate, context = :save)
+    def __validate_proc_\{{ @type.methods.size }} : Nil
+      contexts = \{{ context }}
+      contexts = [contexts] unless contexts.is_a?(Array(Symbol))
+      active = __active_validation_contexts
+      return nil unless active.includes?(:save) || contexts.includes?(:save) || contexts.any? { |item| active.includes?(item) }
+      unless (\{{ predicate }}).call(self)
+        errors << ::Grant::Error::Error.new(\{{ field }}.to_s, \{{ message }})
+      end
+      nil
+    end
+  end
+
+  macro __validation_rule_options(field, rule_value, **options)
+    \{% if options[:if] %}
+      return nil unless self.\{{ options[:if].id }}
+    \{% end %}
+    \{% if options[:unless] %}
+      return nil if self.\{{ options[:unless].id }}
+    \{% end %}
+    \{% if options[:on] %}
+      contexts = \{{ options[:on] }}
+      contexts = [contexts] unless contexts.is_a?(Array(Symbol))
+      active = __active_validation_contexts
+      return nil unless active.includes?(:save) || contexts.includes?(:save) || contexts.any? { |item| active.includes?(item) }
+    \{% end %}
+    \{% if options[:allow_nil] %}
+      return nil if \{{ rule_value }}.nil?
+    \{% end %}
+    \{% if options[:allow_blank] %}
+      return nil if ::Grant::Validators.blank?(\{{ rule_value }})
+    \{% end %}
+  end
+
+  macro validates_inclusion_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_inclusion_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        unless (\{{ options[:in] || options[:within] }}).includes?(value)
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "is not included in the list" }}, :inclusion)
+        end
+        nil
+      end
+    \{% end %}
+  end
+
   macro validates_presence_of(*fields, **options)
     \{% for field in fields %}
       def __validate_presence_\{{ field.id }} : Nil
@@ -10,13 +101,51 @@ pub macro model_methods(model)
         \{% if options[:unless] %}
           return nil if self.\{{ options[:unless].id }}
         \{% end %}
+        \{% if options[:on] %}
+          contexts = \{{ options[:on] }}
+          contexts = [contexts] unless contexts.is_a?(Array(Symbol))
+          active = __active_validation_contexts
+          return nil unless active.includes?(:save) || contexts.includes?(:save) || contexts.any? { |item| active.includes?(item) }
+        \{% end %}
         value = \{{ field.id }}
-        if value.nil? || value.to_s.strip.empty?
+        \{% if options[:allow_nil] %}
+          return nil if value.nil?
+        \{% end %}
+        \{% if options[:allow_blank] %}
+          return nil if ::Grant::Validators.blank?(value)
+        \{% end %}
+        if ::Grant::Validators.blank?(value)
           errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-            \{{ options[:message] || "can't be blank" }})
+            \{{ options[:message] || "can't be blank" }}, :blank)
         end
         nil
       end
     \{% end %}
   end
+  macro validates_length_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_length_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        length = value.responds_to?(:size) ? value.size : value.to_s.size
+        \{% if options[:minimum] %}
+          if length < \{{ options[:minimum] }}
+            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+              \{{ options[:message] || "is too short (minimum is #{options[:minimum]} characters)" }}, :too_short)
+          end
+        \{% end %}
+        \{% if options[:maximum] %}
+          if length > \{{ options[:maximum] }}
+            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+              \{{ options[:message] || "is too long (maximum is #{options[:maximum]} characters)" }}, :too_long)
+          end
+        \{% end %}
+        nil
+      end
+    \{% end %}
+  end
+
+  ::Grant::Validators::Uniqueness.model_methods({{ model }})
+  ::Grant::Validators::Numericality.model_methods({{ model }})
+
 end

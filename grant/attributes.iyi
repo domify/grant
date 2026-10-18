@@ -21,14 +21,217 @@ pub annotation AttributeAlias
 end
 
 
+pub struct ColumnInfo
+  getter name : String
+  getter crystal_type : String
+  getter converter : String?
+
+  def initialize(@name : String, @crystal_type : String, @nilable : Bool,
+                 @primary : Bool, @converter : String? = nil)
+  end
+
+  def nilable? : Bool
+    @nilable
+  end
+
+  def primary? : Bool
+    @primary
+  end
+end
+
+@@columns = {} of String => Array(ColumnInfo)
+@@columns_hashes = {} of String => Hash(String, ColumnInfo)
+
+pub def columns_for(model_name : String, &block : -> Array(ColumnInfo)) : Array(ColumnInfo)
+  @@columns[model_name] ||= yield
+end
+
+pub def columns_hash_for(model_name : String,
+                        &block : -> Hash(String, ColumnInfo)) : Hash(String, ColumnInfo)
+  @@columns_hashes[model_name] ||= yield
+end
+
 # Reflective reader and encrypted-inspection slice of upstream Attributes.
 # Deferred column introspection expands in each concrete Base subclass.
 pub macro model_methods(model)
+  @attributes_before_type_cast : Hash(String, ::Grant::Columns::Type)?
+
+  def attribute_before_type_cast(name : String | Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute = self.class.resolve_attribute_alias(name.to_s)
+    return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute) unless has_attribute?(attribute)
+    store = @attributes_before_type_cast
+    if store && store.has_key?(attribute)
+      store[attribute]
+    else
+      read_column_value(attribute)
+    end
+  end
+
+  protected def capture_before_type_cast(attribute : String, raw : ::Grant::Columns::Type) : Nil
+    store = @attributes_before_type_cast
+    unless store
+      store = {} of String => ::Grant::Columns::Type
+      @attributes_before_type_cast = store
+    end
+    store[attribute] = raw
+    nil
+  end
+
+  protected def discard_before_type_cast(attribute : String) : Nil
+    store = @attributes_before_type_cast
+    store.delete(attribute) if store
+    nil
+  end
+
+  def clear_before_type_cast : Nil
+    @attributes_before_type_cast = nil
+    nil
+  end
+
+  def self.columns : Array(::Grant::Attributes::ColumnInfo)
+    ::Grant::Attributes.columns_for(self.to_s) do
+      \{% begin %}
+      [
+        \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+          \{% ann = v.annotation(::Grant::Base::Column) %}
+          ::Grant::Attributes::ColumnInfo.new(
+            \{{ v.name.stringify }},
+            \{{ ann[:type].gsub(/\?/, "").gsub(/ \| ::Nil/, "").gsub(/::Std::Time::Time/, "Time") }},
+            \{{ ann[:type].includes?("?") || ann[:type].includes?("Nil") }},
+            \{{ ann[:primary] }},
+            \{% if ann[:converter] %}\{{ ann[:converter].stringify.gsub(/^::/, "").gsub(/\(::/, "(") }}\{% else %}nil\{% end %}
+          ),
+        \{% end %}
+      ] of ::Grant::Attributes::ColumnInfo
+      \{% end %}
+    end
+  end
+
+  def self.columns_hash : Hash(String, ::Grant::Attributes::ColumnInfo)
+    all_columns = columns
+    ::Grant::Attributes.columns_hash_for(self.to_s) do
+      result = {} of String => ::Grant::Attributes::ColumnInfo
+      all_columns.each { |column| result[column.name] = column }
+      result
+    end
+  end
+
+  def self.attribute_names : Array(String)
+    fields
+  end
+
+  def self.column_names : Array(String)
+    fields
+  end
+
+  def self.resolve_attribute_alias(name : String) : String
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
+        return \{{ ann[:column] }} if name == \{{ ann[:name] }}
+      \{% end %}
+    \{% end %}
+    name
+  end
+
+  def self.type_for_attribute(name : String | Symbol) : String?
+    info = columns_hash[resolve_attribute_alias(name.to_s)]?
+    info ? info.crystal_type : nil
+  end
+
+  def self.attribute_types : Hash(String, String)
+    result = {} of String => String
+    columns.each { |column| result[column.name] = column.crystal_type }
+    result
+  end
+
+  def self.primary_key : String?
+    column = columns.find { |info| info.primary? }
+    column ? column.name : nil
+  end
+
+  def self.content_columns : Array(::Grant::Attributes::ColumnInfo)
+    columns.reject do |column|
+      column.primary? || column.name.ends_with?("_id") ||
+        column.name.ends_with?("_count") || column.name == "type"
+    end
+  end
+
+  def self.reset_column_information : Nil
+    nil
+  end
+
+  def attribute_names : Array(String)
+    self.class.attribute_names
+  end
+
+  def self.has_column?(name : String | Symbol) : Bool
+    fields.includes?(resolve_attribute_alias(name.to_s))
+  end
+
+  def has_attribute?(name : String | Symbol) : Bool
+    self.class.has_column?(name)
+  end
+
+  def [](name : String | Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute = self.class.resolve_attribute_alias(name.to_s)
+    return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute) unless has_attribute?(attribute)
+    read_column_value(attribute)
+  end
+
+  private def read_column_value(attribute : String) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    \{% begin %}
+      case attribute
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      when \{{ v.name.stringify }}
+        \{% if v.annotation(::Grant::Base::Column)[:converter] %}
+          \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})
+        \{% else %}
+          @\{{ v.name }}
+        \{% end %}
+      \{% end %}
+      else
+        ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute)
+      end
+    \{% end %}
+  end
+
+  def []=(name : String | Symbol, value : ::Grant::Columns::Type) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute = self.class.resolve_attribute_alias(name.to_s)
+    return ::Grant::Attributes::UnknownAttributeError.new(self.class.to_s, attribute) unless has_attribute?(attribute)
+    assign_attributes({attribute => value})!
+    value
+  end
+
+  def attribute_present?(name : String | Symbol) : Bool | ::Grant::Error::ErrorBase
+    value = self[name]!
+    if value.nil?
+      false
+    elsif value.is_a?(String)
+      !value.empty?
+    else
+      true
+    end
+  end
+
+  def slice(*names : String | Symbol) : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    result = {} of String => ::Grant::Columns::Type
+    names.each { |name| result[name.to_s] = self[name]! }
+    result
+  end
+
+  def values_at(*names : String | Symbol) : Array(::Grant::Columns::Type) | ::Grant::Error::ErrorBase
+    result = [] of ::Grant::Columns::Type
+    names.each { |name| result << self[name]! }
+    result
+  end
+
   def attributes : Hash(String, ::Grant::Columns::Type) | ::Grant::Error::ErrorBase
     result = {} of String => ::Grant::Columns::Type
     \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
       \{% if v.annotation(::Grant::Base::Column)[:converter] %}
-        result[\{{ v.name.stringify }}] = \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})!
+        converted = \{{ v.annotation(::Grant::Base::Column)[:converter] }}.to_db(@\{{ v.name }})
+        return converted if converted.is_a?(::Grant::Error::ErrorBase)
+        result[\{{ v.name.stringify }}] = converted
       \{% else %}
         result[\{{ v.name.stringify }}] = @\{{ v.name }}
       \{% end %}
