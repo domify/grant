@@ -2315,7 +2315,7 @@
   target: test/grant_encryption_database_test.iyi
   area: dirty_state
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/locking/locking_column_spec.cr
   target: test/grant_locking_locking_column_test.iyi
   area: dirty_state
