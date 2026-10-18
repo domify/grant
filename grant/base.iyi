@@ -38,6 +38,7 @@ pub import grant/locking/pessimistic
 pub import grant/adapter/sqlite
 pub import grant/adapter/base
 import grant/adapter/driver::{Connection, Value, Row}
+pub import grant/database_configurations
 pub import grant/connection_handling
 pub import grant/connection_management
 pub import grant/connection_pool
@@ -148,6 +149,7 @@ pub abstract class Base
       \{% if @type.abstract? %}
         ::Grant::ConnectionHandling.model_methods(\{{ @type }})
         ::Grant::ConnectionManagement.model_methods(\{{ @type }})
+        ::Grant::DatabaseConfigurations.model_methods(\{{ @type }})
       \{% else %}
         __process_columns
       \{% end %}
@@ -779,6 +781,7 @@ pub abstract class Base
     ::Grant::Dependent.model_methods({{ @type }})
     ::Grant::ConnectionHandling.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
+    ::Grant::DatabaseConfigurations.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})

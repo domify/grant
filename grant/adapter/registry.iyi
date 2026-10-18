@@ -5,6 +5,7 @@ import grant/adapter/base::{Base}
 import grant/error::{ErrorBase}
 import grant/adapter/sqlite::{Sqlite}
 import grant/adapter/pg::{Pg}
+import grant/adapter/mysql::{Mysql}
 
 pub class UnknownAdapterError < ErrorBase
 end
@@ -17,7 +18,7 @@ end
 pub class Registry
   pub alias AdapterClass = Base.class
   @@adapters = {"sqlite" => Sqlite, "sqlite3" => Sqlite,
-    "postgres" => Pg, "postgresql" => Pg, "pg" => Pg} of String => AdapterClass
+    "postgres" => Pg, "postgresql" => Pg, "pg" => Pg, "mysql" => Mysql} of String => AdapterClass
 
   def self.register(adapter : AdapterClass, *names : String) : Nil
     names.each { |name| @@adapters[name.downcase] = adapter }

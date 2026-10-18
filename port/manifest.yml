@@ -680,7 +680,7 @@
   target: test/grant_config_database_configurations_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/abstract_inheritance_spec.cr
   target: test/grant_connection_abstract_inheritance_test.iyi
   area: query

@@ -59,3 +59,17 @@ pub macro connected_to_many(*classes, role = nil, shard = nil, prevent_writes = 
     end
   {% end %}
 end
+
+pub import grant/database_configurations
+
+pub def configurations? : ::Grant::DatabaseConfigurations::DatabaseConfigurations?
+  ::Grant::DatabaseConfigurations::ConfigurationState.get
+end
+
+pub def configurations : ::Grant::DatabaseConfigurations::DatabaseConfigurations | ::Grant::DatabaseConfigurations::DatabaseConfigurationError
+  configurations? || ::Grant::DatabaseConfigurations::DatabaseConfigurationError.new("Grant.configurations is not set")
+end
+
+pub def configurations=(value : ::Grant::DatabaseConfigurations::DatabaseConfigurations?) : Nil
+  ::Grant::DatabaseConfigurations::ConfigurationState.set(value)
+end

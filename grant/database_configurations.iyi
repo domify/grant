@@ -4,6 +4,9 @@ import std/text
 import std/env::{ENV}
 import std/file::{File}
 import grant/error::{ErrorBase}
+import grant/connection_registry::{ConnectionRegistry}
+import grant/adapter/sqlite::{Sqlite}
+import grant/adapter/pg::{Pg}
 import grant/adapter/registry::{Registry, UnknownAdapterError}
 
 pub class DatabaseConfigurationError < ErrorBase
@@ -160,6 +163,15 @@ pub class DatabaseConfigurations
     configs.find { |config| config.env == @env && config.database == database && config.replica? == replica }
   end
 
+  def establish_connections : Array(DatabaseConfig) | ErrorBase
+    configs_for(env: @env).each do |config|
+      adapter = config.adapter!
+      ConnectionRegistry.establish_connection(database: config.database, adapter: adapter,
+        url: config.url, role: config.role, pool_size: config.pool_size)!
+    end
+    configs_for(env: @env)
+  end
+
   private def self.with_url_overrides(entries : Hash(String, Entry),
                                      env_lookup : Proc(String, String?)) : Hash(String, Entry)
     merged = {} of String => Entry
@@ -203,5 +215,33 @@ pub class DatabaseConfigurations
     database = entry.replica ? (entry.replica_of || name.chomp("_replica")) : name
     DatabaseConfig.new(name, env_name, adapter_name.downcase, url, entry.pool,
       entry.replica, entry.database_tasks, database)
+  end
+end
+
+pub class ConfigurationState
+  @@configurations : DatabaseConfigurations? = nil
+
+  def self.get : DatabaseConfigurations?
+    @@configurations
+  end
+
+  def self.set(value : DatabaseConfigurations?) : Nil
+    @@configurations = value
+    nil
+  end
+end
+
+pub macro model_methods(model)
+  def self.connection_db_config : ::Grant::DatabaseConfigurations::DatabaseConfig | ::Grant::Error::ErrorBase
+    configurations = ::Grant::DatabaseConfigurations::ConfigurationState.get
+    if configurations.nil?
+      return ::Grant::DatabaseConfigurations::DatabaseConfigurationError.new("Grant.configurations is not set")
+    end
+    if current_role == ::Grant::Settings.settings.reading_role
+      replica = configurations.config_for_database(current_database, replica: true)
+      return replica unless replica.nil?
+    end
+    configurations.config_for_database(current_database) ||
+      ::Grant::DatabaseConfigurations::DatabaseConfigurationError.new("No database configuration for database #{current_database.inspect}")
   end
 end
