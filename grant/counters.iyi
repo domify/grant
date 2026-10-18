@@ -1,0 +1,37 @@
+module grant/counters
+pub import grant/query/executor
+
+pub macro model_methods(model)
+  def self.update_counters(id : I, counters : Hash(K, T)) : Int64 | ::Grant::Error::ErrorBase forall I, K, T
+    __apply_counter_update(current_scope.where(primary_name, :eq, id), counters)
+  end
+
+  def self.update_counters(ids : Array(I), counters : Hash(K, T)) : Int64 | ::Grant::Error::ErrorBase forall I, K, T
+    return 0_i64 if ids.empty?
+    __apply_counter_update(current_scope.where(primary_name, :in, ids), counters)
+  end
+
+  def self.__apply_counter_update(query : ::Grant::Query::Builder::Builder({{ model }}), counters : Hash(K, T)) : Int64 | ::Grant::Error::ErrorBase forall K, T
+    return 0_i64 if counters.empty?
+    assembler = query.assembler
+    where_clause = assembler.where
+    return ::Grant::Error::ArgumentError.new("Counter update has no WHERE clause") if where_clause.nil?
+    where_values = assembler.numbered_parameters
+    assignments = [] of String
+    values = [] of ::Grant::Adapter::Driver::Value
+    index = where_values.size
+    counters.each do |column, delta|
+      return ::Grant::Error::ArgumentError.new("Unknown column: #{column}") unless fields.includes?(column.to_s)
+      quoted = ::Grant::Base.quote_identifier(column.to_s)
+      index += 1
+      placeholder = adapter.postgres? ? "$#{index}" : "?"
+      operator = delta < 0 ? "-" : "+"
+      assignments << "#{quoted} = COALESCE(#{quoted}, 0) #{operator} #{placeholder}"
+      values << ::Grant::Query::BindValue.to_value(delta.abs)
+    end
+    sql = "UPDATE #{::Grant::Base.quote_identifier(table_name)} SET #{assignments.join(", ")} #{where_clause}"
+    binds = adapter.postgres? ? where_values + values : values + where_values
+    mark_write_operation
+    ::Grant::Query::Executor.open_statement(adapter, sql, binds) { |db| db.exec(sql, binds) }!.changes
+  end
+end

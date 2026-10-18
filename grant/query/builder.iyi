@@ -15,6 +15,7 @@ import grant/query/predicate_renderer
 import grant/query/empty_clauses::{EmptyClauses}
 import grant/query/executor
 import grant/query/batches::{Batches}
+import grant/query/finders::{Finders}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
@@ -1337,4 +1338,7 @@ impl WhereChainMethods(Model) for Builder(Model) forall Model
 end
 
 impl WhereComposition(Model) for Builder(Model) forall Model
+end
+
+impl Finders(Model) for Builder(Model) forall Model
 end

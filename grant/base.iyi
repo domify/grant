@@ -27,6 +27,8 @@ pub import grant/validators
 pub import grant/callbacks
 pub import grant/secure_token
 pub import grant/transactions
+pub import grant/convenience_methods
+pub import grant/counters
 pub import grant/query/scoped_relation
 pub import grant/query/finders
 pub import grant/integrators
@@ -710,6 +712,8 @@ pub abstract class Base
     ::Grant::Attributes.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Transactions.model_methods({{ @type }})
+    ::Grant::ConvenienceMethods.model_methods({{ @type }})
+    ::Grant::Counters.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
@@ -1709,13 +1713,13 @@ pub abstract class Base
             self.{{ column.name }} = value.is_a?(Int) ? value.to_i64 : nil
           {% else %}
             {% if column.annotation(::Grant::Base::Column)[:guarded] %}
-              result = (self.{{ column.name }} = value.is_a?(String) ? value : nil)
+              result = (self.{{ column.name }} = value.is_a?({{ type.id }}) ? value : nil)
               if result.is_a?(::Grant::Encryption::Sealed::ArgumentError)
                 errors.clear_conversion_error({{ column.name.symbolize }})
                 errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, result.message)
               end
             {% else %}
-              self.{{ column.name }} = value.is_a?(String) ? value : nil
+              self.{{ column.name }} = value.is_a?({{ type.id }}) ? value : nil
             {% end %}
           {% end %}
         end

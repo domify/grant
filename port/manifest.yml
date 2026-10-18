@@ -781,6 +781,51 @@
   area: query
   examples: 38
   status: todo
+  children:
+  - target: test/grant_convenience_methods_query_test.iyi
+    status: done
+    examples:
+    - T-0d9d06715a
+    - T-772fd08e9d
+    - T-3ea889e976
+    - T-be050e029f
+    - T-ab9e97713f
+    - T-24c60afe98
+    - T-dc651941f7
+    - T-6b6844835a
+    - T-cd54b5102e
+    - T-6785833773
+    - T-9ab5a4c4d2
+    - T-335fc16f54
+    - T-a9a6d643ec
+    - T-036d3c4472
+    - T-aaa35363ef
+    - T-9e5bd98489
+    - T-4f680dbe32
+    - T-05dd2f6b98
+    - T-3d63defe11
+    - T-0d9dd84877
+    - T-abe9c9b8b9
+    - T-05014c3a64
+    - T-8d1449a38d
+    - T-0444e29d56
+    - T-cee9e7732b
+    - T-208a48e025
+    - T-ee754c3e80
+    - T-dbf7baaebf
+    - T-71b7a167ef
+    - T-dab5e130c1
+  - target: test/grant_convenience_methods_bulk_test.iyi
+    status: todo
+    examples:
+    - T-0a0638ce93
+    - T-016a90ce1a
+    - T-447ef31fed
+    - T-8fcdee70a0
+    - T-1c55bbddee
+    - T-6f2ba39f0d
+    - T-cab1ec4af8
+    - T-cd63c3dff2
 - source: crystal-upstream/spec/grant/encryption/filter_spec.cr
   target: test/grant_encryption_filter_test.iyi
   area: query
