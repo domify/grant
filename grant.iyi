@@ -61,6 +61,7 @@ pub macro connected_to_many(*classes, role = nil, shard = nil, prevent_writes = 
 end
 
 pub import grant/database_configurations
+import grant/adapter/registry
 
 pub def configurations? : ::Grant::DatabaseConfigurations::DatabaseConfigurations?
   ::Grant::DatabaseConfigurations::ConfigurationState.get
@@ -72,4 +73,8 @@ end
 
 pub def configurations=(value : ::Grant::DatabaseConfigurations::DatabaseConfigurations?) : Nil
   ::Grant::DatabaseConfigurations::ConfigurationState.set(value)
+end
+
+pub def adapter_for_scheme(scheme : String) : ::Grant::Adapter::Registry::Registry::AdapterClass | ::Grant::Adapter::Registry::UnknownAdapterError
+  ::Grant::Adapter::Registry::Registry.for_scheme(scheme)
 end

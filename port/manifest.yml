@@ -2476,7 +2476,7 @@
   target: test/grant_config_url_scheme_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/disconnect_spec.cr
   target: test/grant_connection_disconnect_test.iyi
   area: other
