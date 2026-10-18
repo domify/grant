@@ -13,6 +13,7 @@ pub import grant/eager_loading
 pub import grant/querying
 pub import grant/select
 pub import grant/associations
+import grant/polymorphic_types
 import grant/dependent
 pub import grant/columns
 pub import grant/schema/verify
@@ -141,7 +142,7 @@ pub abstract class Base
   end
 
   macro inherited
-    ::Grant::Polymorphic.register_polymorphic_type({{ @type.stringify }}, {{ @type }})
+    ::Grant::PolymorphicTypes.register_polymorphic_type({{ @type.stringify }}, {{ @type }})
     ::Grant::ValidationHelpers::Uniqueness.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Length.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Inequality.model_methods({{ @type }})
@@ -810,7 +811,7 @@ pub abstract class Base
   end
 
   macro __process_columns
-    ::Grant::STI.model_methods({{ @type }})
+    ::Grant::Sti.model_methods({{ @type }})
     ::Grant::EagerLoading.model_methods({{ @type }})
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})

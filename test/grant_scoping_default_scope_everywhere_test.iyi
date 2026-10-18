@@ -41,7 +41,7 @@ pub class EverywhereScopedChild < Base
 end
 
 pub class EverywhereScopedStiRecord < Base
-  ::Grant::STI.enable
+  ::Grant::Sti.enable
   connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
   table everywhere_scoped_sti_records
 
@@ -82,11 +82,11 @@ end
 
 # it: keeps filters separate from default predicates when OR conditions are chained
 reset_records
-assert EverywhereScopedRecord.all.map(&.title).or_panic.sorted == ["visible one", "visible three", "visible two"]
+assert EverywhereScopedRecord.all.map(&.title).or_panic.sorted_by(&.to_s) == ["visible one", "visible three", "visible two"]
 assert EverywhereScopedRecord.where(title: "hidden").select.or_panic.empty?
 assert EverywhereScopedRecord.where.not(:visible, true).select.or_panic.empty?
 assert EverywhereScopedRecord.where(title: "missing").or_where(title: "hidden").select.or_panic.empty?
-assert EverywhereScopedRecord.in_alpha.select.or_panic.map(&.title).sorted == ["visible one", "visible two"]
+assert EverywhereScopedRecord.in_alpha.select.or_panic.map(&.title).sorted_by(&.to_s) == ["visible one", "visible two"]
 assert EverywhereScopedRecord.in_category("beta").select.or_panic.map(&.title) == ["visible three"]
 assert EverywhereScopedRecord.in_beta.select.or_panic.map(&.title) == ["visible three"]
 assert EverywhereScopedRecord.all("WHERE title IN (?, ?)", ["hidden", "visible two"] of Value).or_panic.map(&.title) == ["visible two"]
@@ -102,26 +102,26 @@ EverywhereScopedStiRecord.unscoped.delete_all.or_panic
 EverywhereScopedStiRecord.create_strict(title: "visible root", visible: true).or_panic
 EverywhereScopedStiChild.create_strict(title: "visible child", visible: true).or_panic
 EverywhereScopedStiChild.create_strict(title: "hidden child", visible: false).or_panic
-assert EverywhereScopedStiRecord.all.map(&.title).or_panic.sorted == ["visible child", "visible root"]
+assert EverywhereScopedStiRecord.all.map(&.title).or_panic.sorted_by(&.to_s) == ["visible child", "visible root"]
 assert EverywhereScopedStiChild.all.map(&.title).or_panic == ["visible child"]
 
 # it: scopes class-level selection, ordering, projection, distinct, grouping, joins, and eager loading
 reset_records
 assert EverywhereScopedRecord.order(id: :desc).reorder(id: :asc).limit(2).offset(1).select.or_panic.map(&.title) == ["visible two", "visible three"]
-assert EverywhereScopedRecord.select(:category).select.or_panic.map(&.category).uniq.sorted == ["alpha", "beta"]
-assert EverywhereScopedRecord.pluck(:category).or_panic.map(&.as(String)).uniq.sorted == ["alpha", "beta"]
+assert EverywhereScopedRecord.select(:category).select.or_panic.map(&.category).uniq.sorted_by(&.to_s) == ["alpha", "beta"]
+assert EverywhereScopedRecord.pluck(:category).or_panic.map(&.first.as(String)).uniq.sorted == ["alpha", "beta"]
 assert EverywhereScopedRecord.where(category: "alpha").pluck(:category).or_panic.uniq == [["alpha"] of Value]
 assert EverywhereScopedRecord.ids.or_panic.size == 3
-assert EverywhereScopedRecord.distinct.select(:category).select.or_panic.map(&.category).sorted == ["alpha", "beta"]
-grouped_categories = EverywhereScopedRecord.group_by(:category).having("COUNT(*) > ?", 0_i64).select(:category).select.or_panic.map(&.category).sorted
+assert EverywhereScopedRecord.distinct.select(:category).select.or_panic.map(&.category).sorted_by(&.to_s) == ["alpha", "beta"]
+grouped_categories = EverywhereScopedRecord.group_by(:category).having("COUNT(*) > ?", 0_i64).select(:category).select.or_panic.map(&.category).sorted_by(&.to_s)
 assert grouped_categories == ["alpha", "beta"]
 join_titles = EverywhereScopedRecord.joins("everywhere_scoped_children", on: "everywhere_scoped_children.record_id = everywhere_scoped_records.id").select.or_panic.map(&.title)
 assert join_titles == ["visible one"]
-left_join_titles = EverywhereScopedRecord.left_joins("everywhere_scoped_children", on: "everywhere_scoped_children.record_id = everywhere_scoped_records.id").select(:title).select.or_panic.map(&.title).sorted
+left_join_titles = EverywhereScopedRecord.left_joins("everywhere_scoped_children", on: "everywhere_scoped_children.record_id = everywhere_scoped_records.id").select(:title).select.or_panic.map(&.title).sorted_by(&.to_s)
 assert left_join_titles == ["visible one", "visible three", "visible two"]
-assert EverywhereScopedRecord.includes(:children).select.or_panic.map(&.title).sorted == ["visible one", "visible three", "visible two"]
-assert EverywhereScopedRecord.preload(:children).select.or_panic.map(&.title).sorted == ["visible one", "visible three", "visible two"]
-assert EverywhereScopedRecord.eager_load(:children).select.or_panic.map(&.title).sorted == ["visible one", "visible three", "visible two"]
+assert EverywhereScopedRecord.includes(:children).select.or_panic.map(&.title).sorted_by(&.to_s) == ["visible one", "visible three", "visible two"]
+assert EverywhereScopedRecord.preload(:children).select.or_panic.map(&.title).sorted_by(&.to_s) == ["visible one", "visible three", "visible two"]
+assert EverywhereScopedRecord.eager_load(:children).select.or_panic.map(&.title).sorted_by(&.to_s) == ["visible one", "visible three", "visible two"]
 
 # it: scopes lookups, first and last helpers, and class-level iteration
 reset_records

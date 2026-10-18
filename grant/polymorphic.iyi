@@ -4,17 +4,14 @@ import grant/base
 import grant/columns
 import grant/querying
 
-# Preserve upstream's compile-time registration and final dispatch table.
-pub REGISTERED_TYPES = {} of String => ASTNode
+pub import grant/polymorphic_types
 
-pub macro register_polymorphic_type(name, klass)
-  {% REGISTERED_TYPES[name] = klass %}
-end
+# Upstream's final dispatch table over the registered types.
 
 macro finished
   pub def registered_type?(type_name : String) : Bool
     case type_name
-    {% for name, klass in REGISTERED_TYPES %}
+    {% for name, klass in ::Grant::PolymorphicTypes::REGISTERED_TYPES %}
     when {{ name }}
       {{ !klass.resolve.abstract? }}
     {% end %}
@@ -25,7 +22,7 @@ macro finished
 
   pub def load_polymorphic(type_name : String, id : ::Grant::Columns::Type) : ::Grant::Base::Base | Nil | ::Grant::Error::ErrorBase
     case type_name
-    {% for name, klass in REGISTERED_TYPES %}
+    {% for name, klass in ::Grant::PolymorphicTypes::REGISTERED_TYPES %}
     when {{ name }}
       {% unless klass.resolve.abstract? %}
         {{ klass }}.find(id)

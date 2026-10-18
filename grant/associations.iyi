@@ -4,7 +4,6 @@ pub import grant/association_collection
 import grant/dependent
 import grant/association_options
 import grant/autosave
-import grant/polymorphic
 
 pub annotation Relationship
 end
@@ -184,62 +183,6 @@ pub macro has_one(model, scope = nil, **options)
   {% end %}
   {% end %}
 
-end
-
-pub macro belongs_to(model, scope = nil, **options)
-  {% if model.is_a?(TypeDeclaration) %}
-    {% method_name = model.var %}
-    {% class_name = model.type %}
-  {% else %}
-    {% method_name = model.id %}
-    {% class_name = options[:class_name] || model.id.camelcase %}
-  {% end %}
-  {% if options[:foreign_key].is_a?(TypeDeclaration) %}
-    {% foreign_key = options[:foreign_key].var %}
-    column {{ options[:foreign_key] }}
-  {% elsif options[:foreign_key] %}
-    {% foreign_key = options[:foreign_key].id %}
-  {% else %}
-    {% foreign_key = (method_name.stringify + "_id").id %}
-    column {{ foreign_key }} : Int64?
-  {% end %}
-  {% primary_key = options[:primary_key] || "id" %}
-  @[::Grant::Associations::Relationship(target: {{ class_name }}, type: :belongs_to,
-    primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }}, scope: {{ scope }})]
-  def {{ method_name }} : {{ class_name }} | Nil | ::Grant::Error::ErrorBase
-    loaded = get_loaded_association({{ method_name.stringify }})
-    return loaded.first?.as({{ class_name }}?) unless loaded.nil?
-    {{ class_name }}.where({{ primary_key.id.stringify }}, :eq, {{ foreign_key }}).first
-  end
-
-  def {{ method_name }}_strict : {{ class_name }} | ::Grant::Error::ErrorBase
-    result = {{ method_name }}!
-    return result unless result.nil?
-    key = {{ foreign_key }}
-    text = key.nil? ? "NULL" : key.to_s
-    ::Grant::Querying::NotFound.new("No " + {{ class_name }}.to_s + " found where " + {{ primary_key.id.stringify }} + " is #{text}")
-  end
-
-  def {{ method_name }}=(parent : {{ class_name }}?) : Nil
-    key = parent.nil? ? nil : parent.{{ primary_key.id }}
-    self.{{ foreign_key }} = key
-    records = [] of {{ class_name }}
-    records << parent unless parent.nil?
-    set_loaded_association({{ method_name.stringify }}, records)
-  end
-end
-
-pub macro belongs_to(model, scope = nil, **options)
-  {% target = options[:class_name] %}
-  {% foreign = options[:foreign_key] %}
-  {% primary = options[:primary_key] || :id %}
-  @[::Grant::Associations::Relationship(target: {{ target }}, through: nil, type: :belongs_to,
-    primary_key: {{ primary.id }}, foreign_key: {{ foreign.id }}, scope: {{ scope }})]
-  def {{ model.id }} : {{ target }} | Nil | ::Grant::Error::ErrorBase
-    loaded = get_loaded_association({{ model.id.stringify }})
-    return loaded.first?.try(&.as({{ target }})) unless loaded.nil?
-    {{ target }}.where({{ primary.id.stringify }}, :eq, self.{{ foreign.id }}).first
-  end
 end
 
 pub macro model_methods(model)

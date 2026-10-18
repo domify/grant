@@ -1,7 +1,7 @@
 module grant/querying
 
 import std/regex::{Regex}
-import grant/adapter/placeholder_scanner
+pub import grant/adapter/placeholder_scanner
 
 import grant/errors::{RecordNotFound, ErrorBase}
 

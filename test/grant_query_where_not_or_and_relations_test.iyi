@@ -89,25 +89,25 @@ assert left.or_where(right).to_sql.includes?("OR")
 reset
 error = WfPost.where(title: "a").or_where(WfPost.joins(:author).where(title: "b")).select
 assert error.is_a?(ArgumentError)
-assert /structurally compatible.*\[:joins\]/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/structurally compatible.*\[:joins\]/)
 error = WfPost.where(title: "a").or_where(WfPost.where(title: "b").limit(1)).select
 assert error.is_a?(ArgumentError)
-assert /\[:limit\]/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/\[:limit\]/)
 error = WfPost.where(title: "a").or_where(WfPost.where(title: "b").order(:id)).select
 assert error.is_a?(ArgumentError)
-assert /:order/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/:order/)
 error = WfPost.where(title: "a").or_where(WfPost.where(title: "b").offset(1)).select
 assert error.is_a?(ArgumentError)
-assert /:offset/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/:offset/)
 error = WfPost.where(title: "a").or_where(WfPost.where(title: "b").distinct).select
 assert error.is_a?(ArgumentError)
-assert /:distinct/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/:distinct/)
 error = WfPost.where(title: "a").or_where(WfPost.where(title: "b").group_by(:title)).select
 assert error.is_a?(ArgumentError)
-assert /:group/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/:group/)
 error = WfPost.where(title: "a").or_where(WfPost.where(title: "b").includes(:author)).select
 assert error.is_a?(ArgumentError)
-assert /:includes/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/:includes/)
 
 # it: leaves both relations untouched
 reset
@@ -151,10 +151,10 @@ assert titles(WfPost.where(title: "a").and_where(WfPost.all)) == ["a"]
 reset
 error = WfPost.where(title: "a").and_where(WfPost.joins(:author).where(title: "b")).select
 assert error.is_a?(ArgumentError)
-assert /structurally compatible.*\[:joins\]/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/structurally compatible.*\[:joins\]/)
 error = WfPost.where(title: "a").and_where(WfPost.where(title: "b").limit(2)).select
 assert error.is_a?(ArgumentError)
-assert /\[:limit\]/.matches?(error.as(ArgumentError).message)
+assert error.as(ArgumentError).message.matches?(/\[:limit\]/)
 
 # it: keeps the keyword and string forms
 reset

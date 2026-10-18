@@ -8,14 +8,9 @@ end
 pub class SubclassNotFound < ErrorBase
 end
 
-impl Error for SubclassNotFound
-  def message : String
-    @message
-  end
-end
 
 pub macro enable
-  @[::Grant::STI::Root]
+  @[::Grant::Sti::Root]
   def __sti_root_marker : Nil
     nil
   end
@@ -24,8 +19,8 @@ end
 
 # The discriminator, table inheritance, query filter and row dispatch slice of STI.
 pub macro model_methods(model)
-  {% own_root = model.resolve.methods.any? { |m| m.annotation(::Grant::STI::Root) } %}
-  {% root = own_root ? model.resolve : model.resolve.ancestors.find { |a| a.methods.any? { |m| m.annotation(::Grant::STI::Root) } } %}
+  {% own_root = model.resolve.methods.any? { |m| m.annotation(::Grant::Sti::Root) } %}
+  {% root = own_root ? model.resolve : model.resolve.ancestors.find { |a| a.methods.any? { |m| m.annotation(::Grant::Sti::Root) } } %}
   def self.__sti_table_name : String?
     {% if root && !own_root %}
       {{ root }}.table_name
@@ -49,7 +44,7 @@ pub macro model_methods(model)
         return {{ child }}.from_row(row) if discriminator == {{ child.stringify }}
       {% end %}
       if discriminator.is_a?(String) && !discriminator.empty? && discriminator != sti_name
-        return ::Grant::STI::SubclassNotFound.new("Invalid single-table inheritance type: #{discriminator}")
+        return ::Grant::Sti::SubclassNotFound.new("Invalid single-table inheritance type: #{discriminator}")
       end
     {% end %}
     nil
@@ -77,6 +72,10 @@ pub macro model_methods(model)
       [{{ model.stringify }}, \{% for child in @type.all_subclasses %}\{{ child.stringify }}, \{% end %}] of String
       \{% end %}
     end
+
+    {% unless own_root %}
+      before_save :__sti_ensure_type_column
+    {% end %}
 
     def __sti_ensure_type_column : Nil
       self.type = self.class.sti_name if self.type.nil? || self.type == ""

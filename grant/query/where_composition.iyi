@@ -125,7 +125,7 @@ pub trait WhereComposition(Model)
   private def structurally_compatible_error(other : self, method_name : String) : ArgumentError?
     differing = structurally_incompatible_values(other)
     return nil if differing.empty?
-    ArgumentError.new("Relation passed to ##{method_name} must be structurally compatible. Incompatible values: #{differing.inspect}")
+    ArgumentError.new("Relation passed to ##{method_name} must be structurally compatible. Incompatible values: [#{differing.map { |value| ":#{value}" }.join(", ")}]")
   end
 
   def where_not(matches : T) : self forall T

@@ -1438,6 +1438,7 @@ impl Ordering(Model) for Builder(Model) forall Model
 end
 
 impl Joins(Model) for Builder(Model) forall Model
+end
 
 impl Finders(Model) for Builder(Model) forall Model
 end
