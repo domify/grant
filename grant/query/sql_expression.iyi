@@ -1,0 +1,45 @@
+module grant/query/sql_expression
+
+import std/text
+import grant/error::{ArgumentError}
+
+pub def validate_strict(sql : String, kind : String = "SQL expression") : String | ArgumentError
+  stripped = sql.strip
+  return ArgumentError.new("#{kind} cannot be blank") if stripped.empty?
+
+  chars = stripped.chars
+  quote : Char? = nil
+  depth = 0
+  index = 0
+  while index < chars.size
+    char = chars[index]
+    following = chars[index + 1]?
+    if current = quote
+      # A doubled quote character stays inside the literal.
+      if char == current
+        if following == current
+          index += 1
+        else
+          quote = nil
+        end
+      end
+    elsif char == '\'' || char == '"' || char == '`'
+      quote = char
+    elsif char == ';'
+      return ArgumentError.new("#{kind} cannot contain a statement separator: #{stripped.inspect}")
+    elsif (char == '-' && following == '-') || (char == '/' && following == '*') || (char == '*' && following == '/')
+      return ArgumentError.new("#{kind} cannot contain a comment marker: #{stripped.inspect}")
+    elsif char == '('
+      depth += 1
+    elsif char == ')'
+      depth -= 1
+      return ArgumentError.new("#{kind} has unbalanced parentheses: #{stripped.inspect}") if depth < 0
+    end
+    index += 1
+  end
+
+  return ArgumentError.new("#{kind} has an unterminated quote: #{stripped.inspect}") unless quote.nil?
+  return ArgumentError.new("#{kind} has unbalanced parentheses: #{stripped.inspect}") unless depth == 0
+
+  stripped
+end

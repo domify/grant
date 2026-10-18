@@ -3,9 +3,44 @@ module grant/query/aggregations
 import grant/adapter/driver::{Value}
 import grant/errors::{DatabaseError, ErrorBase}
 
+pub enum Calculation
+  Count
+  Sum
+  Average
+  Minimum
+  Maximum
+
+  def self.from_symbol(name : Symbol) : Calculation | ::Grant::Error::ArgumentError
+    case name
+    when :count then Count
+    when :sum then Sum
+    when :average, :avg then Average
+    when :minimum, :min then Minimum
+    when :maximum, :max then Maximum
+    else
+      ::Grant::Error::ArgumentError.new(
+        "Unknown calculation :#{name}; use :count, :sum, :average, :minimum or :maximum")
+    end
+  end
+end
+
+pub alias CalculationResult = Value | Hash(Value, Value) | Hash(Array(Value), Value) | Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64)
+
 # Structural SQLite slice of the upstream Builder reopening. Database values
 # stay integers for integer SUMs; AVG is returned by SQLite as Float64.
 pub trait Aggregations(Model)
+  def calculate(operation : Calculation | Symbol, column : Symbol | String? = nil) : CalculationResult | ErrorBase
+    calculation = operation.is_a?(Symbol) ? Calculation.from_symbol(operation)! : operation
+    return column.nil? ? count : count(column) if calculation == Calculation::Count
+    return ::Grant::Error::ArgumentError.new("calculate(#{calculation.to_s.downcase}) needs a column") if column.nil?
+    case calculation
+    when Calculation::Sum then sum(column)
+    when Calculation::Average then avg(column)
+    when Calculation::Minimum then min(column)
+    else max(column)
+    end
+  end
+
   def sum(&block : Model -> T) : T | ErrorBase forall T
     records!.sum { |record| yield record }
   end

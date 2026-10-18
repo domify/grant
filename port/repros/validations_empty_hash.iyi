@@ -1,0 +1,4 @@
+module port/repros/validations_empty_hash
+left = {} of String => Array(String)
+right = {} of String => Array(String)
+assert left == right

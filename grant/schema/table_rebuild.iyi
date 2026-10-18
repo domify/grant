@@ -2,6 +2,7 @@ module grant/schema/table_rebuild
 
 import grant/adapter/schema::{Dialect, InvalidDefinition}
 import grant/error::{ErrorBase}
+import grant/schema/index_definition::{Naming}
 import std/text
 
 pub class TableRebuild
@@ -103,7 +104,9 @@ pub class TableRebuild
   end
   def statements : Array(String)
     dialect = Dialect::Sqlite
-    scratch = "__grant_rebuild_#{table}"
+    bare = table.split('.').last
+    namespace = Naming.schema_of(table)
+    scratch = Naming.in_schema_of(table, "__grant_rebuild_#{bare}")
     kept = column_names.select { |name| @original_columns.includes?(name.downcase) }
     quoted = kept.map { |name| dialect.quote(name) }.join(", ")
     body = items.map { |item| item.text }.join(",\n  ")
@@ -112,13 +115,24 @@ pub class TableRebuild
     result = ["PRAGMA foreign_keys = OFF", "BEGIN", create,
       "INSERT INTO #{dialect.quote(scratch)} (#{quoted}) SELECT #{quoted} FROM #{dialect.quote(table)}",
       "DROP TABLE #{dialect.quote(table)}",
-      "ALTER TABLE #{dialect.quote(scratch)} RENAME TO #{dialect.quote(table)}"]
+      "ALTER TABLE #{dialect.quote(scratch)} RENAME TO #{dialect.quote(bare)}"]
     @index_sqls.each do |sql|
-      result << sql unless removed_columns.any? { |column| Scanner.mentions?(sql, column) }
+      result << (namespace.nil? ? sql : qualify_index(sql, namespace)) unless removed_columns.any? { |column| Scanner.mentions?(sql, column) }
     end
     result << "COMMIT"
     result << "PRAGMA foreign_keys = ON"
     result
+  end
+
+  private def qualify_index(sql : String, namespace : String) : String
+    index_at = sql.upcase.index("INDEX ").as(Int32) + 6
+    tail = sql[index_at...sql.size]
+    if tail.upcase.starts_with?("IF NOT EXISTS ")
+      index_at += 14
+      tail = sql[index_at...sql.size]
+    end
+    token = Scanner.first_token(tail)
+    "#{sql[0...index_at]}#{Dialect::Sqlite.quote(namespace)}.#{token}#{tail[token.size...tail.size]}"
   end
 
   private def classify(text : String) : Item

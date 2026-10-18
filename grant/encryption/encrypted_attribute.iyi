@@ -5,6 +5,7 @@ import grant/encryption/key_provider::{KeyProvider, KeyError}
 import grant/encryption/cipher::{Cipher, DecryptionError, EncryptionError}
 import std/base64::{Base64}
 import grant/encryption/config::{Config}
+import grant/encryption/compression
 import grant/error::{ArgumentError, ErrorBase}
 pub import grant/encryption/context
 
@@ -14,14 +15,37 @@ pub class EncryptedAttribute
   getter deterministic : Bool
   getter column_name : String
 
-  def initialize(@model_name : String, @attribute_name : String, @deterministic : Bool, @column_name : String, @downcase : Bool = false, @ignore_case : Bool = false)
+  pub struct Options
+    def downcase? : Bool
+      @downcase
+    end
+    def ignore_case? : Bool
+      @ignore_case
+    end
+    def compress? : Bool
+      @compress
+    end
+    def support_unencrypted_data? : Bool?
+      @support_unencrypted_data
+    end
+    getter compress_threshold : Int32?
+    def initialize(@downcase : Bool = false, @ignore_case : Bool = false,
+                   @compress : Bool = false, @compress_threshold : Int32? = nil,
+                   @support_unencrypted_data : Bool? = nil)
+    end
+  end
+
+  getter options : Options
+
+  def initialize(@model_name : String, @attribute_name : String, @deterministic : Bool, @column_name : String, @downcase : Bool = false, @ignore_case : Bool = false, compress : Bool = false, compress_threshold : Int32? = nil, support_unencrypted_data : Bool? = nil)
+    @options = Options.new(@downcase, @ignore_case, compress, compress_threshold, support_unencrypted_data)
   end
 
   def seal(plain : String) : String | KeyError | EncryptionError | DecryptionError
     return plain if ::Grant::Encryption::Context.current_context.encryption_disabled?
     key = KeyProvider.derive_key(@model_name, @attribute_name, @deterministic)!
     text = @downcase || @ignore_case ? plain.downcase : plain
-    encrypted = Base64.encode(Cipher.encrypt(text, key, @deterministic)!)
+    encrypted = Base64.encode(Cipher.encrypt(::Grant::Encryption::Compression.encode(text, options.compress?, options.compress_threshold || 140), key, @deterministic)!)
     Config.log_operation("encrypt", @model_name, @attribute_name, plain.bytesize, encrypted.bytesize)
     encrypted
   end
@@ -31,8 +55,16 @@ pub class EncryptedAttribute
     seal(plain)
   end
 
+  def support_unencrypted_data? : Bool
+    explicit = options.support_unencrypted_data?
+    explicit.nil? ? Config.support_unencrypted_data : explicit
+  end
+
   def query_values(plain : String) : Array(String) | ErrorBase
-    [query_value(plain)!]
+    sealed = query_value(plain)!
+    return [sealed] unless support_unencrypted_data?
+    text = @downcase || @ignore_case ? plain.downcase : plain
+    sealed == text ? [sealed] : [sealed, text]
   end
 
   def open(stored : String) : String | KeyError | EncryptionError | DecryptionError
@@ -43,7 +75,11 @@ pub class EncryptedAttribute
   def open_with_index(stored : String) : Tuple(String, Int32) | KeyError | EncryptionError | DecryptionError
     return {"", 0} if stored.empty?
     bytes = KeyProvider.decode_encoded(stored)
-    return DecryptionError.new("Failed to decode Base64: #{bytes.message}") if bytes.is_a?(KeyError)
+    if bytes.is_a?(KeyError)
+      return {stored, -1} if support_unencrypted_data?
+      return DecryptionError.new("Failed to decode Base64: #{bytes.message}")
+    end
+    return {stored, -1} if support_unencrypted_data? && !Cipher.encrypted_payload?(bytes)
     attempted = false
     2.times do |round|
       deterministic = Cipher.deterministic_payload?(bytes) ? round == 0 : round == 1
@@ -53,7 +89,7 @@ pub class EncryptedAttribute
       result = Cipher.decrypt?(bytes, key)!
       unless result.nil?
         Config.log_operation("decrypt", @model_name, @attribute_name, bytes.bytesize, result.bytesize)
-        return {result, 0}
+        return {::Grant::Encryption::Compression.decode(result), 0}
       end
     end
     return KeyError.new("Primary encryption key not configured. Set Grant::Encryption::KeyProvider.primary_key") unless attempted

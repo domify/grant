@@ -575,7 +575,7 @@
   target: test/grant_attributes_before_type_cast_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/cache_key_spec.cr
   target: test/grant_attributes_cache_key_test.iyi
   area: query
@@ -590,7 +590,7 @@
   target: test/grant_attributes_introspection_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/normalized_query_spec.cr
   target: test/grant_attributes_normalized_query_test.iyi
   area: query
@@ -760,12 +760,12 @@
   target: test/grant_convenience_create_or_find_by_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/create_with_spec.cr
   target: test/grant_convenience_create_with_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience/find_by_ids_spec.cr
   target: test/grant_convenience_find_by_ids_test.iyi
   area: query
@@ -775,7 +775,7 @@
   target: test/grant_convenience_relation_finders_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/convenience_methods_spec.cr
   target: test/grant_convenience_methods_test.iyi
   area: query
@@ -795,12 +795,12 @@
   target: test/grant_encryption_options_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/transparent_column_spec.cr
   target: test/grant_encryption_transparent_column_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption_key_rotation_spec.cr
   target: test/grant_encryption_key_rotation_test.iyi
   area: query
@@ -820,7 +820,7 @@
   target: test/grant_errors_errors_api_test.iyi
   area: query
   examples: 62
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/errors/taxonomy_spec.cr
   target: test/grant_errors_taxonomy_test.iyi
   area: query
@@ -956,7 +956,7 @@
   target: test/grant_query_calculate_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/cte_spec.cr
   target: test/grant_query_cte_test.iyi
   area: query
@@ -1006,7 +1006,7 @@
   target: test/grant_query_group_alias_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/grouped_aggregates_spec.cr
   target: test/grant_query_grouped_aggregates_test.iyi
   area: query
@@ -1021,7 +1021,7 @@
   target: test/grant_query_implicit_order_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/in_batches_relation_spec.cr
   target: test/grant_query_in_batches_relation_test.iyi
   area: query
@@ -1271,12 +1271,12 @@
   target: test/grant_querying_enumerable_baseline_test.iyi
   area: query
   examples: 21
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/enumerable_spec.cr
   target: test/grant_querying_enumerable_test.iyi
   area: query
   examples: 37
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/exists_spec.cr
   target: test/grant_querying_exists_test.iyi
   area: query
@@ -1321,7 +1321,7 @@
   target: test/grant_querying_query_builder_test.iyi
   area: query
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/querying/relation_calculations_spec.cr
   target: test/grant_querying_relation_calculations_test.iyi
   area: query
@@ -1456,12 +1456,12 @@
   target: test/grant_scoping_named_scope_chaining_test.iyi
   area: query
   examples: 2
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/scoping/scoping_spec.cr
   target: test/grant_scoping_scoping_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/secure_token_spec.cr
   target: test/grant_secure_token_test.iyi
   area: query
@@ -1631,7 +1631,7 @@
   target: test/grant_validations_presence_blank_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/strict_spec.cr
   target: test/grant_validations_strict_test.iyi
   area: query
@@ -1681,7 +1681,7 @@
   target: test/grant_validators_uniqueness_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/verbose_logs_spec.cr
   target: test/grant_verbose_logs_test.iyi
   area: query
@@ -1786,7 +1786,7 @@
   target: test/grant_associations_dependent_delete_all_test.iyi
   area: associations
   examples: 3
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/dependent_options_spec.cr
   target: test/grant_associations_dependent_options_test.iyi
   area: associations
@@ -1806,7 +1806,7 @@
   target: test/grant_associations_has_many_test.iyi
   area: associations
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/has_many_through_spec.cr
   target: test/grant_associations_has_many_through_test.iyi
   area: associations
@@ -1816,7 +1816,7 @@
   target: test/grant_associations_has_one_test.iyi
   area: associations
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/has_one_through_preload_spec.cr
   target: test/grant_associations_has_one_through_preload_test.iyi
   area: associations
@@ -1976,7 +1976,7 @@
   target: test/grant_attributes_assign_attributes_test.iyi
   area: associations
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/inspect_filter_spec.cr
   target: test/grant_attributes_inspect_filter_test.iyi
   area: associations
@@ -2031,7 +2031,7 @@
   target: test/grant_convenience_find_or_create_by_test.iyi
   area: associations
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/eager_loading/eager_loading_spec.cr
   target: test/grant_eager_loading_eager_loading_test.iyi
   area: associations
@@ -2041,7 +2041,7 @@
   target: test/grant_encryption_unencrypted_fallback_test.iyi
   area: associations
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/errors/statement_invalid_spec.cr
   target: test/grant_errors_statement_invalid_test.iyi
   area: associations
@@ -2155,12 +2155,12 @@
   target: test/grant_schema_generator_test.iyi
   area: associations
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/migration_context_spec.cr
   target: test/grant_schema_migration_context_test.iyi
   area: associations
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/schema_cache_spec.cr
   target: test/grant_schema_schema_cache_test.iyi
   area: associations
@@ -2180,7 +2180,7 @@
   target: test/grant_schema_w6b_execute_schema_qualified_test.iyi
   area: associations
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_migrator_foreign_keys_spec.cr
   target: test/grant_schema_w6b_migrator_foreign_keys_test.iyi
   area: associations
@@ -2195,7 +2195,7 @@
   target: test/grant_schema_w6b_mysql_live_test.iyi
   area: associations
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/w6b_type_catalog_spec.cr
   target: test/grant_schema_w6b_type_catalog_test.iyi
   area: associations
@@ -2436,7 +2436,7 @@
   target: test/grant_attributes_reflection_test.iyi
   area: other
   examples: 4
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/bulk/chunking_spec.cr
   target: test/grant_bulk_chunking_test.iyi
   area: other
@@ -2706,7 +2706,7 @@
   target: test/grant_validations_validate_bang_test.iyi
   area: other
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/validator_info_evaluation_spec.cr
   target: test/grant_validations_validator_info_evaluation_test.iyi
   area: other
@@ -2721,7 +2721,7 @@
   target: test/grant_validators_contexts_test.iyi
   area: other
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/integration/multi_database_spec.cr
   target: test/integration_multi_database_test.iyi
   area: other

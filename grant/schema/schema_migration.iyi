@@ -16,6 +16,7 @@ pub class SchemaMigration
   getter adapter : Base
   getter tracking : Tracking
   getter dialect : Dialect
+  @table_present : Bool = false
 
   def initialize(@adapter : Base, @tracking : Tracking = Tracking::Grant)
     @dialect = Dialect.for(adapter)
@@ -26,7 +27,8 @@ pub class SchemaMigration
   end
 
   def table_exists? : Bool | ErrorBase | Cancelled
-    adapter.schema.table_exists?(table_name)
+    return true if @table_present
+    @table_present = adapter.schema.table_exists?(table_name)!
   end
 
   def create_table : Nil | ErrorBase | Cancelled
