@@ -111,13 +111,35 @@ end
 
 # Structural slice of Grant::Errors used by persistence validations.
 pub class Errors
+  property base : ::Grant::Error::ErrorRecord? = nil
   @errors = [] of ::Grant::Error::Error
 
-  def add(field : String | Symbol, message : String = "") : self
-    self << ::Grant::Error::Error.new(field, message)
+  def add(field : String | Symbol, message : String = "", type : Symbol? = nil, **options) : ::Grant::Error::Error
+    error = ::Grant::Error::Error.new(field, message, type,
+      options: ::Grant::Error.options_from(options))
+    self << error
+    error
+  end
+
+  def add(field : String | Symbol, type : Symbol, *, message : String | Symbol | Nil = nil, **options) : ::Grant::Error::Error
+    error = ::Grant::Error::Error.new(field, type, message: message,
+      options: ::Grant::Error.options_from(options))
+    self << error
+    error
+  end
+
+  def details : Hash(String, Array(::Grant::Error::Options))
+    result = {} of String => Array(::Grant::Error::Options)
+    @errors.each do |error|
+      key = error.attribute
+      result[key] = [] of ::Grant::Error::Options unless result.has_key?(key)
+      result[key] << error.detail
+    end
+    result
   end
 
   def <<(error : ::Grant::Error::Error) : self
+    error.base = @base if error.base.nil?
     @errors << error
     self
   end

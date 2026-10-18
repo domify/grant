@@ -37,6 +37,21 @@ pub class StatementInvalid < ErrorBase
 
   # Upstream keeps the driver's message as the error message; the operation
   # and driver code stay reachable as fields.
+  def initialize(message : String = "", @sql : String? = nil, *, @cause : ErrorBase? = nil)
+    @code = 0
+    @operation = "execute"
+    @detail = message
+    super(message)
+  end
+
+  def initialize(message : String, @sql : String?, binds : Array(T), *, @cause : ErrorBase? = nil) forall T
+    @code = 0
+    @operation = "execute"
+    @detail = message
+    @binds = StatementInvalid.describe_binds(binds)
+    super(message)
+  end
+
   def initialize(@code : Int32, @operation : String, @detail : String, @sql : String? = nil, @cause : ErrorBase? = nil)
     super(detail)
   end

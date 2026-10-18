@@ -1,8 +1,10 @@
 module grant/validators
 
+import std/regex::{Regex}
 import std/text
 pub import grant/validators/uniqueness
 pub import grant/validators/numericality
+pub import grant/validators/built_in
 
 pub def blank?(value : T) : Bool forall T
   if value.is_a?(Nil)
@@ -51,7 +53,7 @@ pub macro model_methods(model)
       active = __active_validation_contexts
       return nil unless active.includes?(:save) || contexts.includes?(:save) || contexts.any? { |item| active.includes?(item) }
       unless (\{{ predicate }}).call(self)
-        errors << ::Grant::Error::Error.new(\{{ field }}.to_s, \{{ message }})
+        errors << ::Grant::Error::Error.new(\{{ field.id.stringify }}, \{{ message }})
       end
       nil
     end
@@ -123,22 +125,195 @@ pub macro model_methods(model)
     \{% end %}
   end
   macro validates_length_of(*fields, **options)
+    \{% minimum = options[:minimum] || options[:min] %}
+    \{% maximum = options[:maximum] || options[:max] %}
+    \{% exact = options[:is] %}
+    \{% range = options[:in] || options[:within] %}
     \{% for field in fields %}
       def __validate_length_\{{ field.id }} : Nil
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
         length = value.responds_to?(:size) ? value.size : value.to_s.size
-        \{% if options[:minimum] %}
-          if length < \{{ options[:minimum] }}
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "is too short (minimum is #{options[:minimum]} characters)" }}, :too_short)
+        \{% if minimum %}
+          if length < \{{ minimum }}
+            errors.add(\{{ field.id.stringify }}, :too_short,
+              message: \{{ options[:too_short] || options[:message] || nil }}, count: \{{ minimum }})
           end
         \{% end %}
-        \{% if options[:maximum] %}
-          if length > \{{ options[:maximum] }}
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "is too long (maximum is #{options[:maximum]} characters)" }}, :too_long)
+        \{% if maximum %}
+          if length > \{{ maximum }}
+            errors.add(\{{ field.id.stringify }}, :too_long,
+              message: \{{ options[:too_long] || options[:message] || nil }}, count: \{{ maximum }})
           end
+        \{% end %}
+        \{% if exact %}
+          unless length == \{{ exact }}
+            errors.add(\{{ field.id.stringify }}, :wrong_length,
+              message: \{{ options[:wrong_length] || options[:message] || nil }}, count: \{{ exact }})
+          end
+        \{% end %}
+        \{% if range %}
+          range = \{{ range }}
+          lower = range.begin
+          if !lower.nil? && length < lower
+            errors.add(\{{ field.id.stringify }}, :too_short,
+              message: \{{ options[:too_short] || options[:message] || nil }}, count: lower)
+          end
+          upper = range.end
+          unless upper.nil?
+            largest = range.exclusive? ? upper - 1 : upper
+            if length > largest
+              errors.add(\{{ field.id.stringify }}, :too_long,
+                message: \{{ options[:too_long] || options[:message] || nil }}, count: largest)
+            end
+          end
+        \{% end %}
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_size_of(*fields, **options)
+    validates_length_of(\{{ fields.splat }}, \{{ options.double_splat }})
+  end
+
+  macro validates_format_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_format_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        invalid = false
+        \{% if options[:with] %}
+          invalid = !value.to_s.matches?(\{{ options[:with] }})
+        \{% end %}
+        \{% if options[:without] %}
+          invalid = invalid || value.to_s.matches?(\{{ options[:without] }})
+        \{% end %}
+        if invalid
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "is invalid" }}, :invalid)
+        end
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_email(*fields, **options)
+    validates_format_of(\{{ fields.splat }},
+      with: ::Grant::Validators::BuiltIn::CommonFormats::EMAIL_REGEX,
+      message: \{{ options[:message] || "is not a valid email" }},
+      \{% for key, value in options %}\{% unless key.stringify == "message" %}
+        \{{ key.id }}: \{{ value }},
+      \{% end %}\{% end %})
+  end
+
+  macro validates_url(*fields, **options)
+    validates_format_of(\{{ fields.splat }},
+      with: ::Grant::Validators::BuiltIn::CommonFormats::URL_REGEX,
+      message: \{{ options[:message] || "is not a valid URL" }},
+      \{% for key, value in options %}\{% unless key.stringify == "message" %}
+        \{{ key.id }}: \{{ value }},
+      \{% end %}\{% end %})
+  end
+
+  macro validates_absence_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_absence_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        unless ::Grant::Validators.blank?(value)
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "must be blank" }}, :present)
+        end
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_exclusion_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_exclusion_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        if (\{{ options[:in] || options[:within] }}).includes?(value)
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "is reserved" }}, :exclusion)
+        end
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_confirmation_of(*fields, **options)
+    \{% for field in fields %}
+      property \{{ field.id }}_confirmation : String? = nil
+      def __validate_confirmation_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        confirmation = self.\{{ field.id }}_confirmation
+        unless confirmation.nil? || value.to_s == confirmation
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "doesn't match confirmation" }}, :confirmation)
+        end
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_acceptance_of(*fields, **options)
+    \{% for field in fields %}
+      \{% unless @type.has_method?(field.id.stringify) %}
+        property \{{ field.id }} : String? = nil
+      \{% end %}
+      def __validate_acceptance_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        accepted = value.is_a?(Bool) ? value == true : (\{{ options[:accept] || ["1", "true", "yes", "on"] }}).includes?(value.to_s.downcase)
+        unless accepted
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "must be accepted" }}, :accepted)
+        end
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_comparison_of(*fields, **options)
+    \{% for field in fields %}
+      def __validate_comparison_\{{ field.id }} : Nil
+        value = self.\{{ field.id }}
+        __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
+        if value.nil?
+          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+            \{{ options[:message] || "can't be blank" }}, :blank)
+          return nil
+        end
+        \{% for comparison in [
+          {key: :greater_than, op: ">", text: "greater than"},
+          {key: :greater_than_or_equal_to, op: ">=", text: "greater than or equal to"},
+          {key: :equal_to, op: "==", text: "equal to"},
+          {key: :less_than, op: "<", text: "less than"},
+          {key: :less_than_or_equal_to, op: "<=", text: "less than or equal to"},
+          {key: :other_than, op: "!=", text: "other than"},
+        ] %}
+          \{% operand = options[comparison[:key]] %}
+          \{% if operand != nil %}
+            \{% if operand.is_a?(SymbolLiteral) %}
+              bound = self.\{{ operand.id }}
+            \{% elsif operand.is_a?(ProcLiteral) || operand.is_a?(ProcNotation) %}
+              bound = (\{{ operand }}).call(self)
+            \{% else %}
+              bound = \{{ operand }}
+            \{% end %}
+            if bound.nil?
+              errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+                \{{ options[:message] || "is invalid" }}, :comparison)
+            elsif !(value \{{ comparison[:op].id }} bound)
+              errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
+                \{% if options[:message] %}\{{ options[:message] }}\{% else %}"must be \{{ comparison[:text].id }} #{bound}"\{% end %},
+                \{{ comparison[:key] }})
+            end
+          \{% end %}
         \{% end %}
         nil
       end

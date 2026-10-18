@@ -1601,7 +1601,7 @@
   target: test/grant_validations_error_object_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/errors_api_spec.cr
   target: test/grant_validations_errors_api_test.iyi
   area: query
@@ -1611,7 +1611,7 @@
   target: test/grant_validations_errors_details_options_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/i18n_spec.cr
   target: test/grant_validations_i18n_test.iyi
   area: query
@@ -1621,7 +1621,7 @@
   target: test/grant_validations_multi_attribute_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/numericality_constraints_spec.cr
   target: test/grant_validations_numericality_constraints_test.iyi
   area: query
@@ -2046,7 +2046,7 @@
   target: test/grant_errors_statement_invalid_test.iyi
   area: associations
   examples: 12
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/instrumentation/logging_spec.cr
   target: test/grant_instrumentation_logging_test.iyi
   area: associations

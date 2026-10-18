@@ -29,14 +29,14 @@ pub macro model_methods(model)
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
         number = ::Grant::Validators::Numericality.numeric_value(value)
         if number.nil?
-          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-            \{{ options[:message] || "is not a number" }}, :not_a_number)
+          errors.add(\{{ field.id.stringify }}, :not_a_number,
+            message: \{{ options[:message] || nil }}, value: value)
           return nil
         end
         \{% if options[:only_integer] %}
           unless ::Grant::Validators::Numericality.integer_value?(value, number)
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "must be an integer" }}, :not_an_integer)
+            errors.add(\{{ field.id.stringify }}, :not_an_integer,
+            message: \{{ options[:message] || nil }}, value: value)
             return nil
           end
         \{% end %}
@@ -59,22 +59,21 @@ pub macro model_methods(model)
             \{% end %}
             return ::Grant::Error::ArgumentError.new(\{{ "#{comparison[:key]} must be a number" }}) if bound.nil?
             unless number \{{ comparison[:op].id }} bound
-              errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-                \{% if options[:message] %}\{{ options[:message] }}\{% else %}"must be \{{ comparison[:text].id }} #{bound}"\{% end %},
-                \{{ comparison[:key] }})
+              errors.add(\{{ field.id.stringify }}, \{{ comparison[:key] }},
+                message: \{{ options[:message] || nil }}, count: bound, value: value)
             end
           \{% end %}
         \{% end %}
         \{% if options[:odd] %}
           unless number.to_i64 % 2 != 0
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "must be odd" }}, :odd)
+            errors.add(\{{ field.id.stringify }}, :odd,
+            message: \{{ options[:message] || nil }}, value: value)
           end
         \{% end %}
         \{% if options[:even] %}
           unless number.to_i64 % 2 == 0
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "must be even" }}, :even)
+            errors.add(\{{ field.id.stringify }}, :even,
+            message: \{{ options[:message] || nil }}, value: value)
           end
         \{% end %}
         nil

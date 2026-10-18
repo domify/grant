@@ -131,6 +131,7 @@ begin
   assert record.valid?(context: :update).or_panic
 end
 
+# Upstream: defaults to :create for a new record, so on: :update validators do not run
 # it: "defaults to :create for a new record, so on: :update validators
 begin
   record = ContextUser.new
