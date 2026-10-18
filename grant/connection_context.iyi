@@ -1,5 +1,6 @@
 module grant/connection_context
 
+import std/named_tuple
 import grant/settings
 pub struct ConnectionContext
   property database : String?
@@ -203,6 +204,28 @@ pub macro model_methods(model)
     state.block_floor = outer_floor
     ::Grant::ConnectionContext::ConnectionState.release_if_empty
     result
+  end
+
+  def self.connected_to(*, database : NamedTuple, role : Symbol? = nil,
+                        shard : Symbol? = nil, prevent_writes : Bool = false,
+                        &block : -> T) : T | ::Grant::Error::ArgumentError forall T
+    roles = {} of Symbol => String
+    database.each { |key, name| roles[key] = name.to_s }
+    connected_to(database: roles, role: role, shard: shard, prevent_writes: prevent_writes) { yield }
+  end
+
+  def self.connected_to(*, database : Hash(Symbol, String), role : Symbol? = nil,
+                        shard : Symbol? = nil, prevent_writes : Bool = false,
+                        &block : -> T) : T | ::Grant::Error::ArgumentError forall T
+    chosen = role || (database.size == 1 ? database.keys.first : nil)
+    if chosen.nil?
+      return ::Grant::Error::ArgumentError.new("connected_to(database: {...}) with #{database.size} roles needs role: to pick one of #{database.keys.join(", ")}")
+    end
+    name = database[chosen]?
+    if name.nil?
+      return ::Grant::Error::ArgumentError.new("connected_to(database:) has no connection for role :#{chosen}; it names #{database.keys.join(", ")}")
+    end
+    connected_to(database: name, role: chosen, shard: shard, prevent_writes: prevent_writes) { yield }
   end
 
   def self.while_preventing_writes(&block : -> T) : T forall T

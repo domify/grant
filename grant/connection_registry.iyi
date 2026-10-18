@@ -10,6 +10,7 @@ import grant/errors::{ErrorBase}
 # The eager registration slice of Grant::ConnectionRegistry.
 pub class ConnectionRegistry
   pub struct ConnectionSpec
+    property pool_size : Int32 = 25
     property adapter_class : Base.class = Base
     property database : String
     property role : Symbol
@@ -61,6 +62,7 @@ pub class ConnectionRegistry
     @@default_database ||= database
     specification = ConnectionSpec.new(database, url, role, verify_idle_after)
     specification.adapter_class = adapter
+    specification.pool_size = pool_size
     @@specifications[key] = specification
     @@adapters[key] = instance
     Connections.register(database, instance) if role == :primary
