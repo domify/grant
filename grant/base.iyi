@@ -1081,7 +1081,7 @@ pub abstract class Base
           \{% else %}
             \{% storage_type = ann[:type] %}
           \{% end %}
-          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ storage_type }}, \{{ ann[:column_type] }}, \{{ v == primary }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}, default_sql: \{{ ann[:default_sql] }}),
+          ::Grant::Migrator::MigratorColumn.new(\{{ v.name.stringify }}, \{{ storage_type }}, \{{ ann[:column_type] }}, \{{ ann[:primary] ? true : false }}, \{{ ann[:auto] ? true : false }}, literal_default: \{% if ann[:has_literal_default] %} ::Grant::Migrator.default_clause_for(\{{ ann[:literal_default] }}) \{% else %} "" \{% end %}, limit: \{{ ann[:limit] }}, precision: \{{ ann[:precision] }}, scale: \{{ ann[:scale] }}, null: \{{ ann[:null] }}, collation: \{{ ann[:collation] }}, comment: \{{ ann[:comment] }}, default_sql: \{{ ann[:default_sql] }}),
         \{% end %}
       ] of ::Grant::Migrator::MigratorColumn)
       migrator.schema_adapter = self.adapter

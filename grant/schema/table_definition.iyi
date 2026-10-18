@@ -10,6 +10,7 @@ end
 pub UNSET = Unset.new
 
 pub class ColumnDefinition
+  property primary_key : Bool = false
   property collation : String? = nil
   property array : Bool = false
   property expression_default : Bool = false
@@ -61,7 +62,7 @@ pub class TableDefinition
   end
   def column(name : String | Symbol, type : String | Symbol, null : Bool = true,
              comment : String? = nil, limit : Int32? = nil, collation : String? = nil,
-             array : Bool = false, default = UNSET, default_sql : String? = nil, precision : Int32? = nil, scale : Int32? = nil) : Nil | ErrorBase
+             array : Bool = false, default = UNSET, default_sql : String? = nil, precision : Int32? = nil, scale : Int32? = nil, primary_key : Bool = false) : Nil | ErrorBase
     if @columns.any? { |column| column.name == name.to_s }
       @definition_error = InvalidDefinition.new("Column '#{name}' is already defined in '#{table}'")
       return @definition_error
@@ -112,6 +113,7 @@ pub class TableDefinition
       " DEFAULT #{dialect.quote_literal(default)}"
     end
     definition = ColumnDefinition.new(name.to_s, native, null, comment, clause)
+    definition.primary_key = primary_key
     definition.expression_default = !default_sql.nil?
     definition.collation = collation
     definition.array = array
@@ -122,9 +124,9 @@ pub class TableDefinition
   {% for kind in ["string", "integer", "smallint", "tinyint", "bigint", "text", "boolean", "datetime", "date", "time", "binary", "float", "double", "decimal", "json", "uuid"] %}
     def {{kind.id}}(name : String | Symbol, null : Bool = true, comment : String? = nil,
                    limit : Int32? = nil, collation : String? = nil, array : Bool = false,
-                   default = UNSET, default_sql : String? = nil, precision : Int32? = nil, scale : Int32? = nil) : Nil | ErrorBase
+                   default = UNSET, default_sql : String? = nil, precision : Int32? = nil, scale : Int32? = nil, primary_key : Bool = false) : Nil | ErrorBase
       column(name, :{{kind.id}}, null: null, comment: comment, limit: limit, collation: collation,
-        array: array, default: default, default_sql: default_sql, precision: precision, scale: scale)
+        array: array, default: default, default_sql: default_sql, precision: precision, scale: scale, primary_key: primary_key)
     end
   {% end %}
 

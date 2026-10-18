@@ -118,9 +118,9 @@ pub class Migrator
 
   private def column_sql(spec : MigratorColumn) : String
     name = quote_identifier(spec.name)
-    if spec.primary
+    if spec.primary && @specs.count { |column| column.primary } == 1
       type = native_type(spec)
-      type += " NOT NULL" unless @connection.postgres? || !spec.auto
+      type += " NOT NULL" if !@connection.postgres? && spec.auto && spec.base_type.starts_with?("Int")
       "#{name} #{type} PRIMARY KEY#{default_clause(spec)}"
     else
       type = native_type(spec)
@@ -139,6 +139,9 @@ pub class Migrator
   def create_sql(if_not_exists : Bool = false, temporary : Bool = false, comment : String? = nil) : String
     primary = @specs.select { |spec| spec.primary }.map { |spec| column_sql(spec) }
     content = @specs.reject { |spec| spec.primary }.map { |spec| column_sql(spec) }
+    if primary.size > 1
+      content << "PRIMARY KEY (#{@specs.select { |spec| spec.primary }.map { |spec| quote_identifier(spec.name) }.join(", ")})"
+    end
     body = primary.join(",\n")
     content.each { |line| body += ",\n#{line}\n" }
     "CREATE #{temporary ? "TEMPORARY " : ""}TABLE #{if_not_exists ? "IF NOT EXISTS " : ""}#{quote_identifier(@table)}(\n#{body}) ;\n"

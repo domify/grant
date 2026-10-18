@@ -1386,7 +1386,7 @@
   target: test/grant_schema_composite_pk_create_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/create_table_spec.cr
   target: test/grant_schema_create_table_test.iyi
   area: query
