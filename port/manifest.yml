@@ -1746,7 +1746,7 @@
   target: test/grant_associations_belongs_to_extras_test.iyi
   area: associations
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/belongs_to_spec.cr
   target: test/grant_associations_belongs_to_test.iyi
   area: associations

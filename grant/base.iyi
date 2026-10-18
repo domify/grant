@@ -1917,7 +1917,9 @@ pub abstract class Base
   end
 
   def __validation_phase : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    __association_defaults!
     self.before_validation!
+    __association_validations!
     __run_validations!
     self.after_validation!
     errors.empty?
@@ -1938,6 +1940,7 @@ pub abstract class Base
     return ::Grant::Errors::RecordInvalid.new(self) if validate && !valid?!
     __remember_transaction_state
     operation = @new_record ? :create : :update
+    __association_before_save!
     self.before_save!
     saved = __persist_with_around(skip_timestamps: skip_timestamps)
     return saved if saved.is_a?(::Error)

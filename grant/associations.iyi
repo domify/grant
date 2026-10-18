@@ -2,6 +2,8 @@ module grant/associations
 
 pub import grant/association_collection
 import grant/dependent
+import grant/association_options
+import grant/autosave
 
 pub annotation Relationship
 end
@@ -87,6 +89,29 @@ pub macro belongs_to(model, scope = nil, **options)
     records << parent unless parent.nil?
     set_loaded_association({{ method_name.stringify }}, records)
   end
+  def {{ method_name }}_changed? : Bool
+    return true if {{ foreign_key }}_changed?
+    loaded = get_loaded_association({{ method_name.stringify }})
+    parent = loaded.nil? ? nil : loaded.first?
+    !parent.nil? && parent.new_record?
+  end
+
+  def {{ method_name }}_previously_changed? : Bool
+    saved_change_to_attribute?({{ foreign_key.id.stringify }})
+  end
+
+  ::Grant::AssociationOptions.setup_optional_validation({{ method_name }}, {{ foreign_key }}, {{ class_name }}, {{ primary_key }}, {{ options[:optional] }})
+  {% if options[:default] %}
+    def __association_default_{{ method_name }} : Nil | ::Grant::Error::ErrorBase
+      if new_record? && {{ foreign_key }}.nil?
+        parent = ({{ options[:default] }}).call(self)!
+        self.{{ method_name }} = parent unless parent.nil?
+      end
+      nil
+    end
+  {% end %}
+  ::Grant::Autosave.setup_belongs_to({{ method_name }}, {{ class_name }}, {{ foreign_key }}, {{ primary_key }}, {{ options[:autosave] }})
+
 end
 
 pub macro has_one(model, scope = nil, **options)
@@ -153,6 +178,27 @@ pub macro has_one(model, scope = nil, **options)
 end
 
 pub macro model_methods(model)
+  def __association_defaults : Nil | ::Grant::Error::ErrorBase
+    \{% for method in @type.methods.select { |m| m.name.starts_with?("__association_default_") } %}
+      \{{ method.name }}!
+    \{% end %}
+    nil
+  end
+
+  def __association_validations : Nil | ::Grant::Error::ErrorBase
+    \{% for method in @type.methods.select { |m| m.name.starts_with?("__association_validate_") } %}
+      \{{ method.name }}!
+    \{% end %}
+    nil
+  end
+
+  def __association_before_save : Nil | ::Grant::Error::ErrorBase
+    \{% for method in @type.methods.select { |m| m.name.starts_with?("_autosave_before_save_") } %}
+      \{{ method.name }}!
+    \{% end %}
+    nil
+  end
+
   @__loaded_associations = {} of String => Array(::Grant::Base::Base)
 
   def set_loaded_association(name : String, records : Array(T)) : Nil forall T
