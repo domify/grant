@@ -10,6 +10,7 @@ import grant/query/where_field::{Bind, WhereField, StructuredWhere, JoinClause, 
 pub import grant/query/where_field
 import grant/query/bind_value::{to_bind, to_value}
 import grant/query/join_support::{JoinSupport}
+import grant/query/joins::{Joins}
 import grant/query/assembler
 import grant/query/predicate_renderer
 import grant/query/empty_clauses::{EmptyClauses}
@@ -57,6 +58,7 @@ pub class Builder(Model)
   getter limit : Int64? = nil
   getter lock_mode : LockMode? = nil
   property select_columns : Array(String)? = nil
+  property includes_associations = [] of Symbol
   getter join_clauses = EmptyClauses::JOIN_CLAUSES
   getter having_clauses = EmptyClauses::HAVING_CLAUSES
   getter optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
@@ -210,6 +212,7 @@ pub class Builder(Model)
     @default_scope_where_fields = source.default_scope_where_fields.empty? ? EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS : source.default_scope_where_fields.dup
     @order_fields = source.order_fields.empty? ? EmptyClauses::ORDER_FIELDS : source.order_fields.dup
     @group_fields = source.group_fields.empty? ? EmptyClauses::GROUP_FIELDS : source.group_fields.dup
+    @includes_associations = source.includes_associations.dup
     @join_clauses = source.join_clauses.empty? ? EmptyClauses::JOIN_CLAUSES : source.join_clauses.dup
     @having_clauses = source.having_clauses.empty? ? EmptyClauses::HAVING_CLAUSES : source.having_clauses.dup
     @optimizer_hint_list = source.optimizer_hint_list.empty? ? EmptyClauses::OPTIMIZER_HINTS : source.optimizer_hint_list.dup
@@ -751,6 +754,12 @@ pub class Builder(Model)
     clear_where_fields
     own_where_fields.concat(kept)
     nil
+  end
+
+  def includes(name : Symbol) : self
+    copy = chain_copy
+    copy.includes_associations << name unless copy.includes_associations.includes?(name)
+    copy
   end
 
   # ---- LOCK / JOINS / DISTINCT / HAVING / NONE ----------------------------
@@ -1353,4 +1362,7 @@ impl WhereComposition(Model) for Builder(Model) forall Model
 end
 
 impl Ordering(Model) for Builder(Model) forall Model
+end
+
+impl Joins(Model) for Builder(Model) forall Model
 end

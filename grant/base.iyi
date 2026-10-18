@@ -721,6 +721,7 @@ pub abstract class Base
     ::Grant::Aggregations.model_methods({{ @type }})
     ::Grant::Query::Grouping.model_methods({{ @type }})
     ::Grant::Query::WhereComposition.model_methods({{ @type }})
+    ::Grant::Query::Joins.model_methods({{ @type }})
     ::Grant::Query::Ordering.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})

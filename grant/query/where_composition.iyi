@@ -56,6 +56,8 @@ pub trait WhereComposition(Model)
   end
 
   def or_in_place(other : self) : self
+    error = structurally_compatible_error(other, "or")
+    return self.defer(error) unless error.nil?
     if where_fields.empty? || other.where_fields.empty?
       clear_where_fields
       return self
@@ -74,6 +76,56 @@ pub trait WhereComposition(Model)
     clear_where_fields
     own_where_fields << {join: :and, stmt: "((#{left}) OR (#{right}))", values: values}
     self
+  end
+
+  def and_where(other : self) : self
+    chain_copy.and_in_place(other)
+  end
+
+  def and_in_place(other : self) : self
+    error = structurally_compatible_error(other, "and")
+    return self.defer(error) unless error.nil?
+    return self if other.where_fields.empty?
+    if other.where_fields.all? { |field| field[:join] == :and } && where_fields.all? { |field| field[:join] == :and }
+      own_where_fields.concat(other.where_fields)
+      other.raw_where_columns.each { |sql, metadata| raw_where_columns[sql] = metadata }
+      return self
+    end
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, join_clauses)
+    renderer.rendering_where_group = true
+    left = renderer.render_where_fields(where_fields)
+    return self.defer(left) if left.is_a?(ErrorBase)
+    right = renderer.render_where_fields(other.where_fields)
+    return self.defer(right) if right.is_a?(ErrorBase)
+    clear_where_fields
+    own_where_fields << {join: :and, stmt: "((#{left}) AND (#{right}))", values: values}
+    self
+  end
+
+  protected def structurally_incompatible_values(other : self) : Array(Symbol)
+    differing = [] of Symbol
+    # Native NamedTuple equality is false even for identical tuples.
+    differing << :order if order_fields.map(&.to_s) != other.order_fields.map(&.to_s)
+    differing << :group if group_fields.map(&.to_s) != other.group_fields.map(&.to_s)
+    differing << :joins if join_clauses.map(&.to_s) != other.join_clauses.map(&.to_s)
+    differing << :limit if limit != other.limit
+    differing << :offset if offset != other.offset
+    differing << :lock if lock_mode != other.lock_mode
+    differing << :select if select_columns != other.select_columns
+    differing << :distinct if distinct? != other.distinct?
+    differing << :includes if includes_associations != other.includes_associations
+    differing
+  end
+
+  private def structurally_compatible_error(other : self, method_name : String) : ArgumentError?
+    differing = structurally_incompatible_values(other)
+    return nil if differing.empty?
+    ArgumentError.new("Relation passed to ##{method_name} must be structurally compatible. Incompatible values: #{differing.inspect}")
   end
 
   def where_not(matches : T) : self forall T
