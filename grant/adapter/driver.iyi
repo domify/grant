@@ -146,7 +146,6 @@ pub class LibraryResultSet < ResultSet
   def read : Value | DatabaseError
     value = @result.read
     return @owner.statement_error(value, "query", @sql, @parameters) if value.is_a?(DBError)
-    return value if value.is_a?(Bytes)
     @owner.normalize(value)
   end
 end
@@ -173,8 +172,7 @@ pub abstract class LibraryConnection < Connection
     when Int8, Int16, Int32, UInt8, UInt16, UInt32 then value.to_i64
     when Float32 then value.to_f64
     when Time then value.to_rfc3339(6)
-    when Bytes
-      String.new(value.size) { |buffer| buffer.copy_from(value.to_unsafe, value.size) }
+    when Bytes then value
     else
       ::Db::Value.to_db_value(value)
     end

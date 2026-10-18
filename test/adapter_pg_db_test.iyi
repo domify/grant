@@ -26,7 +26,7 @@ if CURRENT_ADAPTER == "pg"
   assert conn.scalar("SELECT $1::integer", [23_i64] of Value).or_panic == 23_i64
   assert conn.scalar("SELECT 1.50::numeric").or_panic == 1.5_f64
   assert conn.scalar("SELECT 17::numeric").or_panic == 17_i64
-  assert conn.scalar("SELECT decode('410042', 'hex')").or_panic == "A\0B"
+  assert conn.scalar("SELECT decode('410042', 'hex')").or_panic.to_s == "Bytes[65, 0, 66]"
   assert conn.scalar("SELECT TIMESTAMP '2026-10-16 12:34:56.123456'").or_panic == "2026-10-16T12:34:56.123456Z"
   assert conn.scalar("SELECT TIMESTAMP '2026-10-16 12:34:56'").or_panic == "2026-10-16T12:34:56Z"
   assert conn.scalar("SELECT TIMESTAMP '2026-10-16 12:34:56.1'").or_panic == "2026-10-16T12:34:56.1Z"

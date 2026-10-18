@@ -107,7 +107,7 @@ bytes = Bytes.new(3)
 bytes[0] = 65_u8
 bytes[1] = 0_u8
 bytes[2] = 66_u8
-assert conn.normalize(bytes).or_panic == "A\0B"
+assert conn.normalize(bytes).or_panic.to_s == "Bytes[65, 0, 66]"
 assert conn.normalize(Time.utc(2026, 10, 16)).or_panic == "2026-10-16T00:00:00.000000Z"
 assert conn.normalize(18446744073709551615_u64).or_panic == 18446744073709551615_u64
 custom = TaggedValue.new
