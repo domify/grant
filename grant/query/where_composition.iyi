@@ -4,6 +4,7 @@ import grant/adapter/driver::{Value}
 import grant/error::{ErrorBase, ArgumentError}
 import grant/query/predicate_renderer::{PredicateRenderer}
 import grant/query/bind_value::{to_value}
+import grant/sanitization
 
 # Value-shaped conditions and grouped negation, as in upstream
 # src/grant/query/where_composition.cr.
@@ -37,6 +38,42 @@ pub trait WhereComposition(Model)
     copy.order_in_place(second)
     rest.each { |field| copy.order_in_place(field) }
     copy
+  end
+
+  def where(statement : String, **binds) : self
+    copy = chain_copy
+    rewritten = ::Grant::Sanitization.rewrite_named_binds(statement, binds)
+    if rewritten.is_a?(ErrorBase)
+      copy.deferred_error = rewritten
+      return copy
+    end
+    sql, values = rewritten
+    copy.and_in_place(sql, values)
+  end
+
+  def or_where(other : self) : self
+    chain_copy.or_in_place(other)
+  end
+
+  def or_in_place(other : self) : self
+    if where_fields.empty? || other.where_fields.empty?
+      clear_where_fields
+      return self
+    end
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, join_clauses)
+    renderer.rendering_where_group = true
+    left = renderer.render_where_fields(where_fields)
+    return self.defer(left) if left.is_a?(ErrorBase)
+    right = renderer.render_where_fields(other.where_fields)
+    return self.defer(right) if right.is_a?(ErrorBase)
+    clear_where_fields
+    own_where_fields << {join: :and, stmt: "((#{left}) OR (#{right}))", values: values}
+    self
   end
 
   def where_not(matches : T) : self forall T
@@ -131,6 +168,10 @@ pub macro model_methods(model)
       \{% end %}
     \{% end %}
     nil
+  end
+
+  def self.where(statement : String, **binds) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.where(statement, **binds)
   end
 
   def self.select(*columns : Symbol | String) : ::Grant::Query::Builder::Builder({{ model }})

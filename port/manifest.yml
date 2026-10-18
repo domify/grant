@@ -1071,7 +1071,7 @@
   target: test/grant_query_named_binds_test.iyi
   area: query
   examples: 18
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/optimizer_hints_spec.cr
   target: test/grant_query_optimizer_hints_test.iyi
   area: query
