@@ -29,3 +29,13 @@ pub def stamp(column_name : String, time : Time, precision : Int32? = nil) : Tim
     time
   end
 end
+
+pub macro model_methods(model)
+  def self.timestamped_attributes : Array(String)
+    fields.select { |field| ["created_at", "created_on", "updated_at", "updated_on"].includes?(field) }
+  end
+
+  def self.update_timestamp_columns : Array(String)
+    timestamped_attributes.select { |field| field == "updated_at" || field == "updated_on" }
+  end
+end

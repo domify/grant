@@ -4,6 +4,7 @@ import db/db/value
 import std/named_tuple
 pub import std/time
 pub import grant/timestamps
+pub import grant/counters
 pub import grant/query/builder
 pub import grant/scoping
 pub import grant/querying
@@ -706,6 +707,8 @@ pub abstract class Base
     ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
     ::Grant::Columns.model_methods({{ @type }})
+    ::Grant::Timestamps.model_methods({{ @type }})
+    ::Grant::Counters.model_methods({{ @type }})
     ::Grant::Encryption.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
