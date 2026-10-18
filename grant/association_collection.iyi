@@ -15,7 +15,9 @@ pub class AssociationCollection(Owner, Target)
                  @inverse_of : Symbol | String | Nil = nil,
                  @scope : Proc(Builder(Target), Builder(Target))? = nil,
                  @association_name : String? = nil,
-                 @loaded_records : Array(Target)? = nil)
+                 @loaded_records : Array(Target)? = nil,
+                 @relation_scope : Proc(Builder(Target), Builder(Target))? = nil,
+                 @through_condition : String? = nil)
   end
 
   def loaded? : Bool
@@ -26,6 +28,8 @@ pub class AssociationCollection(Owner, Target)
     relation = Target.current_scope
     association_scope = @scope
     relation = association_scope.call(relation) unless association_scope.nil?
+    through_scope = @relation_scope
+    return through_scope.call(relation) unless through_scope.nil?
     relation.where(@foreign_key.to_s, :eq, owner_key)
   end
 
@@ -46,7 +50,8 @@ pub class AssociationCollection(Owner, Target)
   def all(clause : String, params : Array(V)) : Array(Target) | ErrorBase forall V
     values = [owner_key] of ::Grant::Adapter::Driver::Value
     params.each { |value| values << value }
-    Target.find_by_sql("SELECT #{Target.table_name}.* FROM #{Target.table_name} WHERE #{Target.table_name}.#{@foreign_key} = ? #{clause}", values)
+    condition = @through_condition || "#{Target.table_name}.#{@foreign_key} = ?"
+    Target.find_by_sql("SELECT #{Target.table_name}.* FROM #{Target.table_name} WHERE #{condition} #{clause}", values)
   end
 
   def find_by(**args) : Target | Nil | ErrorBase
@@ -78,6 +83,10 @@ pub class AssociationCollection(Owner, Target)
 
   def map(&block : Target -> T) : Array(T) | ErrorBase forall T
     all!.map { |record| yield record }
+  end
+
+  def compact_map(&block : Target -> T?) : Array(T) | ErrorBase forall T
+    all!.compact_map { |record| yield record }
   end
 
   def count : Int64 | ErrorBase

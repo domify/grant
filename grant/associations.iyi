@@ -11,7 +11,7 @@ pub macro has_many(model, scope = nil, **options)
   {% class_name = options[:class_name] %}
   {% foreign_key = options[:foreign_key] %}
   {% primary_key = options[:primary_key] || "id" %}
-  @[::Grant::Associations::Relationship(target: {{ class_name }}, through: nil, type: :has_many,
+  @[::Grant::Associations::Relationship(target: {{ class_name }}, through: {{ options[:through] }}, type: :has_many,
     primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }},
     owner_primary_key: {{ primary_key.id }}, scope: {{ scope }})]
   def {{ method_name }} : ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }})
@@ -26,10 +26,19 @@ pub macro has_many(model, scope = nil, **options)
     {% else %}
       scope_proc = nil
     {% end %}
+    {% if options[:through] %}
+      through_condition = ::Grant::Associations.through_condition({{ options[:owner_type] }}, {{ options[:through].id.stringify }}, {{ class_name }})
+      through_relation = ->(q : ::Grant::Query::Builder::Builder({{ class_name }})) {
+        q.where(through_condition, read_attribute({{ primary_key.id.stringify }}).or_panic)
+      }
+    {% else %}
+      through_relation = nil
+      through_condition = nil
+    {% end %}
     ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }}).new(
       self, {{ foreign_key.id.stringify }}, primary_key: {{ options[:primary_key] ? primary_key.id.stringify : nil }},
       inverse_of: {{ options[:inverse_of] ? options[:inverse_of].id.stringify : nil }},
-      scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
+      through_condition: through_condition, relation_scope: through_relation, scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
   end
   {% if options[:dependent] == :delete_all %}
     ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_many, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
@@ -158,4 +167,18 @@ pub macro model_methods(model)
   def association_loaded?(name : String | Symbol) : Bool
     @__loaded_associations.has_key?(name.to_s)
   end
+end
+
+pub macro through_condition(owner_type, through_name, target)
+  {% through_method = owner_type.resolve.methods.find { |m| m.name.stringify == through_name && m.annotation(::Grant::Associations::Relationship) } %}
+  {% metadata = through_method.annotation(::Grant::Associations::Relationship) %}
+  {% namespace = owner_type.stringify.split("::")[0...-1].join("::") %}
+  {% join_model = parse_type(namespace + "::" + metadata[:target].stringify).resolve %}
+  {% source = join_model.methods.find { |m| m.annotation(::Grant::Associations::Relationship) && m.annotation(::Grant::Associations::Relationship)[:target].stringify == target.stringify } %}
+  {% source_metadata = source.annotation(::Grant::Associations::Relationship) %}
+  %join_table = {{ join_model }}.quote({{ join_model }}.table_name)
+  %source_key = {{ join_model }}.quote({{ source_metadata[:foreign_key].id.stringify }})
+  %owner_key = {{ join_model }}.quote({{ metadata[:foreign_key].id.stringify }})
+  %target_key = {{ target }}.quote({{ source_metadata[:primary_key].id.stringify }})
+  "#{%target_key} IN (SELECT #{%source_key} FROM #{%join_table} WHERE #{%owner_key} = ?)"
 end
