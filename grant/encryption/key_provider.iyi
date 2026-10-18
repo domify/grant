@@ -152,6 +152,13 @@ pub class KeyProvider
     nil
   end
 
+  def self.derive_key_with_keys(model_name : String, attribute_name : String, deterministic : Bool,
+                                primary_key : String?, deterministic_key : String?, salt : String) : String | KeyError
+    keys = KeySet.new(primary_key, deterministic_key, salt)
+    key = derive_key_from_set?(model_name, attribute_name, deterministic, keys)
+    key || KeyError.new(deterministic ? "Deterministic encryption key not configured" : "Primary encryption key not configured")
+  end
+
   def self.derive_key_from_set?(model_name : String, attribute_name : String, deterministic : Bool, key_set : KeySet) : String?
     master = deterministic ? key_set.deterministic_key : key_set.primary_key
     return nil if master.nil?

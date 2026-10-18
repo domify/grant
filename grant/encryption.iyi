@@ -44,6 +44,29 @@ pub def decrypt(encrypted : String?, model_name : String, attribute_name : Strin
   ::Grant::Encryption::EncryptedAttribute::EncryptedAttribute.new(model_name, attribute_name, false, attribute_name).open(encrypted)
 end
 
+pub def encrypt_with_keys(value : String, model_name : String, attribute_name : String,
+                          deterministic : Bool, primary_key : String?, deterministic_key : String?,
+                          salt : String) : String | ::Grant::Error::ErrorBase
+  key = ::Grant::Encryption::KeyProvider::KeyProvider.derive_key_with_keys(model_name, attribute_name, deterministic, primary_key, deterministic_key, salt)!
+  ::Std::Base64::Base64.encode(::Grant::Encryption::Cipher::Cipher.encrypt(value, key, deterministic)!)
+end
+
+pub def decrypt_with_keys(encrypted : String, model_name : String, attribute_name : String,
+                          primary_key : String?, deterministic_key : String?, salt : String) : String | ::Grant::Error::ErrorBase
+  bytes = ::Grant::Encryption::KeyProvider::KeyProvider.decode_encoded(encrypted)
+  return ::Grant::Encryption::Cipher::DecryptionError.new("Failed to decode Base64: #{bytes.message}") if bytes.is_a?(::Grant::Error::ErrorBase)
+  attempted = false
+  [false, true].each do |deterministic|
+    next if (deterministic ? deterministic_key : primary_key).nil?
+    attempted = true
+    key = ::Grant::Encryption::KeyProvider::KeyProvider.derive_key_with_keys(model_name, attribute_name, deterministic, primary_key, deterministic_key, salt)!
+    result = ::Grant::Encryption::Cipher::Cipher.decrypt?(bytes, key)!
+    return result unless result.nil?
+  end
+  return ::Grant::Encryption::KeyProvider::KeyError.new("No encryption key was provided") unless attempted
+  ::Grant::Encryption::Cipher::DecryptionError.new("HMAC verification failed - data may have been tampered with")
+end
+
 pub macro typed_attribute(model, attribute, deterministic, downcase, ignore_case, compress, compress_threshold, previous, support_unencrypted_data, lazy)
   {% if !attribute.is_a?(TypeDeclaration) %}
     ::Grant::Encryption.legacy_attribute({{model}}, {{attribute}}, {{deterministic}}, {{downcase}}, {{compress}}, {{compress_threshold}}, {{support_unencrypted_data}})

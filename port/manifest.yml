@@ -790,7 +790,7 @@
   target: test/grant_encryption_migration_helpers_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/encryption/options_spec.cr
   target: test/grant_encryption_options_test.iyi
   area: query
