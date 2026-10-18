@@ -4,6 +4,7 @@ pub import grant/association_collection
 import grant/dependent
 import grant/association_options
 import grant/autosave
+import grant/polymorphic
 
 pub annotation Relationship
 end
@@ -49,6 +50,9 @@ pub macro has_many(model, scope = nil, **options)
 end
 
 pub macro belongs_to(model, scope = nil, **options)
+  {% if options[:polymorphic] %}
+    ::Grant::Polymorphic.belongs_to_polymorphic({{ model }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  {% else %}
   {% if model.is_a?(TypeDeclaration) %}
     {% method_name = model.var %}
     {% class_name = model.type %}
@@ -111,6 +115,7 @@ pub macro belongs_to(model, scope = nil, **options)
     end
   {% end %}
   ::Grant::Autosave.setup_belongs_to({{ method_name }}, {{ class_name }}, {{ foreign_key }}, {{ primary_key }}, {{ options[:autosave] }})
+  {% end %}
 
 end
 
