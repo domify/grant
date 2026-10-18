@@ -694,6 +694,10 @@ pub abstract class Base
     end
   end
 
+  macro belongs_to(model, scope = nil, **options)
+    ::Grant::Associations.belongs_to({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  end
+
   macro has_many(model, scope = nil, **options)
     ::Grant::Associations.has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
   end
@@ -716,6 +720,7 @@ pub abstract class Base
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Aggregations.model_methods({{ @type }})
     ::Grant::Query::Grouping.model_methods({{ @type }})
+    ::Grant::Query::WhereComposition.model_methods({{ @type }})
     ::Grant::Query::Ordering.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})

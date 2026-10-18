@@ -1136,7 +1136,7 @@
   target: test/grant_query_rewhere_reorder_test.iyi
   area: query
   examples: 18
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/scoping_block_spec.cr
   target: test/grant_query_scoping_block_test.iyi
   area: query

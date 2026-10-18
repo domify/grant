@@ -1,13 +1,44 @@
 module grant/query/where_composition
 
 import grant/adapter/driver::{Value}
-import grant/error::{ErrorBase}
+import grant/error::{ErrorBase, ArgumentError}
 import grant/query/predicate_renderer::{PredicateRenderer}
 import grant/query/bind_value::{to_value}
 
 # Value-shaped conditions and grouped negation, as in upstream
 # src/grant/query/where_composition.cr.
 pub trait WhereComposition(Model)
+  protected def register_raw_where_column(statement : String, field : String, equality : Bool = false) : Nil
+    raw_where_columns[statement] = {field.split('.').last, equality}
+    nil
+  end
+
+  private def association_foreign_key(name : String) : String?
+    {% if Model.class.has_method?(:__query_association_foreign_key) %}
+      Model.__query_association_foreign_key(name)
+    {% else %}
+      nil
+    {% end %}
+  end
+
+  def rewhere(matches : T) : self forall T
+    copy = chain_copy
+    names = [] of String
+    matches.each { |field, _| names << (association_foreign_key(field.to_s) || field.to_s) }
+    copy.unscope_where_columns(names)
+    matches.each { |field, value| copy.add_condition(:and, field.to_s, value) }
+    copy
+  end
+
+  def reorder(first : Symbol, second : Symbol, *rest) : self
+    copy = chain_copy
+    copy.clear_order_fields
+    copy.order_in_place(first)
+    copy.order_in_place(second)
+    rest.each { |field| copy.order_in_place(field) }
+    copy
+  end
+
   def where_not(matches : T) : self forall T
     chain_copy.where_not_in_place(matches)
   end
@@ -50,7 +81,9 @@ pub trait WhereComposition(Model)
       values << to_value(last)
     end
     return self if parts.empty?
-    own_where_fields << {join: join, stmt: "(#{parts.join(" AND ")})", values: values}
+    statement = "(#{parts.join(" AND ")})"
+    own_where_fields << {join: join, stmt: statement, values: values}
+    register_raw_where_column(statement, field)
     self
   end
 
@@ -63,7 +96,7 @@ pub trait WhereComposition(Model)
       if item.is_a?(Range)
         scope.add_range_condition(:or, field, item)
       else
-        scalars << to_value(item)
+        scalars << (item.responds_to?(:__primary_value) ? item.__primary_value : to_value(item))
       end
     end
     # Preserve the ordinary IN/list path, including its nil-aware predicate.
@@ -80,8 +113,27 @@ pub trait WhereComposition(Model)
     if rendered.is_a?(ErrorBase)
       self.defer(rendered)
     else
-      own_where_fields << {join: join, stmt: "(#{rendered})", values: values}
+      statement = "(#{rendered})"
+      own_where_fields << {join: join, stmt: statement, values: values}
+      register_raw_where_column(statement, field)
     end
     self
+  end
+end
+
+pub macro model_methods(model)
+  def self.__query_association_foreign_key(name : String) : String?
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        \{% if ann[:type] == :belongs_to %}
+          return \{{ ann[:foreign_key].id.stringify }} if name == \{{ method.name.stringify }}
+        \{% end %}
+      \{% end %}
+    \{% end %}
+    nil
+  end
+
+  def self.select(*columns : Symbol | String) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.select(*columns)
   end
 end

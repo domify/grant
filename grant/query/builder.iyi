@@ -48,6 +48,7 @@ pub class Builder(Model)
   pub alias Sort = ::Grant::Query::WhereField::Sort
   pub alias CountResult = Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64)
 
+  property raw_where_columns = {} of String => Tuple(String, Bool)
   getter where_fields = EmptyClauses::WHERE_FIELDS
   getter default_scope_where_fields = EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS
   getter order_fields = EmptyClauses::ORDER_FIELDS
@@ -203,6 +204,8 @@ pub class Builder(Model)
   end
 
   protected def copy_state_from(source : Builder(Model)) : Nil
+    @raw_where_columns = {} of String => Tuple(String, Bool)
+    source.raw_where_columns.each { |sql, column| @raw_where_columns[sql] = column }
     @where_fields = source.where_fields.empty? ? EmptyClauses::WHERE_FIELDS : source.where_fields.dup
     @default_scope_where_fields = source.default_scope_where_fields.empty? ? EmptyClauses::DEFAULT_SCOPE_WHERE_FIELDS : source.default_scope_where_fields.dup
     @order_fields = source.order_fields.empty? ? EmptyClauses::ORDER_FIELDS : source.order_fields.dup
@@ -498,7 +501,12 @@ pub class Builder(Model)
 
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
-    if value.is_a?(Range)
+    foreign_key = association_foreign_key(field)
+    field = foreign_key unless foreign_key.nil?
+    if value.responds_to?(:__primary_value)
+      return self.defer(ArgumentError.new("#{field.inspect} is not an association of #{Model}")) if foreign_key.nil?
+      add_condition(join, field, value.__primary_value)
+    elsif value.is_a?(Range)
       add_range_condition(join, field, value)
     elsif value.is_a?(Array)
       add_value_array_condition(join, field, value)
@@ -510,7 +518,9 @@ pub class Builder(Model)
 
   private def add_array_condition(join : Symbol, field : String, operator : Symbol, values : Array(T)) : self forall T
     bound = [] of Value
-    values.each { |item| bound << to_value(item) }
+    values.each do |item|
+      bound << (item.responds_to?(:__primary_value) ? item.__primary_value : to_value(item))
+    end
     has_nil = bound.any? { |item| item.nil? }
     without_nil = bound.reject { |item| item.nil? }
 
@@ -518,7 +528,9 @@ pub class Builder(Model)
       if has_nil
         safe_field = structured_field_sql(field)
         return self if safe_field.nil?
-        own_where_fields << {join: join, stmt: "#{safe_field} IS #{operator == :nin ? "NOT " : ""}NULL", value: nil.as(Bind)}
+        statement = "#{safe_field} IS #{operator == :nin ? "NOT " : ""}NULL"
+        own_where_fields << {join: join, stmt: statement, value: nil.as(Bind)}
+        register_raw_where_column(statement, field)
       else
         own_where_fields << {join: join, stmt: operator == :nin ? "1=1" : "1=0", value: nil.as(Bind)}
       end
@@ -539,6 +551,7 @@ pub class Builder(Model)
                   "(#{safe_field} IN (#{placeholders}) OR #{safe_field} IS NULL)"
                 end
     own_where_fields << {join: join, stmt: predicate, values: without_nil}
+    register_raw_where_column(predicate, field)
     self
   end
 
@@ -716,7 +729,7 @@ pub class Builder(Model)
   # Replaces the conditions on the named columns with the given ones.
   def rewhere_in_place(**matches) : self
     names = [] of String
-    matches.each { |field, _| names << field.to_s }
+    matches.each { |field, _| names << (association_foreign_key(field.to_s) || field.to_s) }
     unscope_where_columns(names)
     where_in_place(**matches)
   end
@@ -731,7 +744,8 @@ pub class Builder(Model)
       when StructuredWhere
         names.includes?(field[:field]) || names.includes?(field[:field].split('.').last)
       else
-        false
+        registered = raw_where_columns[field[:stmt]]?
+        !registered.nil? && names.includes?(registered[0])
       end
     end
     clear_where_fields
