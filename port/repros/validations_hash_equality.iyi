@@ -1,0 +1,6 @@
+# Run with: IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi run \
+#   port/repros/validations_hash_equality.iyi
+# Expected true; native Hash currently inherits identity equality and prints false.
+a = {:count => 3}
+b = {:count => 3}
+puts a == b

@@ -125,28 +125,53 @@ pub macro model_methods(model)
     \{% end %}
   end
   macro validates_length_of(*fields, **options)
+    \{% minimum = options[:minimum] || options[:min] %}
+    \{% maximum = options[:maximum] || options[:max] %}
+    \{% exact = options[:is] %}
+    \{% range = options[:in] || options[:within] %}
     \{% for field in fields %}
       def __validate_length_\{{ field.id }} : Nil
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
         length = value.responds_to?(:size) ? value.size : value.to_s.size
-        \{% if options[:minimum] %}
-          if length < \{{ options[:minimum] }}
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "is too short (minimum is #{options[:minimum]} characters)" }}, :too_short)
+        \{% if minimum %}
+          if length < \{{ minimum }}
+            errors.add(\{{ field.id.stringify }}, :too_short,
+              message: \{{ options[:too_short] || options[:message] || nil }}, count: \{{ minimum }})
           end
         \{% end %}
-        \{% if options[:maximum] %}
-          if length > \{{ options[:maximum] }}
-            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-              \{{ options[:message] || "is too long (maximum is #{options[:maximum]} characters)" }}, :too_long)
+        \{% if maximum %}
+          if length > \{{ maximum }}
+            errors.add(\{{ field.id.stringify }}, :too_long,
+              message: \{{ options[:too_long] || options[:message] || nil }}, count: \{{ maximum }})
+          end
+        \{% end %}
+        \{% if exact %}
+          unless length == \{{ exact }}
+            errors.add(\{{ field.id.stringify }}, :wrong_length,
+              message: \{{ options[:wrong_length] || options[:message] || nil }}, count: \{{ exact }})
+          end
+        \{% end %}
+        \{% if range %}
+          range = \{{ range }}
+          lower = range.begin
+          if !lower.nil? && length < lower
+            errors.add(\{{ field.id.stringify }}, :too_short,
+              message: \{{ options[:too_short] || options[:message] || nil }}, count: lower)
+          end
+          upper = range.end
+          unless upper.nil?
+            largest = range.exclusive? ? upper - 1 : upper
+            if length > largest
+              errors.add(\{{ field.id.stringify }}, :too_long,
+                message: \{{ options[:too_long] || options[:message] || nil }}, count: largest)
+            end
           end
         \{% end %}
         nil
       end
     \{% end %}
   end
-
 
   macro validates_size_of(*fields, **options)
     validates_length_of(\{{ fields.splat }}, \{{ options.double_splat }})
