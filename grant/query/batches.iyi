@@ -33,6 +33,45 @@ end
 pub trait Batches(Model)
   DEFAULT_BATCH_SIZE = 1000
 
+  def in_batches(of batch_size : Int32 = DEFAULT_BATCH_SIZE, &block : self -> T) : Nil | T | ErrorBase forall T
+    find_in_batches(batch_size) do |batch|
+      keys = batch.map { |record| record.read_attribute(Model.primary_name)! }
+      result = yield where(Model.primary_name, :in, keys)
+      return result if result.is_a?(::Error)
+      nil
+    end
+  end
+
+  def each_streamed(&block : Model -> T) : Nil | ErrorBase forall T
+    rows = self.select!
+    rows.each { |record| yield record }
+    nil
+  end
+
+  def destroy_all : Int32 | ErrorBase
+    count = 0
+    find_in_batches do |batch|
+      batch.each { |record| count += 1 if record.destroy! }
+      nil
+    end!
+    count
+  end
+
+  def update_all(**changes) : Int64 | ErrorBase
+    assignments = [] of Tuple(String, Value)
+    changes.to_h.each { |key, value| assignments << {key.to_s, ::Grant::Query::BindValue.to_value(value)} }
+    update_all(assignments)
+  end
+
+  def touch_all(*fields : Symbol, time : ::Std::Time::Time = ::Std::Time::Time.utc) : Int64 | ErrorBase
+    assignments = [] of Tuple(String, Value)
+    names = fields.to_a.map { |field| field.to_s }
+    names << "updated_at" if Model.fields.includes?("updated_at")
+    names.uniq.each { |name| assignments << {name, ::Grant::Base.sqlite_value(time)} }
+    return 0_i64 if assignments.empty?
+    update_all(assignments)
+  end
+
   def find_in_batches(batch_size : Int32 = DEFAULT_BATCH_SIZE, &block : Array(Model) -> T) : Nil | T | ErrorBase forall T
     plan = batch_plan(batch_size)!
     position = BatchPosition.new(plan)

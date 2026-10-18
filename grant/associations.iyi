@@ -229,6 +229,19 @@ pub macro belongs_to(model, scope = nil, **options)
   end
 end
 
+pub macro belongs_to(model, scope = nil, **options)
+  {% target = options[:class_name] %}
+  {% foreign = options[:foreign_key] %}
+  {% primary = options[:primary_key] || :id %}
+  @[::Grant::Associations::Relationship(target: {{ target }}, through: nil, type: :belongs_to,
+    primary_key: {{ primary.id }}, foreign_key: {{ foreign.id }}, scope: {{ scope }})]
+  def {{ model.id }} : {{ target }} | Nil | ::Grant::Error::ErrorBase
+    loaded = get_loaded_association({{ model.id.stringify }})
+    return loaded.first?.try(&.as({{ target }})) unless loaded.nil?
+    {{ target }}.where({{ primary.id.stringify }}, :eq, self.{{ foreign.id }}).first
+  end
+end
+
 pub macro model_methods(model)
   def __association_defaults : Nil | ::Grant::Error::ErrorBase
     \{% for method in @type.methods.select { |m| m.name.starts_with?("__association_default_") } %}

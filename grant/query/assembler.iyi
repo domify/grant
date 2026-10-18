@@ -356,9 +356,25 @@ pub abstract class Base(Model, Query)
   end
 
   def select : ::Grant::Query::Executor::List(Model)
+    if statement = Model.custom_select_statement
+      return custom_select(statement)
+    end
     sql = build_sql([
       with_clause, "#{select_keyword} #{field_list}", from_clause, joins, where, group_by, having,
       order, limit, offset, lock,
+    ] of String?)
+    ::Grant::Query::Executor::List(Model).new(sql, numbered_parameters)
+  end
+
+  private def custom_select(statement : String) : ::Grant::Query::Executor::List(Model)
+    statement = statement.rstrip
+    statement = statement[0, statement.size - 1].rstrip if statement.ends_with?(";")
+    columns = @query.select_columns
+    fields = columns ? columns.map { |field| Model.quote(field) }.join(", ") : "*"
+    source = "(#{statement}) AS #{Model.quote(Model.table_name)}"
+    sql = build_sql([
+      with_clause, "#{select_keyword} #{fields} FROM #{source}", joins, where,
+      group_by, having, order(use_default_order: false), limit, offset, lock,
     ] of String?)
     ::Grant::Query::Executor::List(Model).new(sql, numbered_parameters)
   end

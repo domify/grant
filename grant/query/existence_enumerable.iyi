@@ -1,6 +1,8 @@
 module grant/query/existence_enumerable
 
 import grant/error::{ErrorBase}
+import std/enumerable::{Enumerable}
+import std/traits::{Comparable, Hashable}
 
 # Enumerable fallback alongside builder.cr's bounded existence probes.
 pub trait ExistenceEnumerable(Model)

@@ -1,6 +1,7 @@
 module grant/querying
 
 import std/regex::{Regex}
+import grant/adapter/placeholder_scanner
 
 import grant/errors::{RecordNotFound, ErrorBase}
 
@@ -19,6 +20,85 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.raw_all(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : Array({{ model }}) | ::Grant::Error::ErrorBase
+    scope = current_scope
+    built = scope.assembler
+    statement = built.select
+    values = built.numbered_parameters.dup
+    sql = statement.raw_sql
+    unless clause.strip.empty?
+      alias_name = quote(table_name)
+      selected = (scope.select_columns || fields).map { |field| "#{alias_name}.#{quote(field)}" }.join(", ")
+      clean_clause = adapter.postgres? ? ::Grant::Adapter::PlaceholderScanner::PlaceholderScanner.rewrite(clause.strip, values.size) : clause.strip
+      sql = "SELECT #{selected} FROM (#{sql}) AS #{alias_name} #{clean_clause}"
+      values.concat(params)
+    end
+    ::Grant::Query::Executor::List({{ model }}).new(sql, values).run
+  end
+
+  def self.select(*columns : Symbol | String) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.select(*columns)
+  end
+
+  {% for method in [:last, :take] %}
+    def self.{{ method.id }} : {{ model }} | Nil | ::Grant::Error::ErrorBase
+      current_scope.{{ method.id }}
+    end
+  {% end %}
+
+  def self.last_strict : {{ model }} | ::Grant::Error::ErrorBase
+    current_scope.last_strict
+  end
+
+  def self.take(n : Int32) : Array({{ model }}) | ::Grant::Error::ErrorBase
+    current_scope.take(n)
+  end
+
+  def self.find_sole_by(**criteria) : {{ model }} | ::Grant::Error::ErrorBase
+    current_scope.where(criteria.to_h).sole
+  end
+
+  {% for pair in [[:average, :avg], [:minimum, :min], [:maximum, :max]] %}
+    def self.{{ pair[0].id }}(column : Symbol | String) : ::Grant::Adapter::Driver::Value | Hash(::Grant::Adapter::Driver::Value, ::Grant::Adapter::Driver::Value) | Hash(Array(::Grant::Adapter::Driver::Value), ::Grant::Adapter::Driver::Value) | ::Grant::Error::ErrorBase
+      current_scope.{{ pair[1].id }}(column)
+    end
+  {% end %}
+
+  def self.in_batches(of batch_size : Int32 = 1000, &block : ::Grant::Query::Builder::Builder({{ model }}) -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
+    current_scope.in_batches(of: batch_size) { |batch| yield batch }
+  end
+
+  def self.each_streamed(&block : {{ model }} -> T) : Nil | ::Grant::Error::ErrorBase forall T
+    current_scope.each_streamed { |record| yield record }
+  end
+
+  def self.update_all(**changes) : Int64 | ::Grant::Error::ErrorBase
+    current_scope.update_all(**changes)
+  end
+
+  def self.delete_all : Int64 | ::Grant::Error::ErrorBase
+    current_scope.delete_all
+  end
+
+  def self.delete_by(**criteria) : Int64 | ::Grant::Error::ErrorBase
+    current_scope.where(criteria.to_h).delete_all
+  end
+
+  def self.destroy_by(**criteria) : Int32 | ::Grant::Error::ErrorBase
+    current_scope.where(criteria.to_h).destroy_all
+  end
+
+  def self.touch_all(*fields : Symbol, time : ::Std::Time::Time = ::Std::Time::Time.utc) : Int64 | ::Grant::Error::ErrorBase
+    current_scope.touch_all(*fields, time: time)
+  end
+
+  private def self.ensure_raw_sql_unscoped_strict : Nil | ::Grant::Error::ErrorBase
+    if _has_default_scope? && !_unscoped?
+      return ::Grant::Querying::ScopedRawSqlError.new("Raw SQL cannot apply the default scope for #{self}. Wrap deliberate raw access in #{self}.unscoped { ... }.")
+    end
+    nil
+  end
+
   def self.count(column : Symbol | String, distinct : Bool = false) : Int64 | ::Grant::Error::ErrorBase
     result = current_scope.count(column, distinct)!
     result.is_a?(Int64) ? result : result.values.sum
@@ -171,6 +251,7 @@ pub macro model_methods(model)
   end
 
   def self.query(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, &block : ::Grant::Adapter::Driver::ResultSet -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
+    ensure_raw_sql_unscoped_strict!
     connection.with_result_set(clause, params) { |rs| yield rs }
   end
 
@@ -197,5 +278,14 @@ end
 pub macro class_methods
   def self.count : Int64 | ::Grant::Error::ErrorBase | Cancelled
     current_scope.count
+  end
+end
+
+pub class ScopedRawSqlError < ErrorBase
+end
+
+impl ::Error for ScopedRawSqlError
+  def message : String
+    @message
   end
 end

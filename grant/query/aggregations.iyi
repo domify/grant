@@ -42,7 +42,7 @@ pub trait Aggregations(Model)
   end
 
   def sum(&block : Model -> T) : T | ErrorBase forall T
-    records!.sum { |record| yield record }
+    records!.sum_by { |record| yield record }
   end
 
   def max_of(&block : Model -> T) : T | ErrorBase forall T
