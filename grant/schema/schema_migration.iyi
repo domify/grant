@@ -36,7 +36,9 @@ pub class SchemaMigration
     else
       "CREATE TABLE #{dialect.quote(table_name)} (version VARCHAR(255) NOT NULL PRIMARY KEY)"
     end
-    adapter.open { |db| db.exec(sql)!; nil }
+    adapter.open { |db| db.exec(sql)!; nil }!
+    adapter.reset_schema_caches_in_place(table_name)
+    nil
   end
 
   def versions : Set(Int64) | ErrorBase | Cancelled
