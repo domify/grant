@@ -101,6 +101,7 @@ pub def generate_message(model : String, attribute : String, type : Symbol, opti
   if template.nil?
     active = translator
     if !model.empty?
+      model = model_key(model)
       template = active.translate(locale, "errors.models.#{model}.attributes.#{attribute}.#{type}") ||
                  active.translate(locale, "errors.models.#{model}.#{type}")
     end
@@ -114,4 +115,34 @@ pub def generate_message(model : String, attribute : String, type : Symbol, opti
     options.each { |name, item| result = result.gsub("%{#{name}}", item.to_s) }
   end
   result.gsub("%{attribute}", humanize(attribute))
+end
+
+pub def model_key(model : String) : String
+  name = model.gsub("::", "/")
+  result = ""
+  index = 0
+  name.each_char do |char|
+    upper = char >= 'A' && char <= 'Z'
+    if upper && index > 0
+      previous = name[index - 1]
+      following = name[index + 1]?
+      previous_lower = (previous >= 'a' && previous <= 'z') || (previous >= '0' && previous <= '9')
+      next_lower = !following.nil? && following >= 'a' && following <= 'z'
+      previous_upper = previous >= 'A' && previous <= 'Z'
+      result += "_" if previous_lower || (previous_upper && next_lower)
+    end
+    result += char.to_s.downcase
+    index += 1
+  end
+  result
+end
+
+pub def human_attribute_name(model : String, attribute : String) : String
+  translator.translate(locale, "attributes.#{model_key(model)}.#{attribute}") ||
+    translator.translate(locale, "attributes.#{attribute}") || humanize(attribute)
+end
+
+pub def full_message(attribute : String, message : String) : String
+  format = translator.translate(locale, "errors.format") || "%{attribute} %{message}"
+  format.gsub("%{attribute}", attribute).gsub("%{message}", message)
 end

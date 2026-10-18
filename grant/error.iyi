@@ -40,9 +40,15 @@ impl ::Error for ErrorBase
   end
 end
 
+# Minimal record interface keeps Error independent of Base's imports.
+pub trait ErrorRecord
+  abstract def __error_model_name : String
+end
+
 # A model validation failure, distinct from returned runtime errors.
 pub class Error
   getter field : String | Symbol
+  property base : ErrorRecord? = nil
   property type : Symbol?
 
   @raw_message : String | Symbol
@@ -104,17 +110,58 @@ pub class Error
     return raw if raw.is_a?(String)
     cached = @message
     return cached unless cached.nil?
-    text = ::Grant::I18n.generate_message("", attribute, raw, @options)
+    record = @base
+    model = record.nil? ? "" : record.__error_model_name
+    text = ::Grant::I18n.generate_message(model, attribute, raw, @options)
     @message = text
     text
   end
 
   def full_message : String
-    name = @field.to_s
-    return message if name == "base"
-    name = name[0, name.size - 3] if name.ends_with?("_id")
-    name = name.gsub("_", " ")
-    "#{name.capitalize} #{message}"
+    cached = @full_message
+    return cached unless cached.nil?
+    record = @base
+    human = record.nil? ? ::Grant::I18n.humanize(attribute) :
+      ::Grant::I18n.human_attribute_name(record.__error_model_name, attribute)
+    text = attribute == "base" ? message : ::Grant::I18n.full_message(human, message)
+    @full_message = text
+    text
+  end
+
+  def match?(attribute : String | Symbol, type : Symbol | String | Nil = nil, **options) : Bool
+    return false unless self.attribute == attribute.to_s
+    return false unless type.nil? || type_matches?(type)
+    options.each do |key, item|
+      mine = @options
+      return false if mine.nil? || !mine.has_key?(key)
+      return false unless mine[key] == ::Grant::Error.value(item)
+    end
+    true
+  end
+
+  def strict_match?(attribute : String | Symbol, type : Symbol | String, **options) : Bool
+    mine = @options
+    size = mine.nil? ? 0 : mine.size
+    size == options.size && match?(attribute, type, **options)
+  end
+
+  def copy(attribute : String | Symbol | Nil = nil) : Error
+    stored = @options
+    duplicate = Options.new
+    stored.each { |key, item| duplicate[key] = item } unless stored.nil?
+    raw = @raw_message
+    result = if raw.is_a?(String)
+      Error.new(attribute || @field, raw, @type, options: duplicate)
+    else
+      Error.new(attribute || @field, @type || :invalid, message: raw,
+        options: duplicate)
+    end
+    result.base = @base
+    result
+  end
+
+  private def type_matches?(type : Symbol | String) : Bool
+    type.is_a?(Symbol) ? @type == type : message == type
   end
 
   def to_s : String
