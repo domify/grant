@@ -817,6 +817,9 @@ pub abstract class Base
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Aggregations.model_methods({{ @type }})
     ::Grant::Query::Grouping.model_methods({{ @type }})
+    ::Grant::Query::WhereComposition.model_methods({{ @type }})
+    ::Grant::Query::Joins.model_methods({{ @type }})
+    ::Grant::Query::Ordering.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Readonly.model_methods({{ @type }})
     ::Grant::Transactions.model_methods({{ @type }})
@@ -1517,6 +1520,14 @@ pub abstract class Base
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       current_scope.first
+    end
+
+    def self.second : {{ @type }} | Nil | ::Grant::Error::ErrorBase
+      current_scope.second
+    end
+
+    def self.third : {{ @type }} | Nil | ::Grant::Error::ErrorBase
+      current_scope.third
     end
 
     def self.first_strict : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase

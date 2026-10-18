@@ -1,0 +1,43 @@
+module grant/query/joins
+
+import grant/query/where_field::{JoinClause}
+import grant/error::{ArgumentError}
+
+# Association-name join slice of the upstream Builder reopening in joins.cr.
+pub trait Joins(Model)
+  def joins(name : Symbol) : self
+    chain_copy.joins_in_place(name)
+  end
+
+  def joins_in_place(name : Symbol) : self
+    clause = Model.__query_join_clause(name.to_s, :inner)
+    return self.defer(ArgumentError.new("Unknown association #{name.inspect} for #{Model}")) if clause.nil?
+    unless join_clauses.any? { |existing| existing.to_s == clause.to_s }
+      own_join_clauses << clause
+    end
+    self
+  end
+end
+
+pub macro model_methods(model)
+  def self.joins(name : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.joins(name)
+  end
+
+  def self.__query_join_clause(name : String, type : Symbol) : ::Grant::Query::WhereField::JoinClause?
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        if name == \{{ method.name.stringify }}
+          target_table = \{{ ann[:target] }}.table_name
+          \{% if ann[:type] == :belongs_to %}
+            on = "#{target_table}.\{{ ann[:primary_key].id }} = #{table_name}.\{{ ann[:foreign_key].id }}"
+          \{% else %}
+            on = "#{target_table}.\{{ ann[:foreign_key].id }} = #{table_name}.\{{ ann[:primary_key].id }}"
+          \{% end %}
+          return {type: type, table: target_table, on: on}
+        end
+      \{% end %}
+    \{% end %}
+    nil
+  end
+end

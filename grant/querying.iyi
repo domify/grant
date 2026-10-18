@@ -98,6 +98,20 @@ pub macro model_methods(model)
     self
   end
 
+  def self.all(clause : String) : Array({{ model }}) | ::Grant::Error::ErrorBase
+    all(clause, [] of ::Grant::Adapter::Driver::Value)
+  end
+
+  def self.raw_all(clause : String = "", params : Array(V) = [] of ::Grant::Adapter::Driver::Value) : Array({{ model }}) | ::Grant::Error::ErrorBase forall V
+    scope = current_scope
+    built = scope.assembler
+    source = built.select.raw_sql
+    values = built.numbered_parameters.dup
+    params.each { |value| values << ::Grant::Base.sqlite_value(value) }
+    sql = "SELECT * FROM (#{source}) AS #{quote(table_name)} #{clause}"
+    __connection.query(sql, values)!.map { |row| from_row(row)! }
+  end
+
   def self.first(clause : String) : {{ model }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
     first(clause, [] of ::Grant::Adapter::Driver::Value)
   end

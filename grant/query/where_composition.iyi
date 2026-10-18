@@ -1,13 +1,133 @@
 module grant/query/where_composition
 
 import grant/adapter/driver::{Value}
-import grant/error::{ErrorBase}
+import grant/error::{ErrorBase, ArgumentError}
 import grant/query/predicate_renderer::{PredicateRenderer}
 import grant/query/bind_value::{to_value}
+import grant/sanitization
 
 # Value-shaped conditions and grouped negation, as in upstream
 # src/grant/query/where_composition.cr.
 pub trait WhereComposition(Model)
+  protected def register_raw_where_column(statement : String, field : String, equality : Bool = false) : Nil
+    raw_where_columns[statement] = {field.split('.').last, equality}
+    nil
+  end
+
+  private def association_foreign_key(name : String) : String?
+    {% if Model.class.has_method?(:__query_association_foreign_key) %}
+      Model.__query_association_foreign_key(name)
+    {% else %}
+      nil
+    {% end %}
+  end
+
+  def rewhere(matches : T) : self forall T
+    copy = chain_copy
+    names = [] of String
+    matches.each { |field, _| names << (association_foreign_key(field.to_s) || field.to_s) }
+    copy.unscope_where_columns(names)
+    matches.each { |field, value| copy.add_condition(:and, field.to_s, value) }
+    copy
+  end
+
+  def reorder(first : Symbol, second : Symbol, *rest) : self
+    copy = chain_copy
+    copy.clear_order_fields
+    copy.order_in_place(first)
+    copy.order_in_place(second)
+    rest.each { |field| copy.order_in_place(field) }
+    copy
+  end
+
+  def where(statement : String, **binds) : self
+    copy = chain_copy
+    rewritten = ::Grant::Sanitization.rewrite_named_binds(statement, binds)
+    if rewritten.is_a?(ErrorBase)
+      copy.deferred_error = rewritten
+      return copy
+    end
+    sql, values = rewritten
+    copy.and_in_place(sql, values)
+  end
+
+  def or_where(other : self) : self
+    chain_copy.or_in_place(other)
+  end
+
+  def or_in_place(other : self) : self
+    error = structurally_compatible_error(other, "or")
+    return self.defer(error) unless error.nil?
+    if where_fields.empty? || other.where_fields.empty?
+      clear_where_fields
+      return self
+    end
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, join_clauses)
+    renderer.rendering_where_group = true
+    left = renderer.render_where_fields(where_fields)
+    return self.defer(left) if left.is_a?(ErrorBase)
+    right = renderer.render_where_fields(other.where_fields)
+    return self.defer(right) if right.is_a?(ErrorBase)
+    clear_where_fields
+    own_where_fields << {join: :and, stmt: "((#{left}) OR (#{right}))", values: values}
+    self
+  end
+
+  def and_where(other : self) : self
+    chain_copy.and_in_place(other)
+  end
+
+  def and_in_place(other : self) : self
+    error = structurally_compatible_error(other, "and")
+    return self.defer(error) unless error.nil?
+    return self if other.where_fields.empty?
+    if other.where_fields.all? { |field| field[:join] == :and } && where_fields.all? { |field| field[:join] == :and }
+      own_where_fields.concat(other.where_fields)
+      other.raw_where_columns.each { |sql, metadata| raw_where_columns[sql] = metadata }
+      return self
+    end
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, join_clauses)
+    renderer.rendering_where_group = true
+    left = renderer.render_where_fields(where_fields)
+    return self.defer(left) if left.is_a?(ErrorBase)
+    right = renderer.render_where_fields(other.where_fields)
+    return self.defer(right) if right.is_a?(ErrorBase)
+    clear_where_fields
+    own_where_fields << {join: :and, stmt: "((#{left}) AND (#{right}))", values: values}
+    self
+  end
+
+  protected def structurally_incompatible_values(other : self) : Array(Symbol)
+    differing = [] of Symbol
+    # Native NamedTuple equality is false even for identical tuples.
+    differing << :order if order_fields.map(&.to_s) != other.order_fields.map(&.to_s)
+    differing << :group if group_fields.map(&.to_s) != other.group_fields.map(&.to_s)
+    differing << :joins if join_clauses.map(&.to_s) != other.join_clauses.map(&.to_s)
+    differing << :limit if limit != other.limit
+    differing << :offset if offset != other.offset
+    differing << :lock if lock_mode != other.lock_mode
+    differing << :select if select_columns != other.select_columns
+    differing << :distinct if distinct? != other.distinct?
+    differing << :includes if includes_associations != other.includes_associations
+    differing
+  end
+
+  private def structurally_compatible_error(other : self, method_name : String) : ArgumentError?
+    differing = structurally_incompatible_values(other)
+    return nil if differing.empty?
+    ArgumentError.new("Relation passed to ##{method_name} must be structurally compatible. Incompatible values: #{differing.inspect}")
+  end
+
   def where_not(matches : T) : self forall T
     chain_copy.where_not_in_place(matches)
   end
@@ -50,7 +170,9 @@ pub trait WhereComposition(Model)
       values << to_value(last)
     end
     return self if parts.empty?
-    own_where_fields << {join: join, stmt: "(#{parts.join(" AND ")})", values: values}
+    statement = "(#{parts.join(" AND ")})"
+    own_where_fields << {join: join, stmt: statement, values: values}
+    register_raw_where_column(statement, field)
     self
   end
 
@@ -63,7 +185,7 @@ pub trait WhereComposition(Model)
       if item.is_a?(Range)
         scope.add_range_condition(:or, field, item)
       else
-        scalars << to_value(item)
+        scalars << (item.responds_to?(:__primary_value) ? item.__primary_value : to_value(item))
       end
     end
     # Preserve the ordinary IN/list path, including its nil-aware predicate.
@@ -80,8 +202,31 @@ pub trait WhereComposition(Model)
     if rendered.is_a?(ErrorBase)
       self.defer(rendered)
     else
-      own_where_fields << {join: join, stmt: "(#{rendered})", values: values}
+      statement = "(#{rendered})"
+      own_where_fields << {join: join, stmt: statement, values: values}
+      register_raw_where_column(statement, field)
     end
     self
+  end
+end
+
+pub macro model_methods(model)
+  def self.__query_association_foreign_key(name : String) : String?
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        \{% if ann[:type] == :belongs_to %}
+          return \{{ ann[:foreign_key].id.stringify }} if name == \{{ method.name.stringify }}
+        \{% end %}
+      \{% end %}
+    \{% end %}
+    nil
+  end
+
+  def self.where(statement : String, **binds) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.where(statement, **binds)
+  end
+
+  def self.select(*columns : Symbol | String) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.select(*columns)
   end
 end

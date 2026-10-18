@@ -1,0 +1,10 @@
+module query_typed_splat
+
+# Expected: an empty rest tuple. Actual: call rejected with "expected 3+".
+# Removing the rest restriction accepts the same call.
+# IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi test \
+#   port/compiler-bugs/query_typed_splat.iyi
+def pair(first : Symbol, second : Symbol, *rest : Symbol) : Int32
+  rest.size
+end
+assert pair(:a, :b) == 0
