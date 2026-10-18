@@ -32,3 +32,5 @@ Schema `check_protected_environments!` and `set_environment!` use the `_strict` 
 Schema `verify!` and model `verify_schema!` use the `_strict` suffix.
 
 Errors collection `merge!` becomes `merge_in_place`.
+
+Database task `guard!` becomes `guard_strict`.

@@ -78,16 +78,29 @@ pub macro methods
     end
   {% end %}
   ::Grant::Schema::AlterTable.methods
-  def create_table_statements(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol = :id, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
+  def create_table_statements(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol | Array(Symbol) | Array(String) = :id, &block : TableDefinition -> T) : Array(String) | ErrorBase forall T
     definition = TableDefinition.new(table.to_s, dialect, comment)
     result = yield definition
     return result if result.is_a?(ErrorBase)
     return definition.definition_error.as(ErrorBase) unless definition.definition_error.nil?
     columns = [] of String
-    if id != false
+    flagged = definition.columns.select { |column| column.primary_key }.map { |column| column.name }
+    explicit = primary_key.is_a?(Array) ? primary_key.map { |key| key.to_s } : [] of String
+    return InvalidDefinition.new("Give primary_key: or flagged columns, not both") if !explicit.empty? && !flagged.empty?
+    keys = explicit.empty? ? flagged : explicit
+    keys.each do |key|
+      return InvalidDefinition.new("Primary key column '#{key}' is not defined") unless definition.columns.any? { |column| column.name == key }
+    end
+    if id != false && keys.empty?
       columns << auto_id_sql(dialect, primary_key.to_s, id.is_a?(Symbol) ? id : :bigint)!
     end
-    definition.columns.each { |column| columns << column.to_sql(dialect)! }
+    definition.columns.each do |column|
+      column.null = false if keys.includes?(column.name)
+      line = column.to_sql(dialect)!
+      line += " PRIMARY KEY" if keys.size == 1 && keys.first == column.name
+      columns << line
+    end
+    columns << "PRIMARY KEY (#{keys.map { |key| dialect.quote(key) }.join(", ")})" if keys.size > 1
     definition.foreign_keys.each { |constraint| columns << constraint.constraint_sql(dialect)! }
     definition.unique_constraints.each { |constraint| columns << constraint.constraint_sql(dialect)! }
     definition.check_constraints.each { |constraint| columns << constraint.constraint_sql(dialect)! }
@@ -103,7 +116,7 @@ pub macro methods
     definition.indexes.each { |index| statements.concat(index.statements(dialect)!) }
     statements
   end
-  def create_table(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol = :id, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
+  def create_table(table : String | Symbol, id : Bool | Symbol = true, force : Bool | Symbol = false, comment : String? = nil, if_not_exists : Bool = false, temporary : Bool = false, primary_key : String | Symbol | Array(Symbol) | Array(String) = :id, &block : TableDefinition -> T) : Nil | ErrorBase | Cancelled forall T
     execute_batch(create_table_statements(table, id, force, comment, if_not_exists, temporary, primary_key) { |t| yield t }!)
   end
   def drop_table_statements(*tables, if_exists : Bool = false, cascade : Bool = false) : Array(String)
