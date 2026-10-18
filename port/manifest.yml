@@ -1826,7 +1826,7 @@
   target: test/grant_associations_has_one_through_test.iyi
   area: associations
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/integration_spec.cr
   target: test/grant_associations_integration_test.iyi
   area: associations

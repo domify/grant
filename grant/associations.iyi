@@ -124,6 +124,9 @@ pub macro has_one(model, scope = nil, **options)
   {% end %}
   {% foreign_key = options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" %}
   {% primary_key = options[:primary_key] || "id" %}
+  {% if options[:through] %}
+    ::Grant::Associations.has_one_through({{ method_name }}, {{ class_name }}, {{ foreign_key }}, {{ primary_key }}, {{ options[:through] }}, {{ options[:source] }})
+  {% else %}
   @[::Grant::Associations::Relationship(target: {{ class_name }}, type: :has_one,
     primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }}, scope: {{ scope }})]
   def {{ method_name }} : {{ class_name }} | Nil | ::Grant::Error::ErrorBase
@@ -173,6 +176,7 @@ pub macro has_one(model, scope = nil, **options)
   end
   {% if options[:dependent] == :delete %}
     ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_one, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
+  {% end %}
   {% end %}
 
 end
@@ -227,4 +231,34 @@ pub macro through_condition(owner_type, through_name, target)
   %owner_key = {{ join_model }}.quote({{ metadata[:foreign_key].id.stringify }})
   %target_key = {{ target }}.quote({{ source_metadata[:primary_key].id.stringify }})
   "#{%target_key} IN (SELECT #{%source_key} FROM #{%join_table} WHERE #{%owner_key} = ?)"
+end
+
+# The legacy table-name has_one :through reader from upstream associations.cr.
+pub macro has_one_through(name, target, foreign_key, primary_key, through, source)
+  @[::Grant::Associations::Relationship(target: {{ target }}, type: :has_one,
+    primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }},
+    through: {{ through.id }}, source: {{ source || name }})]
+  def {{ name }} : {{ target }} | Nil | ::Grant::Error::ErrorBase
+    loaded = get_loaded_association({{ name.id.stringify }})
+    return loaded.first?.as({{ target }}?) unless loaded.nil?
+    join_key = {% if source %}
+      {{ source.id.stringify }} + "_id"
+    {% else %}
+      {{ primary_key.id.stringify }} == "id" ? {{ target.stringify.split("::").last.underscore + "_id" }} : {{ primary_key.id.stringify }}
+    {% end %}
+    table = {{ target }}.quote({{ target }}.table_name)
+    join_table = {{ target }}.quote({{ through.id.stringify }})
+    source_key = {{ target }}.quote(join_key)
+    target_key = {{ target }}.quote({{ target }}.primary_name)
+    owner_key = {{ target }}.quote({{ foreign_key.id.stringify }})
+    value = read_attribute({{ primary_key.id.stringify }})!
+    sql = "SELECT #{table}.* FROM #{table} JOIN #{join_table} ON #{join_table}.#{source_key} = #{table}.#{target_key} WHERE #{join_table}.#{owner_key} = ? LIMIT 1"
+    {{ target }}.find_by_sql(sql, [value] of ::Grant::Adapter::Driver::Value)!.first?
+  end
+
+  def {{ name }}_strict : {{ target }} | ::Grant::Error::ErrorBase
+    record = {{ name }}!
+    return record unless record.nil?
+    ::Grant::Querying::NotFound.new("No " + {{ target }}.to_s + " found through " + {{ through.id.stringify }} + " for #{self.class}")
+  end
 end
