@@ -1,6 +1,5 @@
 module grant/query/finders
 
-import grant/query/builder::{Builder}
 import grant/columns::{Type}
 import grant/errors::{RecordNotSaved}
 import grant/error_taxonomy::{RecordNotUnique}
@@ -373,6 +372,3 @@ pub trait Finders(Model)
   end
 end
 
-impl Finders(Model) for Builder(Model) forall Model
-
-end

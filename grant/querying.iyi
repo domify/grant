@@ -30,6 +30,33 @@ pub macro model_methods(model)
     end
   {% end %}
 
+  def self.sole : {{ model }} | ::Grant::Error::ErrorBase
+    records = current_scope.select!
+    return ::Grant::Querying::NotFound.new("No #{self} found") if records.empty?
+    return ::Grant::Querying::NotUnique.new("Multiple #{self} records found (expected exactly one)") if records.size > 1
+    records.first
+  end
+
+  def self.destroy_by(**criteria) : Int32 | ::Grant::Error::ErrorBase
+    destroy_by(criteria.to_h)
+  end
+
+  def self.destroy_by(criteria : Hash(K, V)) : Int32 | ::Grant::Error::ErrorBase forall K, V
+    query = current_scope
+    query = query.where(criteria) unless criteria.empty?
+    query.destroy_all
+  end
+
+  def self.delete_by(**criteria) : Int64 | ::Grant::Error::ErrorBase
+    delete_by(criteria.to_h)
+  end
+
+  def self.delete_by(criteria : Hash(K, V)) : Int64 | ::Grant::Error::ErrorBase forall K, V
+    query = current_scope
+    query = query.where(criteria) unless criteria.empty?
+    query.delete_all
+  end
+
   def self.find_sole_by(**criteria) : {{ model }} | ::Grant::Error::ErrorBase
     current_scope.find_sole_by(**criteria)
   end

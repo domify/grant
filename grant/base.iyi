@@ -32,6 +32,7 @@ pub import grant/validators
 pub import grant/callbacks
 pub import grant/secure_token
 pub import grant/transactions
+pub import grant/convenience_methods
 pub import grant/query/scoped_relation
 pub import grant/query/finders
 pub import grant/integrators
@@ -820,6 +821,7 @@ pub abstract class Base
     ::Grant::Query::WhereComposition.model_methods({{ @type }})
     ::Grant::Query::Joins.model_methods({{ @type }})
     ::Grant::Query::Ordering.model_methods({{ @type }})
+    ::Grant::ConvenienceMethods.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Readonly.model_methods({{ @type }})
     ::Grant::Transactions.model_methods({{ @type }})
@@ -1392,6 +1394,10 @@ pub abstract class Base
 
     def self.where(stmt : String, first : A, second : B, *rest) : ::Grant::Query::Builder::Builder({{ @type }}) forall A, B
       current_scope.where(stmt, first, second, *rest)
+    end
+
+    def self.where(matches : Hash(K, V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall K, V
+      current_scope.where(matches)
     end
 
     def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})

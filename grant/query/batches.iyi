@@ -130,4 +130,42 @@ pub trait Batches(Model)
     {"(#{alternatives.join(" OR ")})", values}
   end
 
+  # Relation-yielding batches retain a separate immutable base relation.
+  def in_batches(of batch_size : Int32 = 1000, start : Value = nil, finish : Value = nil, load : Bool = false, order : Symbol = :asc, &block : self -> T) : Nil | ErrorBase forall T
+    return ErrorBase.new("batch_size must be positive") if batch_size <= 0
+    return nil if is_none?
+    base = chain_copy
+    base.clear_order_fields
+    base = base.where(Model.primary_name, order == :desc ? :lteq : :gteq, start) unless start.nil?
+    base = base.where(Model.primary_name, order == :desc ? :gteq : :lteq, finish) unless finish.nil?
+    position : Value = nil
+    loop do
+      page = base.chain_copy
+      page = page.where(Model.primary_name, order == :desc ? :lt : :gt, position) unless position.nil?
+      page = page.order({Model.primary_name => order}).limit(batch_size)
+      ids = page.ids!
+      break if ids.empty?
+      position = ids.last
+      batch = base.where(Model.primary_name, :in, ids).order({Model.primary_name => order})
+      result = yield batch
+      return result if result.is_a?(ErrorBase)
+      break if ids.size < batch_size
+    end
+    nil
+  end
+  def destroy_all_records : Array(Model) | ErrorBase
+    destroyed = [] of Model
+    find_in_batches do |batch|
+      Model.transaction do
+        batch.each { |record| destroyed << record if record.destroy }
+        nil
+      end
+    end!
+    destroyed
+  end
+
+  def destroy_all : Int32 | ErrorBase
+    destroy_all_records!.size.to_i32
+  end
+
 end
