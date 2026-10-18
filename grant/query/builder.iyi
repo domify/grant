@@ -1,5 +1,7 @@
 module grant/query/builder
 
+import grant/columns
+
 import std/text
 pub import grant/adapter/driver
 import grant/adapter/driver::{Value, Mutation}
@@ -530,6 +532,15 @@ pub class Builder(Model)
     self
   end
 
+  # Model normalization applies only to structured equality/list predicates.
+  private def normalized_where_value(field : String, value : T) : T | ::Grant::Columns::Type forall T
+    {% if Model.class.has_method?(:normalize_value_for) %}
+      Model.normalize_value_for(field, value)
+    {% else %}
+      value
+    {% end %}
+  end
+
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
     if value.is_a?(Range)
@@ -537,14 +548,14 @@ pub class Builder(Model)
     elsif value.is_a?(Array)
       add_value_array_condition(join, field, value)
     else
-      own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(value)}
+      own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(normalized_where_value(field, value))}
       self
     end
   end
 
   private def add_array_condition(join : Symbol, field : String, operator : Symbol, values : Array(T)) : self forall T
     bound = [] of Value
-    values.each { |item| bound << to_value(item) }
+    values.each { |item| bound << to_value(normalized_where_value(field, item)) }
     has_nil = bound.any? { |item| item.nil? }
     without_nil = bound.reject { |item| item.nil? }
 

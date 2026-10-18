@@ -93,6 +93,14 @@ end
 
 # Per-column delegators from upstream Columns' pre-save dirty API.
 pub macro dirty_column_methods(decl)
+  def {{ decl.var }}_was : {{ decl.type }} | Nil
+    {{ decl.var }}_changed? ? @__persisted_{{ decl.var }} : @{{ decl.var }}
+  end
+
+  def {{ decl.var }}_change : Tuple({{ decl.type }} | Nil, {{ decl.type }} | Nil)?
+    {{ decl.var }}_changed? ? {@__persisted_{{ decl.var }}, @{{ decl.var }}} : nil
+  end
+
   def {{ decl.var }}_before_type_cast : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
     attribute_before_type_cast({{ decl.var.stringify }})
   end

@@ -595,7 +595,7 @@
   target: test/grant_attributes_normalized_query_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/w6_alias_query_spec.cr
   target: test/grant_attributes_w6_alias_query_test.iyi
   area: query
@@ -885,7 +885,7 @@
   target: test/grant_persistence_update_counters_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/w6_model_name_spec.cr
   target: test/grant_persistence_w6_model_name_test.iyi
   area: query
@@ -1986,7 +1986,7 @@
   target: test/grant_attributes_normalizes_test.iyi
   area: associations
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/callbacks/run_callbacks_spec.cr
   target: test/grant_callbacks_run_callbacks_test.iyi
   area: associations
@@ -2340,7 +2340,7 @@
   target: test/grant_normalization_test.iyi
   area: dirty_state
   examples: 17
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/perf/w6_lazy_dirty_spec.cr
   target: test/grant_perf_w6_lazy_dirty_test.iyi
   area: dirty_state
