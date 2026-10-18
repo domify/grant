@@ -557,7 +557,11 @@ pub abstract class Base
         unless begin
           {{ block.body }}
         end
-          errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
+          {% if message %}
+            errors << ::Grant::Error::Error.new({{ field }}, {{ message }})
+          {% else %}
+            errors << ::Grant::Error::Error.new(:base, {{ field }})
+          {% end %}
         end
       {% else %}
         {{ field.id }}
@@ -760,7 +764,7 @@ pub abstract class Base
   end
 
   macro has_many(model, scope = nil, **options)
-    ::Grant::Associations.has_many({{ model }}, {{ scope }}, foreign_key: {{ options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" }}, {% for key, value in options %}{% unless key == :foreign_key %}{{ key.id }}: {{ value }}, {% end %}{% end %})
+    ::Grant::Associations.has_many({{ model }}, {{ scope }}, owner_type: {{ @type }}, foreign_key: {{ options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" }}, {% for key, value in options %}{% unless key == :foreign_key %}{{ key.id }}: {{ value }}, {% end %}{% end %})
   end
 
   macro index(columns, **options)
@@ -1913,7 +1917,9 @@ pub abstract class Base
   end
 
   def __validation_phase : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    __association_defaults!
     self.before_validation!
+    __association_validations!
     __run_validations!
     self.after_validation!
     errors.empty?
@@ -1934,6 +1940,7 @@ pub abstract class Base
     return ::Grant::Errors::RecordInvalid.new(self) if validate && !valid?!
     __remember_transaction_state
     operation = @new_record ? :create : :update
+    __association_before_save!
     self.before_save!
     saved = __persist_with_around(skip_timestamps: skip_timestamps)
     return saved if saved.is_a?(::Error)

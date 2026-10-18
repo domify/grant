@@ -2,6 +2,8 @@ module grant/associations
 
 pub import grant/association_collection
 import grant/dependent
+import grant/association_options
+import grant/autosave
 
 pub annotation Relationship
 end
@@ -11,7 +13,7 @@ pub macro has_many(model, scope = nil, **options)
   {% class_name = options[:class_name] %}
   {% foreign_key = options[:foreign_key] %}
   {% primary_key = options[:primary_key] || "id" %}
-  @[::Grant::Associations::Relationship(target: {{ class_name }}, through: nil, type: :has_many,
+  @[::Grant::Associations::Relationship(target: {{ class_name }}, through: {{ options[:through] }}, type: :has_many,
     primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }},
     owner_primary_key: {{ primary_key.id }}, scope: {{ scope }})]
   def {{ method_name }} : ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }})
@@ -26,9 +28,19 @@ pub macro has_many(model, scope = nil, **options)
     {% else %}
       scope_proc = nil
     {% end %}
+    {% if options[:through] %}
+      through_condition = ::Grant::Associations.through_condition({{ options[:owner_type] }}, {{ options[:through].id.stringify }}, {{ class_name }})
+      through_relation = ->(q : ::Grant::Query::Builder::Builder({{ class_name }})) {
+        q.where(through_condition, read_attribute({{ primary_key.id.stringify }}).or_panic)
+      }
+    {% else %}
+      through_relation = nil
+      through_condition = nil
+    {% end %}
     ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }}).new(
       self, {{ foreign_key.id.stringify }}, primary_key: {{ options[:primary_key] ? primary_key.id.stringify : nil }},
-      scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
+      inverse_of: {{ options[:inverse_of] ? options[:inverse_of].id.stringify : nil }},
+      through_condition: through_condition, relation_scope: through_relation, scope: scope_proc, association_name: {{ method_name.stringify }}, loaded_records: records)
   end
   {% if options[:dependent] == :delete_all %}
     ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_many, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
@@ -77,6 +89,29 @@ pub macro belongs_to(model, scope = nil, **options)
     records << parent unless parent.nil?
     set_loaded_association({{ method_name.stringify }}, records)
   end
+  def {{ method_name }}_changed? : Bool
+    return true if {{ foreign_key }}_changed?
+    loaded = get_loaded_association({{ method_name.stringify }})
+    parent = loaded.nil? ? nil : loaded.first?
+    !parent.nil? && parent.new_record?
+  end
+
+  def {{ method_name }}_previously_changed? : Bool
+    saved_change_to_attribute?({{ foreign_key.id.stringify }})
+  end
+
+  ::Grant::AssociationOptions.setup_optional_validation({{ method_name }}, {{ foreign_key }}, {{ class_name }}, {{ primary_key }}, {{ options[:optional] }})
+  {% if options[:default] %}
+    def __association_default_{{ method_name }} : Nil | ::Grant::Error::ErrorBase
+      if new_record? && {{ foreign_key }}.nil?
+        parent = ({{ options[:default] }}).call(self)!
+        self.{{ method_name }} = parent unless parent.nil?
+      end
+      nil
+    end
+  {% end %}
+  ::Grant::Autosave.setup_belongs_to({{ method_name }}, {{ class_name }}, {{ foreign_key }}, {{ primary_key }}, {{ options[:autosave] }})
+
 end
 
 pub macro has_one(model, scope = nil, **options)
@@ -89,6 +124,9 @@ pub macro has_one(model, scope = nil, **options)
   {% end %}
   {% foreign_key = options[:foreign_key] || @type.stringify.split("::").last.underscore + "_id" %}
   {% primary_key = options[:primary_key] || "id" %}
+  {% if options[:through] %}
+    ::Grant::Associations.has_one_through({{ method_name }}, {{ class_name }}, {{ foreign_key }}, {{ primary_key }}, {{ options[:through] }}, {{ options[:source] }})
+  {% else %}
   @[::Grant::Associations::Relationship(target: {{ class_name }}, type: :has_one,
     primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }}, scope: {{ scope }})]
   def {{ method_name }} : {{ class_name }} | Nil | ::Grant::Error::ErrorBase
@@ -139,10 +177,32 @@ pub macro has_one(model, scope = nil, **options)
   {% if options[:dependent] == :delete %}
     ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_one, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
   {% end %}
+  {% end %}
 
 end
 
 pub macro model_methods(model)
+  def __association_defaults : Nil | ::Grant::Error::ErrorBase
+    \{% for method in @type.methods.select { |m| m.name.starts_with?("__association_default_") } %}
+      \{{ method.name }}!
+    \{% end %}
+    nil
+  end
+
+  def __association_validations : Nil | ::Grant::Error::ErrorBase
+    \{% for method in @type.methods.select { |m| m.name.starts_with?("__association_validate_") } %}
+      \{{ method.name }}!
+    \{% end %}
+    nil
+  end
+
+  def __association_before_save : Nil | ::Grant::Error::ErrorBase
+    \{% for method in @type.methods.select { |m| m.name.starts_with?("_autosave_before_save_") } %}
+      \{{ method.name }}!
+    \{% end %}
+    nil
+  end
+
   @__loaded_associations = {} of String => Array(::Grant::Base::Base)
 
   def set_loaded_association(name : String, records : Array(T)) : Nil forall T
@@ -154,7 +214,51 @@ pub macro model_methods(model)
     @__loaded_associations[name]?
   end
 
-  def association_loaded?(name : String) : Bool
-    @__loaded_associations.has_key?(name)
+  def association_loaded?(name : String | Symbol) : Bool
+    @__loaded_associations.has_key?(name.to_s)
+  end
+end
+
+pub macro through_condition(owner_type, through_name, target)
+  {% through_method = owner_type.resolve.methods.find { |m| m.name.stringify == through_name && m.annotation(::Grant::Associations::Relationship) } %}
+  {% metadata = through_method.annotation(::Grant::Associations::Relationship) %}
+  {% namespace = owner_type.stringify.split("::")[0...-1].join("::") %}
+  {% join_model = parse_type(namespace + "::" + metadata[:target].stringify).resolve %}
+  {% source = join_model.methods.find { |m| m.annotation(::Grant::Associations::Relationship) && m.annotation(::Grant::Associations::Relationship)[:target].stringify == target.stringify } %}
+  {% source_metadata = source.annotation(::Grant::Associations::Relationship) %}
+  %join_table = {{ join_model }}.quote({{ join_model }}.table_name)
+  %source_key = {{ join_model }}.quote({{ source_metadata[:foreign_key].id.stringify }})
+  %owner_key = {{ join_model }}.quote({{ metadata[:foreign_key].id.stringify }})
+  %target_key = {{ target }}.quote({{ source_metadata[:primary_key].id.stringify }})
+  "#{%target_key} IN (SELECT #{%source_key} FROM #{%join_table} WHERE #{%owner_key} = ?)"
+end
+
+# The legacy table-name has_one :through reader from upstream associations.cr.
+pub macro has_one_through(name, target, foreign_key, primary_key, through, source)
+  @[::Grant::Associations::Relationship(target: {{ target }}, type: :has_one,
+    primary_key: {{ primary_key.id }}, foreign_key: {{ foreign_key.id }},
+    through: {{ through.id }}, source: {{ source || name }})]
+  def {{ name }} : {{ target }} | Nil | ::Grant::Error::ErrorBase
+    loaded = get_loaded_association({{ name.id.stringify }})
+    return loaded.first?.as({{ target }}?) unless loaded.nil?
+    join_key = {% if source %}
+      {{ source.id.stringify }} + "_id"
+    {% else %}
+      {{ primary_key.id.stringify }} == "id" ? {{ target.stringify.split("::").last.underscore + "_id" }} : {{ primary_key.id.stringify }}
+    {% end %}
+    table = {{ target }}.quote({{ target }}.table_name)
+    join_table = {{ target }}.quote({{ through.id.stringify }})
+    source_key = {{ target }}.quote(join_key)
+    target_key = {{ target }}.quote({{ target }}.primary_name)
+    owner_key = {{ target }}.quote({{ foreign_key.id.stringify }})
+    value = read_attribute({{ primary_key.id.stringify }})!
+    sql = "SELECT #{table}.* FROM #{table} JOIN #{join_table} ON #{join_table}.#{source_key} = #{table}.#{target_key} WHERE #{join_table}.#{owner_key} = ? LIMIT 1"
+    {{ target }}.find_by_sql(sql, [value] of ::Grant::Adapter::Driver::Value)!.first?
+  end
+
+  def {{ name }}_strict : {{ target }} | ::Grant::Error::ErrorBase
+    record = {{ name }}!
+    return record unless record.nil?
+    ::Grant::Querying::NotFound.new("No " + {{ target }}.to_s + " found through " + {{ through.id.stringify }} + " for #{self.class}")
   end
 end
