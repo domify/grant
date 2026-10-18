@@ -36,3 +36,5 @@ Errors collection `merge!` becomes `merge_in_place`.
 Database task `guard!` becomes `guard_strict`.
 
 Schema cache `reset!` becomes `reset_in_place`; `load_all!` becomes `load_all_in_place`.
+
+Errors collection `uniq!` and `copy!` become `uniq_in_place` and `copy_in_place`.

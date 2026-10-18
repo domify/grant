@@ -2,6 +2,7 @@ module grant/errors
 
 import std/indexable
 import std/json
+import grant/i18n
 
 # Crystal Grant raises these; native iyi returns them as union members.
 
@@ -184,8 +185,8 @@ pub class Errors
     where(field).map { |error| error.message }
   end
 
-  def where(field : String | Symbol) : Array(::Grant::Error::Error)
-    @errors.select { |error| error.field.to_s == field.to_s }
+  def where(field : String | Symbol, type : Symbol | String | Nil = nil, **options) : Array(::Grant::Error::Error)
+    @errors.select { |error| error.match?(field, type, **options) }
   end
 
   def of_type(field : String | Symbol, message : String) : Bool
@@ -243,18 +244,108 @@ pub class Errors
     @errors.select { |error| yield error }
   end
 
-  def to_hash : Hash(String, Array(String))
+  def to_hash(full_messages : Bool = false) : Hash(String, Array(String))
     result = {} of String => Array(String)
-    attribute_names.each { |name| result[name] = self[name] }
+    @errors.each do |error|
+      key = error.attribute
+      result[key] = [] of String unless result.has_key?(key)
+      result[key] << (full_messages ? error.full_message : error.message)
+    end
     result
   end
 
   def merge_in_place(other : Errors) : self
-    other.to_a.each do |error|
-      self << ::Grant::Error::Error.new(error.field, error.message, error.type)
-    end
+    other.to_a.each { |error| import_records(error) }
     self
   end
+
+  def messages_for(field : String | Symbol) : Array(String)
+    self[field]
+  end
+
+  def has_message?(field : String | Symbol, message : String) : Bool
+    where(field).any? { |error| error.message == message }
+  end
+
+  def of_type(field : String | Symbol, type : Symbol, **options) : Bool
+    !where(field, type, **options).empty?
+  end
+
+  def of_type?(field : String | Symbol, type : Symbol, **options) : Bool
+    of_type(field, type, **options)
+  end
+
+  def added?(field : String | Symbol, type : Symbol = :invalid, **options) : Bool
+    where(field).any? { |error| error.strict_match?(field, type, **options) }
+  end
+
+  def added?(field : String | Symbol, message : String) : Bool
+    has_message?(field, message)
+  end
+
+  def delete(field : String | Symbol, type : Symbol | String | Nil = nil, **options) : Array(String)
+    removed = where(field, type, **options)
+    messages = removed.map { |error| error.message }
+    @errors = @errors.reject { |error| removed.any? { |item| item.object_id == error.object_id } }
+    messages
+  end
+
+  def count(field : String | Symbol) : Int32
+    where(field).size
+  end
+
+  def objects : Array(::Grant::Error::Error)
+    @errors
+  end
+
+  def full_message(field : String | Symbol, message : String) : String
+    return message if field.to_s == "base"
+    record = @base
+    human = record.nil? ? ::Grant::I18n.humanize(field.to_s) :
+      ::Grant::I18n.human_attribute_name(record.__error_model_name, field.to_s)
+    ::Grant::I18n.full_message(human, message)
+  end
+
+  def messages : Hash(String, Array(String))
+    to_hash
+  end
+
+  def as_json(full_messages : Bool = false) : Hash(String, Array(String))
+    to_hash(full_messages)
+  end
+
+  def uniq_in_place : self
+    kept = [] of ::Grant::Error::Error
+    @errors.each do |error|
+      duplicate = kept.any? do |other|
+        matches = other.attribute == error.attribute && other.type == error.type &&
+          other.message == error.message && other.options.size == error.options.size
+        if matches
+          error.options.each do |key, value|
+            matches = false unless other.options.has_key?(key) && other.options[key] == value
+          end
+        end
+        matches
+      end
+      kept << error unless duplicate
+    end
+    @errors = kept
+    self
+  end
+
+  def import_records(error : ::Grant::Error::Error, attribute : String | Symbol | Nil = nil) : ::Grant::Error::Error
+    copy = error.copy(attribute)
+    self << copy
+    copy
+  end
+
+  def copy_in_place(other : Errors) : self
+    copies = other.to_a.map { |error| error.copy }
+    clear
+    copies.each { |error| import_records(error) }
+    self
+  end
+
 
   def to_json : String
     fields = {} of String => ::Std::Json::Any
