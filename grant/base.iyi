@@ -136,6 +136,7 @@ pub abstract class Base
   end
 
   macro inherited
+    ::Grant::Polymorphic.register_polymorphic_type({{ @type.stringify }}, {{ @type }})
     ::Grant::ValidationHelpers::Uniqueness.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Length.model_methods({{ @type }})
     ::Grant::ValidationHelpers::Inequality.model_methods({{ @type }})
