@@ -39,3 +39,85 @@ pub def import_records(adapter : Connection, table_name : String, primary_name :
   end
   nil
 end
+
+# Direct instance writes from upstream Transactions, without save callbacks.
+pub macro model_methods(model)
+  def update_columns(**args) : Bool | ::Grant::Error::ErrorBase
+    update_columns(args)
+  end
+
+  def update_column(name : String | Symbol, value : V) : Bool | ::Grant::Error::ErrorBase forall V
+    update_columns({name => value})
+  end
+
+  def update_columns(args : A) : Bool | ::Grant::Error::ErrorBase forall A
+    return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class} is marked as read only") if readonly?
+    return ::Grant::Error::ErrorBase.new("Cannot update columns on a new record object") unless persisted?
+    return ::Grant::Error::ArgumentError.new("No columns given to update_columns") if args.empty?
+    fields = [] of String
+    args.each do |field, value|
+      name = self.class.resolve_attribute_alias(field.to_s)
+      if self.class.readonly_attributes.includes?(name)
+        return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class}##{name} is read only")
+      end
+      fields << name
+    end
+    __remember_transaction_state
+    key = __primary_value
+    assign_attributes(args)!
+    params = [] of ::Grant::Adapter::Driver::Value
+    fields.each { |field| params << ::Grant::Base.sqlite_value(self[field]!) }
+    params << key
+    assignments = fields.map { |field| "#{::Grant::Base.quote_identifier(field)} = ?" }.join(", ")
+    self.class.mark_write_operation
+    __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", params)!
+    clear_dirty_tracking_for(fields)
+    true
+  end
+
+  def increment(field : String | Symbol, by : Int32 | Int64 = 1) : self | ::Grant::Error::ErrorBase
+    \{% begin %}
+    case field.to_s
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% type = column.annotation(::Grant::Base::Column)[:type] %}
+      \{% if type.includes?("Int32") || type.includes?("Int64") || type.includes?("Float") %}
+      when \{{ column.name.stringify }}
+        value = (@\{{ column.name }} || 0) + by
+        self.\{{ column.name }} = value.\{{ type.includes?("Int32") ? "to_i32".id : (type.includes?("Int64") ? "to_i64".id : (type.includes?("Float32") ? "to_f32".id : "to_f64".id)) }}
+        self
+      \{% end %}
+    \{% end %}
+    else
+      ::Grant::Error::ErrorBase.new("Cannot increment non-numeric attribute #{field}")
+    end
+    \{% end %}
+  end
+
+  def decrement(field : String | Symbol, by : Int32 | Int64 = 1) : self | ::Grant::Error::ErrorBase
+    increment(field, -by)
+  end
+
+  def increment_strict(field : String | Symbol, by : Int32 | Int64 = 1, touch : Bool | Symbol | Array(Symbol) = false) : self | ::Grant::Error::ErrorBase
+    return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class} is marked as read only") if readonly?
+    if self.class.readonly_attributes.includes?(field.to_s)
+      return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class}##{field} is read only")
+    end
+    __remember_transaction_state
+    if new_record?
+      increment(field, by)!
+      save_strict(validate: false)!
+      return self
+    end
+    time = ::Grant::Timestamps.current_time
+    touched = self.class.__counter_touch_columns(touch)!
+    increment(field, by)!
+    self.class.__apply_counter_update(self.class.unscoped.where(__primary_name, :eq, __primary_value), {field.to_s => by}, touch, time)!
+    touched.each { |column| self[column] = time }
+    clear_dirty_tracking_for([field.to_s] + touched)
+    self
+  end
+
+  def decrement_strict(field : String | Symbol, by : Int32 | Int64 = 1, touch : Bool | Symbol | Array(Symbol) = false) : self | ::Grant::Error::ErrorBase
+    increment_strict(field, -by, touch)
+  end
+end

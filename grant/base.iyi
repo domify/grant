@@ -17,6 +17,7 @@ pub import grant/columns_helpers
 pub import grant/attributes
 pub import grant/normalization
 pub import grant/dirty
+pub import grant/readonly
 pub import grant/record_copy
 pub import grant/validation_helpers/uniqueness
 pub import grant/validation_helpers/length
@@ -153,6 +154,10 @@ pub abstract class Base
     def self.apply_default_scope(query : ::Grant::Query::Builder::Builder(Model)) forall Model
       query.{{block.body}}
     end
+  end
+
+  macro attr_readonly(*fields, **options)
+    ::Grant::Readonly.attr_readonly({{ fields.splat }}, {{ options.double_splat }})
   end
 
   macro normalizes(*attributes, **options, &block)
@@ -715,6 +720,8 @@ pub abstract class Base
     ::Grant::Normalization.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
+    ::Grant::Readonly.model_methods({{ @type }})
+    ::Grant::Transactions.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
@@ -944,6 +951,7 @@ pub abstract class Base
       assignments = touch_fields.map { |field| "#{::Grant::Base.quote_identifier(field)} = ?" }.join(", ")
       touch_values << __primary_value
       __adapter.execute("UPDATE #{::Grant::Base.quote_identifier(__table_name)} SET #{assignments} WHERE #{::Grant::Base.quote_identifier(__primary_name)} = ?", touch_values)!
+      clear_dirty_tracking_for(touch_fields)
       self.after_touch!
       true
       \{% end %}
@@ -1742,13 +1750,13 @@ pub abstract class Base
             capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
           {% else %}
             {% if column.annotation(::Grant::Base::Column)[:guarded] %}
-              result = (self.{{ column.name }} = value.as?({{ type.id }}))
+              result = (self.{{ column.name }} = value.as?({{ column.type }}))
               if result.is_a?(::Grant::Encryption::Sealed::ArgumentError)
                 errors.clear_conversion_error({{ column.name.symbolize }})
                 errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, result.message)
               end
             {% else %}
-              self.{{ column.name }} = value.as?({{ type.id }})
+              self.{{ column.name }} = value.as?({{ column.type }})
             {% end %}
           {% end %}
         end
