@@ -7,6 +7,16 @@ pub class Config
   @@verbose_logging : Bool = false
   @@operation_observer : Proc(String, Nil)? = nil
 
+  @@support_unencrypted_data : Bool = false
+
+  def self.support_unencrypted_data : Bool
+    @@support_unencrypted_data
+  end
+
+  def self.support_unencrypted_data=(value : Bool) : Bool
+    @@support_unencrypted_data = value
+  end
+
   def self.verbose_logging : Bool
     @@verbose_logging
   end

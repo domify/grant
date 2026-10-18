@@ -105,6 +105,10 @@ pub class PredicateRenderer
     end
     column = parts.last
     qualifier = parts.size == 2 ? parts.first : nil
+    if qualifier.nil? || qualifier == @table_name
+      attribute = EncryptedAttributeRegistry.lookup(@model_name, column)
+      column = attribute.column_name if attribute
+    end
     valid_column = if qualifier.nil? || qualifier == @table_name
                      @fields.includes?(column)
                    elsif JoinSupport.joins?(@join_clauses, qualifier)

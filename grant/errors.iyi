@@ -1,6 +1,7 @@
 module grant/errors
 
 import std/indexable
+import std/json
 
 # Crystal Grant raises these; native iyi returns them as union members.
 
@@ -112,7 +113,7 @@ end
 pub class Errors
   @errors = [] of ::Grant::Error::Error
 
-  def add(field : String | Symbol, message : String) : self
+  def add(field : String | Symbol, message : String = "") : self
     self << ::Grant::Error::Error.new(field, message)
   end
 
@@ -146,7 +147,7 @@ pub class Errors
   end
 
   def full_messages : Array(String)
-    @errors.map { |error| error.message }
+    @errors.map { |error| error.full_message }
   end
 
   def any?(error_type : E.class) : Bool forall E
@@ -155,6 +156,98 @@ pub class Errors
 
   def conversion_errors? : Bool
     @errors.any? { |error| error.is_a?(::Grant::Error::ConversionError) }
+  end
+
+  def [](field : String | Symbol) : Array(String)
+    where(field).map { |error| error.message }
+  end
+
+  def where(field : String | Symbol) : Array(::Grant::Error::Error)
+    @errors.select { |error| error.field.to_s == field.to_s }
+  end
+
+  def of_type(field : String | Symbol, message : String) : Bool
+    where(field).any? { |error| error.message == message }
+  end
+
+  def include?(field : String | Symbol) : Bool
+    !where(field).empty?
+  end
+
+  def full_messages_for(field : String | Symbol) : Array(String)
+    where(field).map { |error| error.full_message }
+  end
+
+  def group_by_attribute : Hash(String, Array(::Grant::Error::Error))
+    result = {} of String => Array(::Grant::Error::Error)
+    @errors.each do |error|
+      key = error.field.to_s
+      result[key] = [] of ::Grant::Error::Error unless result.has_key?(key)
+      result[key] << error
+    end
+    result
+  end
+
+  def attribute_names : Array(String)
+    group_by_attribute.keys
+  end
+
+  def any? : Bool
+    !empty?
+  end
+
+  def count : Int32
+    size
+  end
+
+  def last : ::Grant::Error::Error
+    @errors.last
+  end
+
+  def last? : ::Grant::Error::Error?
+    @errors.last?
+  end
+
+  def to_a : Array(::Grant::Error::Error)
+    @errors.dup
+  end
+
+  def each(&block : ::Grant::Error::Error -> T) : Nil forall T
+    @errors.each { |error| yield error }
+    nil
+  end
+
+  def select(&block : ::Grant::Error::Error -> Bool) : Array(::Grant::Error::Error)
+    @errors.select { |error| yield error }
+  end
+
+  def to_hash : Hash(String, Array(String))
+    result = {} of String => Array(String)
+    attribute_names.each { |name| result[name] = self[name] }
+    result
+  end
+
+  def merge_in_place(other : Errors) : self
+    other.to_a.each do |error|
+      self << ::Grant::Error::Error.new(error.field, error.message, error.type)
+    end
+    self
+  end
+
+  def to_json : String
+    fields = {} of String => ::Std::Json::Any
+    to_hash.each do |key, messages|
+      fields[key] = ::Std::Json::Any.new(messages.map { |message| ::Std::Json::Any.new(message) })
+    end
+    ::Std::Json::Any.new(fields).to_json
+  end
+
+  def to_json_list : String
+    "[" + @errors.map { |error| error.to_json }.join(",") + "]"
+  end
+
+  def to_s : String
+    full_messages.join(", ")
   end
 
   def clear_validations : Nil

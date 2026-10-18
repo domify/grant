@@ -6,6 +6,7 @@ pub import std/time
 pub import grant/timestamps
 pub import grant/query/builder
 pub import grant/scoping
+import grant/aggregations
 pub import grant/querying
 pub import grant/associations
 import grant/dependent
@@ -28,6 +29,7 @@ pub import grant/validators
 pub import grant/callbacks
 pub import grant/secure_token
 pub import grant/transactions
+pub import grant/query/scoped_relation
 pub import grant/query/finders
 pub import grant/integrators
 pub import grant/encryption
@@ -36,6 +38,7 @@ pub import grant/locking/pessimistic
 pub import grant/adapter/sqlite
 pub import grant/adapter/base
 import grant/adapter/driver::{Connection, Value, Row}
+pub import grant/connection_handling
 pub import grant/connection_management
 pub import grant/connection_pool
 pub import grant/connection
@@ -129,10 +132,19 @@ pub abstract class Base
     ::Grant::Validators.model_methods({{ @type }})
     @@table_name : String = {{ @type.name.split("::").last.underscore }}
     @@connection_name : String = "sqlite"
+    @@own_default_database_name : String? = nil
+    @@abstract_class : Bool = false
+    @@implicit_order_columns : Array(String) = [] of String
     @@own_connection_config : Hash(Symbol, String)? = nil
+    @@own_shard_config : Hash(Symbol, Hash(Symbol, String))? = nil
 
     macro finished
-      __process_columns
+      \{% if @type.abstract? %}
+        ::Grant::ConnectionHandling.model_methods(\{{ @type }})
+        ::Grant::ConnectionManagement.model_methods(\{{ @type }})
+      \{% else %}
+        __process_columns
+      \{% end %}
     end
   end
 
@@ -142,6 +154,10 @@ pub abstract class Base
 
   def self.apply_default_scope(query : ::Grant::Query::Builder::Builder(Model)) forall Model
     query
+  end
+
+  macro scope(name, body)
+    ::Grant::Scoping.scope({{ name }}, {{ body }})
   end
 
   macro default_scope(&block)
@@ -180,23 +196,50 @@ pub abstract class Base
     assign_attributes(args)
   end
 
+  macro implicit_order_column(*columns)
+    @@implicit_order_columns = [{% for column in columns %}{{ column.id.stringify }}, {% end %}] of String
+  end
+
   macro table(name)
     @@table_name = {{ name.is_a?(StringLiteral) ? name : name.id.stringify }}
   end
 
   macro connection(name)
     @@connection_name = {{ name.id.stringify }}
+    @@own_default_database_name = {{ name.id.stringify }}
+  end
+
+  macro abstract_class
+    @@abstract_class = true
+  end
+
+  macro primary_abstract_class
+    @@abstract_class = true
+    ::Grant::ConnectionHandling::ConnectionHandling.primary_abstract_class_name = {{ @type.stringify }}
   end
 
   macro connects_to(database = nil, config = nil, shards = nil)
-    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database || "primary" }}, config: {{ config }})]
+    {% config = database if !config && database.is_a?(NamedTupleLiteral) %}
+    @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database || "primary" }}, config: {{ config }}, shards: {{ shards }})]
     def __connection_declaration
       nil
     end
+    ::Grant::ConnectionHandling::ConnectionHandling.declare({{ @type.stringify }},
+      -> { self.connection_names })
+    {% if database && database.is_a?(NamedTupleLiteral) %}
+      @@connection_name = {{ database[:writing] || database.values.first }}
+      @@own_default_database_name = @@connection_name
+    {% end %}
     {% if database && !database.is_a?(NamedTupleLiteral) %}
       @@connection_name = {{ database }}
+      @@own_default_database_name = @@connection_name
     {% end %}
     {% if config %}
+      @@own_connection_config = {
+        {% for role, name in config %}
+          {{ role.symbolize }} => {{ name }},
+        {% end %}
+      } of Symbol => String
       def self.connection_config : Hash(Symbol, String)
         @@own_connection_config ||= {
           {% for role, name in config %}
@@ -205,7 +248,17 @@ pub abstract class Base
         } of Symbol => String
       end
     {% end %}
+    @@own_shard_config = {} of Symbol => Hash(Symbol, String)
     {% if shards %}
+      @@own_shard_config = {
+        {% for shard, roles in shards %}
+          {{ shard.symbolize }} => {
+            {% for role, name in roles %}
+              {{ role.symbolize }} => {{ name }},
+            {% end %}
+          } of Symbol => String,
+        {% end %}
+      } of Symbol => Hash(Symbol, String)
       def self.shard_config : Hash(Symbol, Hash(Symbol, String))
         {
           {% for shard, roles in shards %}
@@ -223,7 +276,7 @@ pub abstract class Base
   macro column(decl, **options)
     ::Grant::Columns.dirty_column_methods({{ decl }})
     @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, default_sql: {{ options[:default_sql] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
-    @{{decl.var}} : {{decl.type}} | Nil = {{ decl.value || nil }}
+    @{{decl.var}} : {{decl.type}} | Nil = {% if decl.value.is_a?(BoolLiteral) %}{{ decl.value }}{% else %}{{ decl.value || nil }}{% end %}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
     {% if options[:lazy] %}
@@ -299,6 +352,14 @@ pub abstract class Base
       nil
     end
 
+    {% if options[:converter] %}
+      # Converter lookup from the model's scope, for Base methods that loop over columns.
+      def self.__converter_from_db_{{decl.var}}(value : V) forall V
+        return value if value.is_a?({{ decl.type }}?)
+        {{ options[:converter] }}.from_db(value)
+      end
+    {% end %}
+
     def {{decl.var}}_changed? : Bool
       return false if @{{decl.var}} == @__persisted_{{decl.var}}
       {% if options[:encrypted] %}
@@ -318,7 +379,12 @@ pub abstract class Base
         ::Grant::Encryption::Sealed.guard_plaintext_strict({{ decl.var.stringify }}, value)!
       {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
-      @{{decl.var}} = value
+      discard_before_type_cast({{ decl.var.stringify }})
+      {% if options[:downcase] %}
+        @{{decl.var}} = value.nil? ? nil : value.downcase
+      {% else %}
+        @{{decl.var}} = value
+      {% end %}
       {% if options[:original] %}
         {% if options[:guarded] %}
           (self.{{options[:original].id}} = value)!
@@ -709,6 +775,7 @@ pub abstract class Base
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
     ::Grant::Dependent.model_methods({{ @type }})
+    ::Grant::ConnectionHandling.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
@@ -718,6 +785,8 @@ pub abstract class Base
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
+    ::Grant::Aggregations.model_methods({{ @type }})
+    ::Grant::Query::Grouping.model_methods({{ @type }})
     ::Grant::Dirty.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
@@ -1243,7 +1312,7 @@ pub abstract class Base
       scoped = ::Grant::Scoping.current_relation(self)
       return scoped unless scoped.nil?
       query = ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
-      !_unscoped? && _has_default_scope? ? apply_default_scope(query) : query
+      !_unscoped? && _has_default_scope? ? apply_default_scope(query).promote_where_to_default_scope : query
     end
 
     def self.scoping(relation : ::Grant::Query::Builder::Builder({{ @type }}), &block : -> T) : T forall T
@@ -1284,6 +1353,10 @@ pub abstract class Base
 
     def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})
       current_scope.where(**args)
+    end
+
+    def self.where(matches : Hash(K, V)) : ::Grant::Query::Builder::Builder({{ @type }}) forall K, V
+      current_scope.where(matches)
     end
 
     def self.order(field : Symbol | String) : ::Grant::Query::Builder::Builder({{ @type }})
@@ -1350,7 +1423,7 @@ pub abstract class Base
     # The columns finders order by before the primary key; empty unless the
     # model declares an implicit order column.
     def self.implicit_order_columns : Array(String)
-      [] of String
+      @@implicit_order_columns
     end
 
     def self.find_by(**args) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
@@ -1403,9 +1476,7 @@ pub abstract class Base
     end
 
     def self.first : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
-      rows = __connection.query("SELECT #{select_fields_sql} FROM #{::Grant::Base.quote_identifier(table_name)} ORDER BY #{::Grant::Base.quote_identifier(primary_name)} ASC LIMIT 1")!
-      row = rows.empty? ? nil : rows[0]
-      row.nil? ? nil : from_row(row)
+      current_scope.first
     end
 
     def self.first_strict : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
@@ -1678,7 +1749,16 @@ pub abstract class Base
             {% else %}
               self.{{ key.id }} = converted
             {% end %}
+            capture_before_type_cast({{ key.stringify }}, value)
           end
+        else
+          self.{{ key.id }} = value
+        end
+      {% elsif column && column.annotation(::Grant::Base::Column)[:type].includes?("Bool") %}
+        value = args[{{ original_key.symbolize }}]
+        if value.is_a?(String)
+          self.{{ key.id }} = value == "true" || value == "1"
+          capture_before_type_cast({{ key.stringify }}, value)
         else
           self.{{ key.id }} = value
         end
@@ -1695,6 +1775,7 @@ pub abstract class Base
       {% end %}
       {% end %}
     {% end %}
+    self
   end
 
   def assign_attributes(args : Hash(K, V)) forall K, V
@@ -1705,26 +1786,52 @@ pub abstract class Base
     end
     {% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
       args.each do |key, value|
-        if key.to_s == {{ column.name.stringify }}
+        if self.class.resolve_attribute_alias(key.to_s) == {{ column.name.stringify }}
           {% type = column.annotation(::Grant::Base::Column)[:type] %}
-          {% if type.includes?("Int32") %}
-            self.{{ column.name }} = value.is_a?(Int) ? value.to_i32 : nil
+          {% if column.annotation(::Grant::Base::Column)[:converter] && !column.annotation(::Grant::Base::Column)[:encrypted] %}
+            from_db = self.class.__converter_from_db_{{ column.name }}(value)
+            return from_db if from_db.is_a?(::Error)
+            self.{{ column.name }} = from_db
+          {% elsif type.includes?("Int32") %}
+            converted = value.is_a?(String) ? value.to_i64? : (value.is_a?(Int) ? value.to_i64 : nil)
+            if value.nil?
+              self.{{ column.name }} = nil
+            elsif converted.nil?
+              errors.clear_conversion_error({{ column.name.symbolize }})
+              errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, "Expected integer")
+            else
+              self.{{ column.name }} = converted.to_i32
+              capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
+            end
           {% elsif type.includes?("Int64") %}
-            self.{{ column.name }} = value.is_a?(Int) ? value.to_i64 : nil
+            converted = value.is_a?(String) ? value.to_i64? : (value.is_a?(Int) ? value.to_i64 : nil)
+            if value.nil?
+              self.{{ column.name }} = nil
+            elsif converted.nil?
+              errors.clear_conversion_error({{ column.name.symbolize }})
+              errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, "Expected integer")
+            else
+              self.{{ column.name }} = converted
+              capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
+            end
+          {% elsif type.includes?("Bool") %}
+            self.{{ column.name }} = value.is_a?(Bool) ? value : (value.is_a?(String) ? (value == "true" || value == "1") : nil)
+            capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
           {% else %}
             {% if column.annotation(::Grant::Base::Column)[:guarded] %}
-              result = (self.{{ column.name }} = value.is_a?(String) ? value : nil)
+              result = (self.{{ column.name }} = value.as?({{ type.id }}))
               if result.is_a?(::Grant::Encryption::Sealed::ArgumentError)
                 errors.clear_conversion_error({{ column.name.symbolize }})
                 errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, result.message)
               end
             {% else %}
-              self.{{ column.name }} = value.is_a?(String) ? value : nil
+              self.{{ column.name }} = value.as?({{ type.id }})
             {% end %}
           {% end %}
         end
       end
     {% end %}
+    self
   end
 
   abstract def __primary_name : String
