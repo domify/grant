@@ -1063,7 +1063,7 @@
   target: test/grant_query_extract_associated_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/find_each_spec.cr
   target: test/grant_query_find_each_test.iyi
   area: query

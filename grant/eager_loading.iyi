@@ -24,6 +24,17 @@ pub macro model_methods(model)
               record.set_loaded_association(name, matches)
             end
           end
+        {% elsif ann && ann[:type] == :belongs_to %}
+          if name == {{ method.name.stringify }}
+            found = true
+            keys = records.map { |record| record.read_attribute({{ ann[:foreign_key].id.stringify }})! }.reject { |key| key.nil? }.uniq
+            targets = {{ ann[:target] }}.where({{ ann[:primary_key].id.stringify }}, :in, keys).select!
+            records.each do |record|
+              key = record.read_attribute({{ ann[:foreign_key].id.stringify }})!
+              matches = targets.select { |target| target.read_attribute({{ ann[:primary_key].id.stringify }}).or_panic == key }
+              record.set_loaded_association(name, matches)
+            end
+          end
         {% end %}
       {% end %}
       return ::Grant::Error::ArgumentError.new("Unknown association: #{name}") unless found

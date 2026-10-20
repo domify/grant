@@ -78,3 +78,5 @@ end
 pub def adapter_for_scheme(scheme : String) : ::Grant::Adapter::Registry::Registry::AdapterClass | ::Grant::Adapter::Registry::UnknownAdapterError
   ::Grant::Adapter::Registry::Registry.for_scheme(scheme)
 end
+
+pub import grant/query/extract_associated

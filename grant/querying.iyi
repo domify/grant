@@ -20,6 +20,13 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.extract_associated(association : Symbol) : Array(::Grant::Base::Base) | ::Grant::Error::ErrorBase
+    current_scope.extract_associated(association)
+  end
+
+  def self.extract_associated(association : Symbol, as type : T.class) : Array(T) | ::Grant::Error::ErrorBase forall T
+    current_scope.extract_associated(association, as: type)
+  end
   def self.order(field : Symbol | String, direction : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
     current_scope.order(field, direction)
   end
