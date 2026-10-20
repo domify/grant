@@ -1194,6 +1194,13 @@ pub abstract class Base
       fields.map { |field| "#{::Grant::Base.quote_identifier(table_name)}.#{::Grant::Base.quote_identifier(field)}" }.join(", ")
     end
 
+    def self.__fixture_uuid_key? : Bool
+      \{% begin %}
+      \{% primary = @type.instance_vars.find { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:primary] } %}
+      \{{ primary.type.stringify.includes?("UUID") }}
+      \{% end %}
+    end
+
     def self.primary_name : String
       \{% begin %}
     \{% columns = @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}

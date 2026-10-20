@@ -435,7 +435,7 @@
   target: test/grant_test_fixtures_test.iyi
   area: transactions
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/transaction/after_all_commit_spec.cr
   target: test/grant_transaction_after_all_commit_test.iyi
   area: transactions
