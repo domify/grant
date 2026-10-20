@@ -2,9 +2,48 @@ module grant/validators
 
 import std/regex::{Regex}
 import std/text
+import grant/error
 pub import grant/validators/uniqueness
 pub import grant/validators/numericality
 pub import grant/validators/built_in
+
+pub abstract class Validator
+  @validator_options : ::Grant::Error::Options? = nil
+
+  def initialize(**options)
+    @validator_options = ::Grant::Error.options_from(options)
+  end
+
+  def options : ::Grant::Error::Options
+    @validator_options ||= ::Grant::Error::Options.new
+  end
+
+  def __assign_options(options : ::Grant::Error::Options) : Nil
+    @validator_options = options
+    nil
+  end
+
+  abstract def validate(record) : Nil
+end
+
+pub abstract class EachValidator < Validator
+  getter attributes : Array(String)
+
+  def initialize
+    @attributes = [] of String
+  end
+
+  def initialize(*attributes : String | Symbol)
+    @attributes = attributes.map(&.to_s).to_a
+  end
+
+  def validate(record) : Nil
+    @attributes.each { |attribute| validate_each(record, attribute, record.read_attribute(attribute)) }
+    nil
+  end
+
+  abstract def validate_each(record, attribute, value) : Nil
+end
 
 pub def blank?(value : T) : Bool forall T
   if value.is_a?(Nil)
@@ -46,6 +85,47 @@ pub macro model_methods(model)
   end
 
 
+  def invalid?(context : Symbol | Array(Symbol) | Nil = nil) : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
+    !valid?(context)!
+  end
+
+  macro validate(method, *, on, **options)
+    def __validate_method_\{{ @type.methods.size }} : Nil
+      __validation_rule_options(:base, nil, on: \{{ on }}, \{{ options.double_splat }})
+      self.\{{ method.id }}
+      nil
+    end
+  end
+
+  macro validates_with(validator_class, *args, **options)
+    def __validate_with_\{{ @type.methods.size }} : Nil
+      __validation_rule_options(:base, nil, \{{ options.double_splat }})
+      validator = \{{ validator_class }}.new(\{% for arg in args %}\{{ arg }}, \{% end %}\{% for key in options.keys.reject { |key| ["on", "if", "unless", "strict"].includes?(key.stringify) } %}\{{ key.id }}: \{{ options[key] }}, \{% end %})
+      validator.validate(self)
+      nil
+    end
+  end
+
+  macro validates_each(*attributes, **options, &block)
+    \{% for attribute in attributes %}
+      def __validate_each_\{{ @type.methods.size }}_\{{ attribute.id }} : Nil
+        value = self.\{{ attribute.id }}
+        __validation_rule_options(\{{ attribute }}, value, \{{ options.double_splat }})
+        \{% if options[:with] %}
+          \{{ options[:with] }}.new.validate_each(self, \{{ attribute.id.stringify }}, value)
+        \{% else %}
+          \{% if block.args.size > 0 %}\{{ block.args[0].id }} = self\{% end %}
+          \{% if block.args.size > 1 %}\{{ block.args[1].id }} = \{{ attribute }}\{% end %}
+          \{% if block.args.size > 2 %}\{{ block.args[2].id }} = value\{% end %}
+          1.times do
+            \{{ block.body }}
+          end
+        \{% end %}
+        nil
+      end
+    \{% end %}
+  end
+
   macro validate(field, message, predicate, context = :save)
     def __validate_proc_\{{ @type.methods.size }} : Nil
       contexts = \{{ context }}
@@ -61,10 +141,18 @@ pub macro model_methods(model)
 
   macro __validation_rule_options(field, rule_value, **options)
     \{% if options[:if] %}
-      return nil unless self.\{{ options[:if].id }}
+      \{% if options[:if].is_a?(SymbolLiteral) %}
+        return nil unless self.\{{ options[:if].id }}
+      \{% else %}
+        return nil unless (\{{ options[:if] }}).call(self)
+      \{% end %}
     \{% end %}
     \{% if options[:unless] %}
-      return nil if self.\{{ options[:unless].id }}
+      \{% if options[:unless].is_a?(SymbolLiteral) %}
+        return nil if self.\{{ options[:unless].id }}
+      \{% else %}
+        return nil if (\{{ options[:unless] }}).call(self)
+      \{% end %}
     \{% end %}
     \{% if options[:on] %}
       contexts = \{{ options[:on] }}
@@ -98,10 +186,18 @@ pub macro model_methods(model)
     \{% for field in fields %}
       def __validate_presence_\{{ field.id }} : Nil
         \{% if options[:if] %}
-          return nil unless self.\{{ options[:if].id }}
+          \{% if options[:if].is_a?(SymbolLiteral) %}
+        return nil unless self.\{{ options[:if].id }}
+      \{% else %}
+        return nil unless (\{{ options[:if] }}).call(self)
+      \{% end %}
         \{% end %}
         \{% if options[:unless] %}
-          return nil if self.\{{ options[:unless].id }}
+          \{% if options[:unless].is_a?(SymbolLiteral) %}
+        return nil if self.\{{ options[:unless].id }}
+      \{% else %}
+        return nil if (\{{ options[:unless] }}).call(self)
+      \{% end %}
         \{% end %}
         \{% if options[:on] %}
           contexts = \{{ options[:on] }}
@@ -311,7 +407,7 @@ pub macro model_methods(model)
             elsif !(value \{{ comparison[:op].id }} bound)
               errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
                 \{% if options[:message] %}\{{ options[:message] }}\{% else %}"must be \{{ comparison[:text].id }} #{bound}"\{% end %},
-                \{{ comparison[:key] }})
+                \{{ comparison[:key] }}, options: {:count => ::Grant::Error.value(bound), :value => ::Grant::Error.value(value)} of Symbol => ::Grant::Error::Value)
             end
           \{% end %}
         \{% end %}
