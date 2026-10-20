@@ -555,7 +555,7 @@
   target: test/grant_associations_w6_collection_finders_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/associations/w6_collection_relation_spec.cr
   target: test/grant_associations_w6_collection_relation_test.iyi
   area: query

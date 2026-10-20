@@ -1,6 +1,7 @@
 module grant/association_collection
 
 import grant/query/builder::{Builder}
+import grant/associations/collection_finders::{CollectionFinders}
 import grant/error::{ErrorBase}
 import grant/querying::{NotFound}
 import grant/associations/through::{OwnerNotSaved}
@@ -18,6 +19,26 @@ pub class AssociationCollection(Owner, Target)
                  @loaded_records : Array(Target)? = nil,
                  @relation_scope : Proc(Builder(Target), Builder(Target))? = nil,
                  @through_condition : String? = nil)
+  end
+
+  private def memory_records : Array(Target)?
+    @loaded_records
+  end
+
+  private def set_inverse(record : Target) : Target
+    inverse = @inverse_of
+    record.set_loaded_association(inverse.to_s, [@owner]) unless inverse.nil?
+    record
+  end
+
+  private def adopt(record : Target?) : Target?
+    set_inverse(record) unless record.nil?
+    record
+  end
+
+  private def adopt(records : Array(Target)) : Array(Target)
+    records.each { |record| set_inverse(record) }
+    records
   end
 
   def loaded? : Bool
@@ -65,16 +86,6 @@ pub class AssociationCollection(Owner, Target)
     args.to_h.each { |key, value| parts << "#{key} = #{value}" }
     description = parts.join(" and ")
     ::Grant::Querying::NotFound.new("No #{Target} found where #{description}")
-  end
-
-  def find(id : V) : Target | Nil | ErrorBase forall V
-    association_relation.where(Target.primary_name, :eq, id).first
-  end
-
-  def find_strict(id : V) : Target | ErrorBase forall V
-    record = find(id)!
-    return record unless record.nil?
-    ::Grant::Querying::NotFound.new("No #{Target} found where #{Target.primary_name} = #{id}")
   end
 
   def to_a : Array(Target) | ErrorBase
@@ -248,4 +259,7 @@ pub class AssociationCollection(Owner, Target)
     loaded.clear unless loaded.nil?
     records
   end
+end
+
+impl CollectionFinders(Owner, Target) for AssociationCollection(Owner, Target) forall Owner, Target
 end
