@@ -35,6 +35,45 @@ pub macro model_methods(model)
     pending
   end
 
+  def changes_to_save : Hash(String, Tuple(SavedValue, SavedValue))
+    changes
+  end
+
+  def changed_attribute_names_to_save : Array(String)
+    changed
+  end
+
+  def attribute_change_to_be_saved(name : String | Symbol) : Tuple(SavedValue, SavedValue)?
+    changes[name.to_s]?
+  end
+
+  def attributes_in_database : Hash(String, SavedValue)
+    result = {} of String => SavedValue
+    changes.each { |name, change| result[name] = change[0] }
+    result
+  end
+
+  def attribute_in_database(name : String | Symbol) : SavedValue
+    if change = attribute_change_to_be_saved(name)
+      change[0]
+    else
+      read_attribute(name.to_s).as(SavedValue)
+    end
+  end
+
+  {% for method in model.resolve.methods.select { |method| method.name.starts_with?("__raw_") && !method.name.ends_with?("=") } %}
+    {% name = method.name[6..-1] %}
+    def {{ name.id }}_in_database : {{ method.return_type }}?
+      attribute_in_database({{ name.stringify }}).as({{ method.return_type }}?)
+    end
+
+    def {{ name.id }}_change_to_be_saved : Tuple({{ method.return_type }}?, {{ method.return_type }}?)?
+      if change = attribute_change_to_be_saved({{ name.stringify }})
+        {change[0].as({{ method.return_type }}?), change[1].as({{ method.return_type }}?)}
+      end
+    end
+  {% end %}
+
   def clear_previous_changes : Nil
     @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
     nil

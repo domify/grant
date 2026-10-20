@@ -2357,7 +2357,7 @@
   target: test/grant_dirty_changes_to_save_test.iyi
   area: dirty_state
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/dirty/dirty_control_spec.cr
   target: test/grant_dirty_dirty_control_test.iyi
   area: dirty_state
