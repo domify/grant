@@ -2422,7 +2422,7 @@
   target: test/grant_persistence_direct_persistence_test.iyi
   area: dirty_state
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/dirty_tracking_api_spec.cr
   target: test/grant_persistence_dirty_tracking_api_test.iyi
   area: dirty_state
