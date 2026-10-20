@@ -1,5 +1,6 @@
 module grant/query/bind_value
 
+import std/big::{BigDecimal}
 import std/time::{Time}
 import grant/adapter/driver::{Value}
 import grant/query/where_field::{Bind}
@@ -51,5 +52,9 @@ pub def to_value(value : T) : Value forall T
 end
 
 pub def to_bind(value : ::Enum) : Bind
+  value.to_s
+end
+
+pub def to_bind(value : BigDecimal) : Bind
   value.to_s
 end

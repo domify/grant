@@ -26,7 +26,7 @@ pub enum Calculation
   end
 end
 
-pub alias CalculationResult = Value | Hash(Value, Value) | Hash(Array(Value), Value) | Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64)
+pub alias CalculationResult = BigDecimal | Value | Hash(Value, Value) | Hash(Array(Value), Value) | Int64 | Hash(Value, Int64) | Hash(Array(Value), Int64)
 
 # Structural SQLite slice of the upstream Builder reopening. Database values
 # stay integers for integer SUMs; AVG is returned by SQLite as Float64.
@@ -77,6 +77,11 @@ pub trait Aggregations(Model)
     rows = aggregate_rows("SUM", column.to_s)!
     if group_fields.empty?
       value = rows.first[1]
+      {% if Model.instance_vars.any? { |v| v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:type].includes?("BigDecimal") } %}
+        if (Model.type_for_attribute(column) || "").includes?("BigDecimal")
+          return BigDecimal.new(value.nil? ? "0" : value.to_s)
+        end
+      {% end %}
       value.nil? ? 0_i64 : value
     else
       grouped_values(rows, Value) { |value| value.nil? ? 0_i64 : value }

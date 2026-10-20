@@ -4,9 +4,10 @@ pub import grant/error
 pub import std/time
 pub import std/json
 pub import std/yaml
+pub import std/big
 
 # Scalar column values retain their model types at the reflective boundary.
-pub alias Type = Nil | String | Int32 | Int64 | Float32 | Float64 | Bool | ::Std::Time::Time
+pub alias Type = ::Std::Big::BigDecimal | Nil | String | Int32 | Int64 | Float32 | Float64 | Bool | ::Std::Time::Time
 
 # Grant::DATETIME_FORMAT under the native UTC settings implementation.
 pub def datetime_text(value : ::Std::Time::Time) : String
@@ -50,6 +51,7 @@ pub macro model_methods(model)
                    when ::Std::Time::Time then value.to_rfc3339(6)
                    when Int32 then value.to_i64
                    when Float32 then value.to_f64
+                   when ::Std::Big::BigDecimal then value.to_s
                    else value
                    end
       values[name] = ::Std::Json::Any.new(normalized)
@@ -66,6 +68,7 @@ pub macro model_methods(model)
                    when ::Std::Time::Time then value.to_rfc3339(6)
                    when Int32 then value.to_i64
                    when Float32 then value.to_f64
+                   when ::Std::Big::BigDecimal then value.to_s
                    else value
                    end
       values[::Std::Yaml::Any.new(name)] = ::Std::Yaml::Any.new(normalized)
@@ -134,4 +137,9 @@ pub macro dirty_column_methods(decl)
     (from.is_a?(::Grant::Dirty::Unfiltered) || @__persisted_{{ decl.var }} == from) &&
       (to.is_a?(::Grant::Dirty::Unfiltered) || @{{ decl.var }} == to)
   end
+end
+
+# All adapters round decimal columns at the assignment boundary.
+pub def decimal_at_scale(value : ::Std::Big::BigDecimal, scale : Int32) : ::Std::Big::BigDecimal
+  value.div(::Std::Big::BigDecimal.new(1), scale)
 end

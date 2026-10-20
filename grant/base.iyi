@@ -327,8 +327,9 @@ pub abstract class Base
   end
 
   macro column(decl, **options)
+    {% converter = options[:converter] || (decl.type.stringify.includes?("BigDecimal") ? "::Grant::Converters::Decimal".id : nil) %}
     ::Grant::Columns.dirty_column_methods({{ decl }})
-    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ options[:converter] }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, default_sql: {{ options[:default_sql] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
+    @[::Grant::Base::Column(primary: {{ options[:primary] || false }}, type: {{ decl.type.stringify }}, auto: {{ options[:auto] == nil ? (decl.type.stringify.includes?("Int") || decl.type.stringify.includes?("UUID")) : options[:auto] }}, converter: {{ converter }}, column_type: {{ options[:column_type] }}, literal_default: {% if decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) %} {{ decl.value }} {% else %} nil {% end %}, has_literal_default: {{ decl.value.is_a?(StringLiteral) || decl.value.is_a?(NumberLiteral) || decl.value.is_a?(BoolLiteral) || decl.value.is_a?(NilLiteral) }}, limit: {{ options[:limit] }}, precision: {{ options[:precision] }}, scale: {{ options[:scale] }}, null: {{ options[:null] }}, collation: {{ options[:collation] }}, comment: {{ options[:comment] }}, default_sql: {{ options[:default_sql] }}, guarded: {{ options[:guarded] || false }}, lazy: {{ options[:lazy] || false }}, encrypted: {{ options[:encrypted] || false }})]
     @{{decl.var}} : {{decl.type}} | Nil = {% if decl.value.is_a?(BoolLiteral) %}{{ decl.value }}{% else %}{{ decl.value || nil }}{% end %}
     @__persisted_{{decl.var}} : {{decl.type}} | Nil = nil
 
@@ -405,11 +406,11 @@ pub abstract class Base
       nil
     end
 
-    {% if options[:converter] %}
+    {% if converter %}
       # Converter lookup from the model's scope, for Base methods that loop over columns.
       def self.__converter_from_db_{{decl.var}}(value : V) forall V
         return value if value.is_a?({{ decl.type }}?)
-        {{ options[:converter] }}.from_db(value)
+        {{ converter }}.from_db(value)
       end
     {% end %}
 
@@ -418,8 +419,8 @@ pub abstract class Base
       {% if options[:encrypted] %}
         # The Symbol/database reader in the upstream setter compares stored
         # values. A deterministic assignment can equal a sealed baseline.
-        current = {{ options[:converter] }}.to_db(@{{decl.var}})
-        baseline = {{ options[:converter] }}.to_db(@__persisted_{{decl.var}})
+        current = {{ converter }}.to_db(@{{decl.var}})
+        baseline = {{ converter }}.to_db(@__persisted_{{decl.var}})
         return true if current.is_a?(::Error) || baseline.is_a?(::Error)
         current != baseline
       {% else %}
@@ -438,6 +439,9 @@ pub abstract class Base
       errors.clear_conversion_error({{ decl.var.symbolize }})
       discard_before_type_cast({{ decl.var.stringify }})
       normalized = self.class.normalize_value_for({{ decl.var.symbolize }}, value).as({{ decl.type }} | Nil)
+      {% if decl.type.stringify.includes?("BigDecimal") && options[:scale] %}
+        normalized = normalized.nil? ? nil : ::Grant::Columns.decimal_at_scale(normalized, {{ options[:scale] }})
+      {% end %}
       {% if options[:downcase] %}
         @{{decl.var}} = normalized.nil? ? nil : normalized.downcase
       {% else %}
@@ -1285,6 +1289,10 @@ pub abstract class Base
         %raw = row[\{{ v.name.stringify }}]?
         \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
           record.__load_\{{ v.name }}(%raw.is_a?(String) ? %raw : nil)
+        \{% elsif type.includes?("BigDecimal") %}
+          %converted = ::Grant::Converters::Decimal.from_db(%raw)
+          return %converted if %converted.is_a?(::Error)
+          record.__raw_\{{ v.name }} = %converted
         \{% elsif v.annotation(::Grant::Base::Column)[:converter] %}
           \{% key = v.type.union_types.find { |type| type != Nil } %}
           \{% if key < ::Enum %}
@@ -1856,6 +1864,9 @@ pub abstract class Base
         else
           self.{{ key.id }} = value
         end
+      {% elsif column && column.annotation(::Grant::Base::Column)[:type].includes?("BigDecimal") %}
+        value = args[{{ original_key.symbolize }}]
+        self.{{ key.id }} = value.is_a?(String) ? ::Std::Big::BigDecimal.new(value) : value
       {% elsif column && column.annotation(::Grant::Base::Column)[:type].includes?("Bool") %}
         value = args[{{ original_key.symbolize }}]
         if value.is_a?(String)
@@ -1916,6 +1927,8 @@ pub abstract class Base
               self.{{ column.name }} = converted
               capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
             end
+          {% elsif type.includes?("BigDecimal") %}
+            self.{{ column.name }} = value.nil? ? nil : ::Std::Big::BigDecimal.new(value.to_s)
           {% elsif type.includes?("Bool") %}
             self.{{ column.name }} = value.is_a?(Bool) ? value : (value.is_a?(String) ? (value == "true" || value == "1") : nil)
             capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
@@ -2206,4 +2219,8 @@ impl ::Grant::Error::ErrorRecord for Base
   def __error_model_name : String
     self.class.to_s
   end
+end
+
+pub def sqlite_value(value : ::Std::Big::BigDecimal) : Value
+  value.to_s
 end

@@ -650,7 +650,7 @@
   target: test/grant_columns_w6b_bigdecimal_column_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/composite/find_where_spec.cr
   target: test/grant_composite_find_where_test.iyi
   area: query

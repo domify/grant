@@ -1,5 +1,6 @@
 module grant/converters
 
+pub import grant/converters/decimal
 import grant/columns
 import db/db/errors
 import pg/pg/numeric
@@ -98,3 +99,4 @@ pub struct PgNumeric
     value.as(::Pg::Numeric::Numeric).to_f
   end
 end
+

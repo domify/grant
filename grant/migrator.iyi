@@ -89,6 +89,9 @@ pub class Migrator
     explicit = spec.column_type
     return explicit unless explicit.nil?
     key = spec.base_type
+    if key == "BigDecimal" || key == "StdBigBigDecimal"
+      return spec.precision ? "NUMERIC(#{spec.precision}, #{spec.scale || 0})" : "NUMERIC"
+    end
     key = "UUID" if key == "StdUuidUUID"
     if @connection.postgres?
       arrays = {"Array(String)" => "TEXT[]", "Array(Int16)" => "SMALLINT[]", "Array(Int32)" => "INT[]", "Array(Int64)" => "BIGINT[]", "Array(Float32)" => "REAL[]", "Array(Float64)" => "DOUBLE PRECISION[]", "Array(Bool)" => "BOOLEAN[]"}

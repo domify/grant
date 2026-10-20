@@ -1381,6 +1381,11 @@ pub class Builder(Model)
       fields << "#{field[:field]} AS \"grant_group_#{index}\""
     end
     aggregate = "#{function}(#{column})"
+    {% if Model.class.has_method?(:type_for_attribute) %}
+      if function == "SUM" && (Model.type_for_attribute(column) || "").includes?("BigDecimal")
+        aggregate = "CAST(#{aggregate} AS TEXT)"
+      end
+    {% end %}
     aggregate = "CAST(#{aggregate} AS DOUBLE PRECISION)" if function == "AVG" && Model.adapter.postgres?
     fields << "#{aggregate} AS \"grant_aggregate\""
     sql = query_assembler.build_sql([
