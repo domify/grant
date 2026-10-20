@@ -2,6 +2,7 @@ module grant/association_collection
 
 import grant/query/builder::{Builder}
 import grant/associations/collection_finders::{CollectionFinders}
+import grant/associations/collection_relation::{CollectionRelation}
 import grant/error::{ErrorBase}
 import grant/querying::{NotFound}
 import grant/associations/through::{OwnerNotSaved}
@@ -262,4 +263,7 @@ pub class AssociationCollection(Owner, Target)
 end
 
 impl CollectionFinders(Owner, Target) for AssociationCollection(Owner, Target) forall Owner, Target
+end
+
+impl CollectionRelation(Owner, Target) for AssociationCollection(Owner, Target) forall Owner, Target
 end

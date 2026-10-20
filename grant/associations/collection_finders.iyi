@@ -8,9 +8,6 @@ import std/indexable
 import std/text
 
 pub trait CollectionFinders(Owner, Target)
-  def where(**matches) : ::Grant::Query::Builder::Builder(Target)
-    association_relation.where(**matches)
-  end
 
   {% for name in [:first, :last, :take] %}
     def {{ name.id }} : Target | Nil | ErrorBase

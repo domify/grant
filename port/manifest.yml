@@ -560,7 +560,7 @@
   target: test/grant_associations_w6_collection_relation_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/async_spec.cr
   target: test/grant_async_test.iyi
   area: query

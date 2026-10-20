@@ -1,6 +1,8 @@
 module grant/query/aggregations
 
 import grant/adapter/driver::{Value}
+import std/big::{BigDecimal}
+import std/text
 import grant/errors::{DatabaseError, ErrorBase}
 
 pub enum Calculation
@@ -79,6 +81,27 @@ pub trait Aggregations(Model)
     else
       grouped_values(rows, Value) { |value| value.nil? ? 0_i64 : value }
     end
+  end
+
+  def sum(column : Symbol | String, as numeric_type : T.class) : T | ErrorBase forall T
+    return ::Grant::Error::ArgumentError.new("sum(as:) returns one value; use sum(column) on a grouped relation") unless group_fields.empty?
+    value = sum(column)!
+    {% if T == Int64 %}
+      text = value.to_s
+      integer = text.to_i64?
+      return integer unless integer.nil?
+      decimal = BigDecimal.new(text)
+      whole = decimal.to_big_i
+      exact = whole.to_i64?
+      return ::Grant::Error::ArgumentError.new("#{text} does not fit Int64 exactly") if exact.nil? || decimal != BigDecimal.new(whole)
+      exact
+    {% elsif T == Float64 %}
+      value.to_s.to_f
+    {% elsif T == BigDecimal %}
+      BigDecimal.new(value.to_s)
+    {% else %}
+      {% raise "sum(as:) takes Int64, Float64 or BigDecimal, not #{T}" %}
+    {% end %}
   end
 
   def avg(column : Symbol | String)
