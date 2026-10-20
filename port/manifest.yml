@@ -860,7 +860,7 @@
   target: test/grant_enum_attributes_test.iyi
   area: query
   examples: 15
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/errors/errors_api_spec.cr
   target: test/grant_errors_errors_api_test.iyi
   area: query
