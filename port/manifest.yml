@@ -585,7 +585,7 @@
   target: test/grant_attributes_enum_options_test.iyi
   area: query
   examples: 15
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/introspection_spec.cr
   target: test/grant_attributes_introspection_test.iyi
   area: query

@@ -545,7 +545,12 @@ pub class Builder(Model)
   # Model normalization applies only to structured equality/list predicates.
   private def normalized_where_value(field : String, value : T) : T | ::Grant::Columns::Type forall T
     {% if Model.class.has_method?(:normalize_value_for) %}
-      Model.normalize_value_for(field, value)
+      normalized = Model.normalize_value_for(field, value)
+      {% if Model.class.has_method?(:coerce_enum_where) %}
+        Model.coerce_enum_where(field, normalized)
+      {% else %}
+        normalized
+      {% end %}
     {% else %}
       value
     {% end %}
