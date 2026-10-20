@@ -10,6 +10,8 @@ pub class UnsavedChangesLockError < ErrorBase
   end
 end
 
+pub alias UnsavedChangesError = UnsavedChangesLockError
+
 pub class TransactionRequiredError < ErrorBase
   def initialize(message = "Row locks need an open transaction; wrap the call in Model.transaction or use with_lock")
     super(message)
@@ -94,6 +96,15 @@ pub macro model_methods(model)
 
   def lock_strict(mode : ::Grant::Locking::LockMode = ::Grant::Locking::LockMode::Update, force : Bool = false)
     reload_with_lock(mode, force: force)
+  end
+
+  def reload_with_lock(clause : ::Grant::Locking::Clause::Clause, force : Bool = false) : {{ model }} | ::Grant::Error::ErrorBase
+    guard_row_lock_strict(::Grant::Locking::LockMode::Update, force)!
+    replace_with_locked_row(self.class.where("#{::Grant::Base.quote_identifier(self.class.primary_name)} = ?", __primary_value).lock(clause))
+  end
+
+  def lock_strict(clause : ::Grant::Locking::Clause::Clause, force : Bool = false) : {{ model }} | ::Grant::Error::ErrorBase
+    reload_with_lock(clause, force: force)
   end
 
   def reload
