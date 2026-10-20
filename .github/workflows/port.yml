@@ -33,11 +33,13 @@ jobs:
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       PG_SERVER_URL: postgres://grant:password@postgres:5432
+      # Upstream specs hold UTF-8; the container defaults Ruby to US-ASCII.
+      LC_ALL: C.UTF-8
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: safe.directory
       GIT_CONFIG_VALUE_0: "*"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # bin/port-check diffs crystal-upstream/ against port/START_COMMIT.
           fetch-depth: 0
@@ -51,7 +53,7 @@ jobs:
 
       - name: Restore iyi
         id: iyi-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: iyi
           key: iyi-${{ env.IYI_REF }}

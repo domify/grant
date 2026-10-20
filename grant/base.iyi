@@ -21,6 +21,7 @@ pub import grant/schema/model_indexes
 pub import grant/migrator
 pub import grant/columns_helpers
 pub import grant/attributes
+pub import grant/enum_attributes
 pub import grant/integration
 pub import grant/normalization
 pub import grant/dirty
@@ -203,6 +204,14 @@ pub abstract class Base
 
   macro to_param(attribute)
     ::Grant::Integration.to_param({{ attribute }})
+  end
+
+  macro enum_attribute(decl, **options)
+    ::Grant::EnumAttributes.enum_attribute({{ @type }}, {{ decl }}, {{ options.double_splat }})
+  end
+
+  macro enum_attributes(**mappings)
+    ::Grant::EnumAttributes.enum_attributes({{ @type }}, {{ mappings.double_splat }})
   end
 
   macro alias_attribute(new_name, old_name)
@@ -420,6 +429,9 @@ pub abstract class Base
     def {{decl.var}}=(value : {{decl.type}} | Nil) : Nil {% if options[:guarded] %}| ::Grant::Encryption::Sealed::ArgumentError{% end %}
       {% if options[:guarded] %}
         ::Grant::Encryption::Sealed.guard_plaintext_strict({{ decl.var.stringify }}, value)!
+      {% end %}
+      {% if options[:enum_attribute] %}
+        __after_assign_{{ decl.var }}(value)
       {% end %}
       errors.clear_conversion_error({{ decl.var.symbolize }})
       discard_before_type_cast({{ decl.var.stringify }})
@@ -833,6 +845,7 @@ pub abstract class Base
     ::Grant::Encryption.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
+    ::Grant::EnumAttributes.model_methods({{ @type }})
     ::Grant::Integration.model_methods({{ @type }})
     ::Grant::Normalization.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
