@@ -228,6 +228,7 @@ pub abstract class Base
   end
 
   def assignable_attribute?(name : String | Symbol) : Bool
+    return true if self.class.attribute_aliases.has_key?(name.to_s)
     return true if name.to_s == __primary_name
     return true if __column_names.includes?(name.to_s)
     {% for method in @type.methods %}
@@ -1457,6 +1458,10 @@ pub abstract class Base
       current_scope.where(matches)
     end
 
+    def self.where(matches : NamedTuple) : ::Grant::Query::Builder::Builder({{ @type }})
+      current_scope.where(**matches)
+    end
+
     def self.where(**args) : ::Grant::Query::Builder::Builder({{ @type }})
       current_scope.where(**args)
     end
@@ -1840,12 +1845,14 @@ pub abstract class Base
     {% for key in T.keys %}
       {% if @type.has_method?((key.stringify + "=").id) %}
       {% original_key = key %}
-      {% for method in @type.methods %}
+      {% for owner in [@type] + @type.ancestors %}
+      {% for method in owner.methods %}
         {% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
           {% if ann[:name] == key.stringify %}
             {% key = ann[:column].id %}
           {% end %}
         {% end %}
+      {% end %}
       {% end %}
       {% column = @type.instance_vars.find { |v| v.name.stringify == key.stringify && v.annotation(::Grant::Base::Column) } %}
       {% if column && column.annotation(::Grant::Base::Column)[:type].includes?("Int") %}

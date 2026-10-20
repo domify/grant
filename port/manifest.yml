@@ -570,7 +570,7 @@
   target: test/grant_attributes_alias_attribute_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/before_type_cast_spec.cr
   target: test/grant_attributes_before_type_cast_test.iyi
   area: query

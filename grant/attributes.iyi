@@ -138,12 +138,26 @@ pub macro model_methods(model)
   end
 
   def self.resolve_attribute_alias(name : String) : String
-    \{% for method in @type.methods %}
+    \{% for owner in [@type] + @type.ancestors %}
+    \{% for method in owner.methods %}
       \{% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
         return \{{ ann[:column] }} if name == \{{ ann[:name] }}
       \{% end %}
     \{% end %}
+    \{% end %}
     name
+  end
+
+  def self.attribute_aliases : Hash(String, String)
+    result = {} of String => String
+    \{% for owner in [@type] + @type.ancestors %}
+    \{% for method in owner.methods %}
+      \{% if ann = method.annotation(::Grant::Attributes::AttributeAlias) %}
+        result[\{{ ann[:name] }}] = \{{ ann[:column] }}
+      \{% end %}
+    \{% end %}
+    \{% end %}
+    result
   end
 
   def self.type_for_attribute(name : String | Symbol) : String?
@@ -281,6 +295,18 @@ end
 
 # Alias helpers retain the underlying column's dirty-control behavior.
 pub macro alias_helpers(new_name, old_name)
+  def {{ new_name.id }}? : SavedValue
+    {{ old_name.id }}
+  end
+  def {{ new_name.id }}_was : SavedValue
+    {{ old_name.id }}_was
+  end
+  def {{ new_name.id }}_change : Tuple(SavedValue, SavedValue)?
+    {{ old_name.id }}_change
+  end
+  def {{ new_name.id }}_before_type_cast : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
+    attribute_before_type_cast({{ old_name.id.stringify }})
+  end
   def {{ new_name.id }}_changed? : Bool
     {{ old_name.id }}_changed?
   end
