@@ -21,6 +21,7 @@ pub import grant/schema/model_indexes
 pub import grant/migrator
 pub import grant/columns_helpers
 pub import grant/attributes
+pub import grant/integration
 pub import grant/normalization
 pub import grant/dirty
 pub import grant/readonly
@@ -198,6 +199,10 @@ pub abstract class Base
 
   macro normalizes(*attributes, **options, &block)
     ::Grant::Normalization.normalizes({{ attributes.splat }}, {{ options.double_splat }}) {{ block }}
+  end
+
+  macro to_param(attribute)
+    ::Grant::Integration.to_param({{ attribute }})
   end
 
   macro alias_attribute(new_name, old_name)
@@ -828,6 +833,7 @@ pub abstract class Base
     ::Grant::Encryption.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
+    ::Grant::Integration.model_methods({{ @type }})
     ::Grant::Normalization.model_methods({{ @type }})
     ::Grant::Querying.model_methods({{ @type }})
     ::Grant::Aggregations.model_methods({{ @type }})

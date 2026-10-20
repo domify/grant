@@ -580,7 +580,7 @@
   target: test/grant_attributes_cache_key_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/enum_options_spec.cr
   target: test/grant_attributes_enum_options_test.iyi
   area: query

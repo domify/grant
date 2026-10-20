@@ -19,6 +19,7 @@ import grant/query/empty_clauses::{EmptyClauses}
 import grant/query/executor
 import grant/query/batches::{Batches}
 import grant/query/finders::{Finders}
+import grant/query/cache_keys::{CacheKeys}
 import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
@@ -84,6 +85,7 @@ pub class Builder(Model)
   property deferred_error : ErrorBase? = nil
   # Memoized result of `load`. Cleared by every mutation and by `reset`.
   @records : Array(Model)? = nil
+  property cached_cache_version : String? = nil
 
   def initialize(@db_type : DbType = DbType::Sqlite, @boolean_operator : Symbol = :and)
   end
@@ -199,6 +201,7 @@ pub class Builder(Model)
 
   private def reset_load_state : Nil
     @records = nil
+    @cached_cache_version = nil
     nil
   end
 
@@ -1444,4 +1447,7 @@ impl Finders(Model) for Builder(Model) forall Model
 end
 
 impl QueryMethods(Model) for Builder(Model) forall Model
+end
+
+impl CacheKeys(Model) for Builder(Model) forall Model
 end
