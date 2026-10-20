@@ -93,6 +93,30 @@ end
 
 # Per-column delegators from upstream Columns' pre-save dirty API.
 pub macro dirty_column_methods(decl)
+  def {{ decl.var }}_came_from_user? : Bool
+    attribute_came_from_user?({{ decl.var.stringify }})
+  end
+  def saved_change_to_{{ decl.var }}?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    saved_change_to_attribute?({{ decl.var.stringify }}, from: from, to: to)
+  end
+  def saved_change_to_{{ decl.var }} : Tuple(SavedValue, SavedValue)?
+    saved_change_to_attribute({{ decl.var.stringify }})
+  end
+  def {{ decl.var }}_previously_changed?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    saved_change_to_{{ decl.var }}?(from: from, to: to)
+  end
+  def {{ decl.var }}_previously_was : {{ decl.type }} | Nil
+    change = saved_change_to_{{ decl.var }}
+    change ? change[0].as({{ decl.type }} | Nil) : @{{ decl.var }}
+  end
+  def {{ decl.var }}_before_last_save : {{ decl.type }} | Nil
+    {{ decl.var }}_previously_was
+  end
+  def restore_{{ decl.var }}_in_place : Nil
+    self.{{ decl.var }} = @__persisted_{{ decl.var }}
+    nil
+  end
+
   def {{ decl.var }}_was : {{ decl.type }} | Nil
     {{ decl.var }}_changed? ? @__persisted_{{ decl.var }} : @{{ decl.var }}
   end

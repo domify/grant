@@ -54,6 +54,19 @@ end
 # Reflective reader and encrypted-inspection slice of upstream Attributes.
 # Deferred column introspection expands in each concrete Base subclass.
 pub macro model_methods(model)
+  @assigned_attributes : Array(String)?
+
+  protected def __mark_attribute_assigned(name : String) : Nil
+    assigned = @assigned_attributes ||= [] of String
+    assigned << name unless assigned.includes?(name)
+    nil
+  end
+
+  def attribute_came_from_user?(name : String | Symbol) : Bool
+    assigned = @assigned_attributes
+    assigned ? assigned.includes?(self.class.resolve_attribute_alias(name.to_s)) : false
+  end
+
   @attributes_before_type_cast : Hash(String, ::Grant::Columns::Type)?
 
   def attribute_before_type_cast(name : String | Symbol) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
@@ -263,5 +276,36 @@ pub macro model_methods(model)
   def inspect(io : T) : Nil forall T
     io << inspect
     nil
+  end
+end
+
+# Alias helpers retain the underlying column's dirty-control behavior.
+pub macro alias_helpers(new_name, old_name)
+  def {{ new_name.id }}_changed? : Bool
+    {{ old_name.id }}_changed?
+  end
+  def {{ new_name.id }}_came_from_user? : Bool
+    {{ old_name.id }}_came_from_user?
+  end
+  def will_save_change_to_{{ new_name.id }}? : Bool
+    will_save_change_to_{{ old_name.id }}?
+  end
+  def saved_change_to_{{ new_name.id }}?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    saved_change_to_{{ old_name.id }}?(from: from, to: to)
+  end
+  def saved_change_to_{{ new_name.id }} : Tuple(SavedValue, SavedValue)?
+    saved_change_to_{{ old_name.id }}
+  end
+  def {{ new_name.id }}_previously_was : SavedValue
+    {{ old_name.id }}_previously_was
+  end
+  def {{ new_name.id }}_before_last_save : SavedValue
+    {{ old_name.id }}_before_last_save
+  end
+  def {{ new_name.id }}_previously_changed?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    {{ old_name.id }}_previously_changed?(from: from, to: to)
+  end
+  def restore_{{ new_name.id }}_in_place : Nil
+    restore_{{ old_name.id }}_in_place
   end
 end

@@ -600,7 +600,7 @@
   target: test/grant_attributes_w6_alias_query_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/boolean_predicates_spec.cr
   target: test/grant_boolean_predicates_test.iyi
   area: query

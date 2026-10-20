@@ -38,3 +38,5 @@ Database task `guard!` becomes `guard_strict`.
 Schema cache `reset!` becomes `reset_in_place`; `load_all!` becomes `load_all_in_place`.
 
 Errors collection `uniq!` and `copy!` become `uniq_in_place` and `copy_in_place`.
+
+Dirty attribute `restore_<attribute>!` becomes `restore_<attribute>_in_place`.

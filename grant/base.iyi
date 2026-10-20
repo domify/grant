@@ -215,6 +215,7 @@ pub abstract class Base
   end
 
   macro alias_attribute(new_name, old_name)
+    ::Grant::Attributes.alias_helpers({{ new_name }}, {{ old_name }})
     @[::Grant::Attributes::AttributeAlias(name: {{ new_name.id.stringify }}, column: {{ old_name.id.stringify }})]
     def {{ new_name.id }}
       {{ old_name.id }}
@@ -433,6 +434,7 @@ pub abstract class Base
       {% if options[:enum_attribute] %}
         __after_assign_{{ decl.var }}(value)
       {% end %}
+      __mark_attribute_assigned({{ decl.var.stringify }})
       errors.clear_conversion_error({{ decl.var.symbolize }})
       discard_before_type_cast({{ decl.var.stringify }})
       normalized = self.class.normalize_value_for({{ decl.var.symbolize }}, value).as({{ decl.type }} | Nil)

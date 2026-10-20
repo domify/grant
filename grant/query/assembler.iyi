@@ -93,6 +93,9 @@ pub abstract class Base(Model, Query)
   ]
 
   protected def quote_reserved_field(field : String) : String
+    {% if Model.class.has_method?(:resolve_attribute_alias) %}
+      field = Model.resolve_attribute_alias(field)
+    {% end %}
     RESERVED_FIELD_NAMES.includes?(field.downcase) ? Model.quote(field) : field
   end
 

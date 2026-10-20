@@ -324,6 +324,14 @@ pub class Builder(Model)
     self
   end
 
+  private def resolved_attribute_field(field : String) : String
+    {% if Model.class.has_method?(:resolve_attribute_alias) %}
+      Model.resolve_attribute_alias(field)
+    {% else %}
+      field
+    {% end %}
+  end
+
   # ---- WHERE -------------------------------------------------------------
 
   # Adds equality (or set) conditions from keyword arguments, ANDed together.
@@ -401,7 +409,7 @@ pub class Builder(Model)
   end
 
   def and_in_place(field : Symbol | String, operator : Symbol, value : T) : self forall T
-    own_where_fields << {join: :and, field: field.to_s, operator: operator, value: to_bind(value)}
+    own_where_fields << {join: :and, field: resolved_attribute_field(field.to_s), operator: operator, value: to_bind(value)}
     self
   end
 
@@ -442,7 +450,7 @@ pub class Builder(Model)
   end
 
   def or_in_place(field : Symbol | String, operator : Symbol, value : T) : self forall T
-    own_where_fields << {join: :or, field: field.to_s, operator: operator, value: to_bind(value)}
+    own_where_fields << {join: :or, field: resolved_attribute_field(field.to_s), operator: operator, value: to_bind(value)}
     self
   end
 
@@ -558,6 +566,7 @@ pub class Builder(Model)
 
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
+    field = resolved_attribute_field(field)
     foreign_key = association_foreign_key(field)
     field = foreign_key unless foreign_key.nil?
     if value.responds_to?(:__primary_value)
@@ -663,6 +672,11 @@ pub class Builder(Model)
     sort = direction.to_s.downcase == "desc" ? Sort::Descending : Sort::Ascending
     own_order_fields << {field: field, direction: sort}
     nil
+  end
+
+  def order(field : Symbol | String, direction : Symbol) : self
+    copy = chain_copy
+    copy.order_in_place({field.to_s => direction})
   end
 
   def order(field : Symbol | String) : self

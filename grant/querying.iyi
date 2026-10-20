@@ -20,6 +20,10 @@ end
 
 # ClassMethods raw-clause overloads and raw SQL passthroughs from upstream querying.cr.
 pub macro model_methods(model)
+  def self.order(field : Symbol | String, direction : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.order(field, direction)
+  end
+
   def self.raw_all(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : Array({{ model }}) | ::Grant::Error::ErrorBase
     scope = current_scope
     built = scope.assembler
