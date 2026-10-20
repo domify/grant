@@ -3,6 +3,8 @@ module grant/connection_registry
 import std/time::{Span}
 import grant/adapter/base::{Base}
 import grant/adapter/registry::{Registry, UnknownAdapterError}
+import grant/health_monitor::{HealthMonitorRegistry}
+import grant/error_taxonomy::{ConnectionFailed}
 import grant/settings
 import grant/connections::{Connections}
 import grant/errors::{ErrorBase}
@@ -10,6 +12,8 @@ import grant/errors::{ErrorBase}
 # The eager registration slice of Grant::ConnectionRegistry.
 pub class ConnectionRegistry
   pub struct ConnectionSpec
+    property health_check_interval : Span = Span.seconds(30_i64)
+    property health_check_timeout : Span = Span.seconds(5_i64)
     property pool_size : Int32 = 25
     property adapter_class : Base.class = Base
     property database : String
@@ -18,6 +22,11 @@ pub class ConnectionRegistry
     property verify_idle_after : Span? = Span.seconds(30_i64)
 
     def initialize(@database : String, @url : String, @role : Symbol, @verify_idle_after : Span? = Span.seconds(30_i64))
+    end
+
+    def initialize(@database : String, @adapter_class : Base.class, @url : String, @role : Symbol,
+                   @health_check_interval : Span = Span.seconds(30_i64),
+                   @health_check_timeout : Span = Span.seconds(5_i64))
     end
   end
 
@@ -65,6 +74,7 @@ pub class ConnectionRegistry
     specification.pool_size = pool_size
     @@specifications[key] = specification
     @@adapters[key] = instance
+    HealthMonitorRegistry.register(key, instance, specification)
     Connections.register(database, instance) if role == :primary
     Connections.register_role(database, instance, role)
     previous.disconnect_strict! unless previous.nil?
@@ -82,7 +92,8 @@ pub class ConnectionRegistry
   def self.get_adapter?(database : String, role : Symbol = :primary) : Base?
     role = normalize_role(role)
     requested = @@adapters[key_for(database, role)]?
-    return requested unless requested.nil?
+    monitor = HealthMonitorRegistry.get(key_for(database, role))
+    return requested if requested && (monitor.nil? || monitor.healthy?)
     if role == :reading
       writer = @@adapters[key_for(database, :writing)]?
       return writer unless writer.nil?
@@ -106,6 +117,7 @@ pub class ConnectionRegistry
   def self.remove_connection(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : Bool | ErrorBase
     role = normalize_role(role)
     key = key_for(database, role, shard, replica_index)
+    HealthMonitorRegistry.unregister(key)
     spec = @@specifications.delete(key)
     removed = @@adapters.delete(key)
     return false if spec.nil? && removed.nil?
@@ -116,6 +128,7 @@ pub class ConnectionRegistry
   end
 
   def self.clear_all : Nil | ErrorBase
+    HealthMonitorRegistry.clear
     retired = @@adapters.values
     @@specifications.values.each do |spec|
       Connections.unregister(spec.database)
@@ -130,4 +143,17 @@ pub class ConnectionRegistry
     nil
   end
 
+  def self.verify_strict(database : String, role : Symbol = :primary) : Nil | ConnectionFailed
+    monitor = HealthMonitorRegistry.get(key_for(database, normalize_role(role)))
+    return ConnectionFailed.new("No connection #{database}:#{role}", ErrorBase.new("Connection not established")) unless monitor
+    monitor.verify_strict
+  end
+
+  def self.connected?(database : String, role : Symbol = :primary) : Bool
+    verify_strict(database, role).nil?
+  end
+
+  def self.health_status : Array(NamedTuple(key: String, healthy: Bool, last_check: ::Std::Time::Time))
+    HealthMonitorRegistry.status
+  end
 end

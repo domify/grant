@@ -700,7 +700,7 @@
   target: test/grant_connection_health_recovery_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/pool_reaper_spec.cr
   target: test/grant_connection_pool_reaper_test.iyi
   area: query
