@@ -13,6 +13,8 @@ import grant/errors::{ErrorBase}
 # The eager registration slice of Grant::ConnectionRegistry.
 pub class ConnectionRegistry
   pub struct ConnectionSpec
+    property prepared_statements : Bool = true
+    property statement_limit : Int32 = 1000
     property health_check_interval : Span = Span.seconds(30_i64)
     property health_check_timeout : Span = Span.seconds(5_i64)
     property pool_size : Int32 = 25
@@ -27,7 +29,15 @@ pub class ConnectionRegistry
 
     def initialize(@database : String, @adapter_class : Base.class, @url : String, @role : Symbol,
                    @health_check_interval : Span = Span.seconds(30_i64),
-                   @health_check_timeout : Span = Span.seconds(5_i64))
+                   @health_check_timeout : Span = Span.seconds(5_i64),
+                   @prepared_statements : Bool = true, @statement_limit : Int32 = 1000)
+    end
+    def build_pool_url : String
+      params = [] of String
+      params << "prepared_statements=false" if !@prepared_statements && @adapter_class.supports_unprepared_statements?
+      params << "prepared_statements_cache=false" if @statement_limit == 0
+      return @url if params.empty?
+      @url + (@url.includes?("?") ? "&" : "?") + params.join("&")
     end
   end
 
@@ -98,6 +108,8 @@ pub class ConnectionRegistry
       initial_pool_size: options[:initial_pool_size]? || 2,
       max_idle_pool_size: options[:max_idle_pool_size]? || 25)!
     instance = get_adapter(database, role)
+    instance.statement_limit = options[:statement_limit]? || 1000
+    instance.prepared_statements = options[:prepared_statements]? != false
     instance.idle_timeout = options[:idle_timeout]? || nil
     instance.min_connections = options[:min_connections]? || 0
     instance.max_age = options[:max_age]? || nil

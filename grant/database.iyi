@@ -64,6 +64,8 @@ pub struct PoolStats
 end
 
 pub class Pool
+  property statement_limit : Int32 = 1000
+  property prepared_statements : Bool = true
   property max_age : Span? = nil
   @connections = [] of Connection
   @reserved = [] of Connection
@@ -83,6 +85,10 @@ pub class Pool
   end
 
   def checkout : Connection | ErrorBase
+    @connections.each do |connection|
+      connection.statement_cache_limit = @statement_limit
+      connection.prepared_statements = @prepared_statements
+    end
     # A connection whose server dropped it is closed; the pool forgets it.
     @connections = @connections.reject { |connection| connection.lost && !@reserved.includes?(connection) }
     @connections.each do |connection|
@@ -95,6 +101,8 @@ pub class Pool
     @opening_connections += 1
     defer (@opening_connections -= 1)
     connection = open_connection(@path, @busy_timeout_ms)!
+    connection.statement_cache_limit = @statement_limit
+    connection.prepared_statements = @prepared_statements
     @connections << connection
     connection
   end
@@ -173,6 +181,13 @@ pub class Pool
 end
 
 pub class Database
+  def prepared_statements? : Bool
+    @pool.prepared_statements
+  end
+
+  def prepared_statements_cache? : Bool
+    @pool.statement_limit != 0
+  end
   getter pool : Pool
 
   def initialize(connection : Connection, path : String, pool_size : Int32 = 1, busy_timeout_ms : Int32 = 5000)

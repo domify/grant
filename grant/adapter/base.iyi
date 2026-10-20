@@ -173,6 +173,13 @@ pub abstract class Base
   getter url : String
   @_database : Database? = nil
   @opening_database : Bool = false
+  property statement_limit : Int32 = 1000
+  property prepared_statements : Bool = true
+
+  def self.supports_unprepared_statements? : Bool
+    true
+  end
+
   property idle_timeout : Span? = nil
   property max_age : Span? = nil
   property keepalive : Span? = nil
@@ -220,6 +227,8 @@ pub abstract class Base
     @opening_database = true
     defer (@opening_database = false)
     opened = Database.open(database_path, @pool_size, @busy_timeout_ms)!
+    opened.pool.statement_limit = @statement_limit
+    opened.pool.prepared_statements = @prepared_statements || !self.class.supports_unprepared_statements?
     opened.pool.max_age = @max_age
     @_database = opened
     opened

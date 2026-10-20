@@ -18,6 +18,9 @@ import grant/adapter/error_translator::{Kind}
 import grant/adapter/error_translator
 
 pub class Sqlite < Base
+  def self.supports_unprepared_statements? : Bool
+    false
+  end
   def supports_insert_returning? : Bool | ErrorBase
     database_version!.at_least?(3, 35)
   end

@@ -62,6 +62,18 @@ pub abstract class ResultSet
 end
 
 pub abstract class Connection
+  property statement_cache_limit : Int32 = 1000
+  property prepared_statements : Bool = true
+
+  def query_one(sql : String, value : V, *, as type : T.class) : T | DatabaseError forall V, T
+    result = scalar(sql, [value.as(Value)] of Value)!
+    return result if result.is_a?(T)
+    DatabaseError.new(0, "query_one", "Unexpected scalar result type", sql)
+  end
+
+  def statement_cache_size : Int32
+    0
+  end
   @savepoint_sequence : UInt64 = 0_u64
   property name : String = "sqlite"
   property grant_created_ticks : Int64 = ::Grant::Adapter::PoolSupport.ticks
@@ -192,7 +204,17 @@ pub abstract class LibraryConnection < Connection
     result.is_a?(DBError) ? translate(result, "close") : nil
   end
 
+  @cache_configuration : Tuple(Int32, Bool)? = nil
+
+  def statement_cache_size : Int32
+    native_connection.statement_cache_size
+  end
+
   protected def before_statement(sql : String) : Nil | DatabaseError
+    if @cache_configuration != {@statement_cache_limit, @prepared_statements}
+      native_connection.configure_statement_cache(@statement_cache_limit, @prepared_statements)
+      @cache_configuration = {@statement_cache_limit, @prepared_statements}
+    end
     materializer = @transaction_materializer
     unless materializer.nil?
       @transaction_materializer = nil

@@ -710,7 +710,7 @@
   target: test/grant_connection_prepared_statements_test.iyi
   area: query
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/prohibit_shard_swapping_spec.cr
   target: test/grant_connection_prohibit_shard_swapping_test.iyi
   area: query
