@@ -540,7 +540,7 @@
   target: test/adapter_adapter_matrix_doc_test.iyi
   area: query
   examples: 1
-  status: todo
+  status: done
 - source: crystal-upstream/spec/adapter/sqlite_pragmas_spec.cr
   target: test/adapter_sqlite_pragmas_test.iyi
   area: query
