@@ -55,6 +55,43 @@ pub macro model_methods(model)
       (to.is_a?(::Grant::Dirty::Unfiltered) || change[1] == to)
   end
 
+  def attribute_previously_changed?(name : String | Symbol, *, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    saved_change_to_attribute?(name, from: from, to: to)
+  end
+
+  def attribute_previously_was(name : String | Symbol) : SavedValue
+    if change = saved_change_to_attribute(name)
+      change[0]
+    else
+      read_attribute(name.to_s).as(SavedValue)
+    end
+  end
+
+  {% for method in model.resolve.methods.select { |method| method.name.starts_with?("__raw_") && !method.name.ends_with?("=") } %}
+    {% name = method.name[6..-1] %}
+    def saved_change_to_{{ name.id }}?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+      saved_change_to_attribute?({{ name.stringify }}, from: from, to: to)
+    end
+
+    def saved_change_to_{{ name.id }} : Tuple({{ method.return_type }}?, {{ method.return_type }}?)?
+      if change = saved_change_to_attribute({{ name.stringify }})
+        {change[0].as({{ method.return_type }}?), change[1].as({{ method.return_type }}?)}
+      end
+    end
+
+    def {{ name.id }}_previously_changed?(*, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+      saved_change_to_{{ name.id }}?(from: from, to: to)
+    end
+
+    def {{ name.id }}_previously_was : {{ method.return_type }}?
+      if change = saved_change_to_attribute({{ name.stringify }})
+        change[0].as({{ method.return_type }}?)
+      else
+        @{{ name.id }}
+      end
+    end
+  {% end %}
+
   def __capture_saved_changes : Nil
     pending = {} of String => Tuple(SavedValue, SavedValue)
     \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}

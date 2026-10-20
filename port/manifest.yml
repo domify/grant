@@ -2377,7 +2377,7 @@
   target: test/grant_dirty_saved_changes_test.iyi
   area: dirty_state
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/dirty/w6_mutation_watch_spec.cr
   target: test/grant_dirty_w6_mutation_watch_test.iyi
   area: dirty_state

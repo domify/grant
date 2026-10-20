@@ -1,0 +1,16 @@
+module test/dirty_family_models
+import grant/base::{Base}
+import std/env
+import test/spec_helper::{register_spec_connections}
+register_spec_connections
+
+pub class F01Post < Base
+  connection {{ (env("CURRENT_ADAPTER") || "sqlite").id }}
+  table f01_posts
+  column id : Int64, primary: true
+  column title : String?
+  column body : String?
+  column views : Int32?
+end
+
+F01Post.migrator.drop_and_create.or_panic
