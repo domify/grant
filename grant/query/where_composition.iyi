@@ -22,6 +22,22 @@ pub trait WhereComposition(Model)
     {% end %}
   end
 
+  def unscope(*, where columns : T) : self forall T
+    copy = chain_copy
+    names = columns.is_a?(Array) ? columns.map { |column| column.to_s } : [columns.to_s]
+    names = names.map { |name| association_foreign_key(name) || name }
+    copy.unscope_where_columns(names)
+    copy
+  end
+
+  def unscope(*components : Symbol, where columns : T) : self forall T
+    copy = unscope(*components)
+    names = columns.is_a?(Array) ? columns.map { |column| column.to_s } : [columns.to_s]
+    names = names.map { |name| association_foreign_key(name) || name }
+    copy.unscope_where_columns(names)
+    copy
+  end
+
   def rewhere(matches : T) : self forall T
     copy = chain_copy
     names = [] of String

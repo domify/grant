@@ -68,6 +68,8 @@ pub class Builder(Model)
   getter lock_mode : LockMode? = nil
   property select_columns : Array(String)? = nil
   property includes_associations = [] of Symbol
+  property preload_associations = [] of Symbol
+  property eager_load_associations = [] of Symbol
   getter join_clauses = EmptyClauses::JOIN_CLAUSES
   getter having_clauses = EmptyClauses::HAVING_CLAUSES
   getter optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
@@ -253,6 +255,8 @@ pub class Builder(Model)
     @order_fields = source.order_fields.empty? ? EmptyClauses::ORDER_FIELDS : source.order_fields.dup
     @group_fields = source.group_fields.empty? ? EmptyClauses::GROUP_FIELDS : source.group_fields.dup
     @includes_associations = source.includes_associations.dup
+    @preload_associations = source.preload_associations.dup
+    @eager_load_associations = source.eager_load_associations.dup
     @join_clauses = source.join_clauses.empty? ? EmptyClauses::JOIN_CLAUSES : source.join_clauses.dup
     @having_clauses = source.having_clauses.empty? ? EmptyClauses::HAVING_CLAUSES : source.having_clauses.dup
     @optimizer_hint_list = source.optimizer_hint_list.empty? ? EmptyClauses::OPTIMIZER_HINTS : source.optimizer_hint_list.dup
@@ -846,9 +850,15 @@ pub class Builder(Model)
     nil
   end
 
+  def refresh_preload_names : Nil
+    @preload_association_names = (@includes_associations + @preload_associations + @eager_load_associations).uniq.map { |name| name.to_s }
+    nil
+  end
+
   def includes(name : Symbol) : self
     copy = chain_copy
     copy.includes_associations << name unless copy.includes_associations.includes?(name)
+    copy.refresh_preload_names
     copy
   end
 
@@ -984,7 +994,16 @@ pub class Builder(Model)
       when :annotate           then @annotation_comment = nil
       when :from               then @from_source = nil
       when :with               then @with_source = nil
-      when :includes, :preload, :eager_load, :create_with, :reordering, :extending
+      when :includes
+        @includes_associations = [] of Symbol
+        refresh_preload_names
+      when :preload
+        @preload_associations = [] of Symbol
+        refresh_preload_names
+      when :eager_load
+        @eager_load_associations = [] of Symbol
+        refresh_preload_names
+      when :create_with, :reordering, :extending
         nil
       else
         return self.defer(ArgumentError.new("unscope: unknown component #{component.inspect}"))

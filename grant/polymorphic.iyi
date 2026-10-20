@@ -21,11 +21,13 @@ macro finished
   end
 
   pub def load_polymorphic(type_name : String, id : ::Grant::Columns::Type) : ::Grant::Base::Base | Nil | ::Grant::Error::ErrorBase
+    bound_id = ::Grant::Base.sqlite_value(id)
+    return ::Grant::Error::ArgumentError.new("Polymorphic id must be a scalar") if bound_id.is_a?(Array)
     case type_name
     {% for name, klass in ::Grant::PolymorphicTypes::REGISTERED_TYPES %}
     when {{ name }}
       {% unless klass.resolve.abstract? %}
-        {{ klass }}.find(id)
+        {{ klass }}.find(bound_id)
       {% else %}
         nil
       {% end %}

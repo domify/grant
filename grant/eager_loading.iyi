@@ -24,7 +24,7 @@ pub macro model_methods(model)
               record.set_loaded_association(name, matches)
             end
           end
-        {% elsif ann && ann[:type] == :belongs_to %}
+        {% elsif ann && ann[:type] == :belongs_to && ann[:polymorphic] != true %}
           if name == {{ method.name.stringify }}
             found = true
             keys = records.map { |record| record.read_attribute({{ ann[:foreign_key].id.stringify }})! }.reject { |key| key.nil? }.uniq
@@ -47,7 +47,8 @@ pub trait QueryMethods(Model)
   {% for operation in [:includes, :preload, :eager_load] %}
     def {{ operation.id }}(*names : Symbol) : self
       copy = chain_copy
-      copy.preload_association_names.concat(names.to_a.map { |name| name.to_s })
+      copy.{{ operation == :includes ? "includes_associations".id : (operation == :preload ? "preload_associations".id : "eager_load_associations".id) }}.concat(names.to_a)
+      copy.refresh_preload_names
       copy
     end
   {% end %}

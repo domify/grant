@@ -1223,7 +1223,7 @@
   target: test/grant_query_unscope_where_column_test.iyi
   area: query
   examples: 10
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/w6_joins_scope_alias_spec.cr
   target: test/grant_query_w6_joins_scope_alias_test.iyi
   area: query
