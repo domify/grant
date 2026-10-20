@@ -337,8 +337,13 @@ pub def run(adapter : Connection, options : Options, savepoint_name : String? = 
     state.list_of_record_rollback_actions.each do |action|
       enclosing.list_of_record_rollback_actions << action
     end
-    state.pending_callbacks.each { |callback| enclosing.pending_callbacks << callback }
-    state.after_all_commit_callbacks.each { |callback| enclosing.after_all_commit_callbacks << callback }
+    if enclosing.options.joinable
+      state.pending_callbacks.each { |callback| enclosing.pending_callbacks << callback }
+      state.after_all_commit_callbacks.each { |callback| enclosing.after_all_commit_callbacks << callback }
+    else
+      state.pending_callbacks.each { |callback| callback[:on_commit].call! }
+      finalize_after_all_commit(state)
+    end
   end
   connection.close! if options.independent
   if outer
@@ -484,6 +489,18 @@ pub def commit_manual(handle : Handle) : Nil | ::Grant::Error::ErrorBase | Datab
     publish_transaction_end(state, TransactionOutcome::Commit, marker.started_at, marker.name)
     handle.settle
     state.manual_savepoints.delete(handle)
+    unless state.options.joinable
+      callbacks = [] of NamedTuple(on_commit: Proc(Nil | ErrorBase), on_rollback: Proc(Nil))
+      index = marker.marks[:callbacks]
+      while index < state.pending_callbacks.size
+        callbacks << state.pending_callbacks[index]
+        index += 1
+      end
+      while state.pending_callbacks.size > marker.marks[:callbacks]
+        state.pending_callbacks.pop
+      end
+      callbacks.each { |callback| callback[:on_commit].call! }
+    end
     return nil
   end
   return NotOpenError.new("Transaction was not opened with begin_transaction") unless state.manual

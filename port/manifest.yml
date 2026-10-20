@@ -425,7 +425,7 @@
   target: test/grant_spec_support_transactional_wrapper_test.iyi
   area: transactions
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/tasks/seeds_spec.cr
   target: test/grant_tasks_seeds_test.iyi
   area: transactions

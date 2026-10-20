@@ -66,6 +66,7 @@ pub class ConnectionRegistry
     @@specifications[key] = specification
     @@adapters[key] = instance
     Connections.register(database, instance) if role == :primary
+    Connections.register_role(database, instance, role)
     previous.disconnect_strict! unless previous.nil?
     nil
   end
@@ -109,13 +110,17 @@ pub class ConnectionRegistry
     removed = @@adapters.delete(key)
     return false if spec.nil? && removed.nil?
     Connections.unregister(database) if role == :primary
+    Connections.unregister_role(database, role)
     removed.disconnect_strict! unless removed.nil?
     true
   end
 
   def self.clear_all : Nil | ErrorBase
     retired = @@adapters.values
-    @@specifications.values.each { |spec| Connections.unregister(spec.database) }
+    @@specifications.values.each do |spec|
+      Connections.unregister(spec.database)
+      Connections.unregister_role(spec.database, spec.role)
+    end
     @@adapters = {} of String => Base
     @@default_database = nil
     @@specifications = {} of String => ConnectionSpec

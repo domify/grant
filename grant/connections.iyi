@@ -18,6 +18,34 @@ pub class Connections
 
   @@adapters = {} of String => Base
 
+  @@roles = {} of String => Hash(Symbol, Base)
+
+  def self.register_role(name : String, adapter : Base, role : Symbol) : Nil
+    roles = @@roles[name]? || {} of Symbol => Base
+    roles[role] = adapter
+    @@roles[name] = roles
+    nil
+  end
+
+  def self.unregister_role(name : String, role : Symbol) : Nil
+    roles = @@roles[name]?
+    roles.delete(role) unless roles.nil?
+    nil
+  end
+
+  def self.registered_connections : Array(NamedTuple(writer: Base, reader: Base))
+    result = [] of NamedTuple(writer: Base, reader: Base)
+    names = (@@adapters.keys + @@roles.keys).uniq
+    names.each do |name|
+      roles = @@roles[name]? || {} of Symbol => Base
+      writer = roles[:writing]? || roles[:primary]? || @@adapters[name]?
+      next if writer.nil?
+      reader = roles[:reading]? || writer
+      result << {writer: writer, reader: reader}
+    end
+    result
+  end
+
   def self.register(name : String, adapter : Base) : Nil
     @@adapters[name] = adapter
     nil
