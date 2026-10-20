@@ -332,6 +332,19 @@ pub class Builder(Model)
     {% end %}
   end
 
+  def defer_subquery_error(failure : ErrorBase) : self
+    self.defer(failure)
+  end
+
+  # An enclosing query owns numbering; nested queries supply anonymous binds.
+  def subquery_parts : Tuple(String, Array(Value)) | ErrorBase
+    built = ::Grant::Query::Assembler::Sqlite(Model, Builder(Model)).new(self)
+    sql = built.select.raw_sql
+    failure = built.error
+    return failure unless failure.nil?
+    {sql, built.numbered_parameters.dup}
+  end
+
   # ---- WHERE -------------------------------------------------------------
 
   # Adds equality (or set) conditions from keyword arguments, ANDed together.
@@ -569,7 +582,15 @@ pub class Builder(Model)
     field = resolved_attribute_field(field)
     foreign_key = association_foreign_key(field)
     field = foreign_key unless foreign_key.nil?
-    if value.responds_to?(:__primary_value)
+    if value.responds_to?(:subquery_parts)
+      safe_field = structured_field_sql(field)
+      return self if safe_field.nil?
+      parts = value.subquery_parts
+      return self.defer(parts) if parts.is_a?(ErrorBase)
+      statement, values = parts
+      own_where_fields << {join: join, stmt: "#{safe_field} IN (#{statement})", values: values}
+      self
+    elsif value.responds_to?(:__primary_value)
       return self.defer(ArgumentError.new("#{field.inspect} is not an association of #{Model}")) if foreign_key.nil?
       add_condition(join, field, value.__primary_value)
     elsif value.is_a?(Range)
