@@ -5,6 +5,7 @@ import grant/adapter/base::{Base}
 import grant/adapter/registry::{Registry, UnknownAdapterError}
 import grant/health_monitor::{HealthMonitorRegistry, HealthMonitor}
 import grant/pool_reaper::{PoolReaper}
+import grant/replica_load_balancer::{ReplicaLoadBalancer, LoadBalancingStrategy, RoundRobinStrategy, LoadBalancerRegistry}
 import grant/error_taxonomy::{ConnectionFailed}
 import grant/settings
 import grant/connections::{Connections}
@@ -41,6 +42,7 @@ pub class ConnectionRegistry
     end
   end
 
+  @@strategies = {} of String => LoadBalancingStrategy
   @@reapers = {} of String => PoolReaper
   @@default_database : String? = nil
 
@@ -87,6 +89,7 @@ pub class ConnectionRegistry
     @@specifications[key] = specification
     @@adapters[key] = instance
     HealthMonitorRegistry.register(key, instance, specification)
+    register_replica(database, instance, key) if role == :reading
     Connections.register(database, instance) if role == :primary
     Connections.register_role(database, instance, role)
     previous.disconnect_strict! unless previous.nil?
@@ -103,11 +106,26 @@ pub class ConnectionRegistry
 
   def self.establish_connection(database : String, adapter : T.class, url : String,
                                 role : Symbol = :primary, **options) : Nil | ErrorBase forall T
-    establish_connection(database: database, adapter: adapter, url: url, role: role,
-      pool_size: options[:pool_size]? || 25,
-      initial_pool_size: options[:initial_pool_size]? || 2,
-      max_idle_pool_size: options[:max_idle_pool_size]? || 25)!
-    instance = get_adapter(database, role)
+    role = normalize_role(role)
+    index = options[:replica_index]? || 0
+    key = key_for(database, role, nil, index)
+    if index == 0
+      establish_connection(database: database, adapter: adapter, url: url, role: role,
+        pool_size: options[:pool_size]? || 25,
+        initial_pool_size: options[:initial_pool_size]? || 2,
+        max_idle_pool_size: options[:max_idle_pool_size]? || 25)!
+    else
+      previous = @@adapters[key]?
+      instance = adapter.new(key, url)
+      instance.pool_size = options[:pool_size]? || 25
+      @@adapters[key] = instance
+      specification = ConnectionSpec.new(database, url, role)
+      @@specifications[key] = specification
+      HealthMonitorRegistry.register(key, instance, specification)
+      previous.disconnect_strict! if previous
+    end
+    instance = @@adapters[key]
+    register_replica(database, instance, key, options[:replica_weight]? || 1) if role == :reading
     instance.statement_limit = options[:statement_limit]? || 1000
     instance.prepared_statements = options[:prepared_statements]? != false
     instance.idle_timeout = options[:idle_timeout]? || nil
@@ -126,6 +144,11 @@ pub class ConnectionRegistry
 
   def self.get_adapter?(database : String, role : Symbol = :primary) : Base?
     role = normalize_role(role)
+    if role == :reading
+      balancer = LoadBalancerRegistry.get(database)
+      picked = balancer.next_replica unless balancer.nil?
+      return picked unless picked.nil?
+    end
     requested = @@adapters[key_for(database, role)]?
     monitor = HealthMonitorRegistry.get(key_for(database, role))
     return requested if requested && (monitor.nil? || monitor.healthy?)
@@ -152,6 +175,8 @@ pub class ConnectionRegistry
   def self.remove_connection(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : Bool | ErrorBase
     role = normalize_role(role)
     key = key_for(database, role, shard, replica_index)
+    balancer = LoadBalancerRegistry.get(database)
+    balancer.remove_key(key) if role == :reading && balancer
     reaper = @@reapers.delete(key)
     reaper.stop if reaper
     HealthMonitorRegistry.unregister(key)
@@ -165,6 +190,8 @@ pub class ConnectionRegistry
   end
 
   def self.clear_all : Nil | ErrorBase
+    LoadBalancerRegistry.clear
+    @@strategies = {} of String => LoadBalancingStrategy
     reapers = @@reapers.values
     @@reapers = {} of String => PoolReaper
     reapers.each(&.stop)
@@ -179,6 +206,35 @@ pub class ConnectionRegistry
     @@specifications = {} of String => ConnectionSpec
     retired.each do |adapter|
       adapter.disconnect_strict!
+    end
+    nil
+  end
+
+  def self.register_replica(database : String, adapter : Base, key : String, weight : Int32 = 1) : Nil
+    balancer = LoadBalancerRegistry.get(database)
+    unless balancer
+      balancer = ReplicaLoadBalancer.new([] of Base, @@strategies[database]? || RoundRobinStrategy.new)
+      LoadBalancerRegistry.register(database, balancer)
+    end
+    balancer.add_replica(adapter, HealthMonitorRegistry.get(key), key, weight)
+    nil
+  end
+
+  def self.get_load_balancer(database : String) : ReplicaLoadBalancer?
+    LoadBalancerRegistry.get(database)
+  end
+
+  def self.load_balancing_strategy(database : String, strategy : LoadBalancingStrategy) : Nil
+    @@strategies[database] = strategy
+    balancer = LoadBalancerRegistry.get(database)
+    balancer.strategy = strategy if balancer
+    nil
+  end
+
+  def self.establish_replicas(database : String, adapter : T.class, urls : Array(String)) : Nil | ErrorBase forall T
+    urls.each_with_index do |url, index|
+      establish_connection(database: database, adapter: adapter, url: url,
+        role: :reading, replica_index: index)!
     end
     nil
   end

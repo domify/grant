@@ -331,6 +331,10 @@ pub abstract class Base
     end
   end
 
+  def active_checkouts : Int32
+    @in_use
+  end
+
   @in_use : Int32 = 0
   # Fiber-owned pins, as in upstream grant_pinned_connections. Keeping the
   # map on the adapter avoids adding fields to the native scheduler's fibers.

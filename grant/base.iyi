@@ -1,4 +1,5 @@
 module grant/base
+import grant/replica_load_balancer
 
 import db/db/value
 import std/named_tuple
@@ -273,6 +274,18 @@ pub abstract class Base
     ::Grant::ConnectionHandling::ConnectionHandling.primary_abstract_class_name = {{ @type.stringify }}
   end
 
+  macro configure_connection(**options)
+    {% if strategy = options[:load_balancing_strategy] %}
+      @[::Grant::ReplicaLoadBalancer::StrategyConfig]
+      def __replica_strategy_marker : Nil
+        nil
+      end
+      def self.__configured_replica_strategy : ::Grant::ReplicaLoadBalancer::LoadBalancingStrategy
+        {{ strategy }}
+      end
+    {% end %}
+  end
+
   macro connects_to(database = nil, config = nil, shards = nil)
     {% config = database if !config && database.is_a?(NamedTupleLiteral) %}
     @[::Grant::ConnectionManagement::ConnectsTo(database: {{ database || "primary" }}, config: {{ config }}, shards: {{ shards }})]
@@ -295,6 +308,7 @@ pub abstract class Base
           {{ role.symbolize }} => {{ name }},
         {% end %}
       } of Symbol => String
+      @@replica_strategy_registered : Bool = self.__register_replica_strategy
       def self.connection_config : Hash(Symbol, String)
         @@own_connection_config ||= {
           {% for role, name in config %}
@@ -843,6 +857,7 @@ pub abstract class Base
     ::Grant::Dependent.model_methods({{ @type }})
     ::Grant::ConnectionHandling.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
+    ::Grant::ReplicaLoadBalancer.model_methods({{ @type }})
     ::Grant::DatabaseConfigurations.model_methods({{ @type }})
     ::Grant::Integrators.create_methods({{ @type }})
     ::Grant::Scoping.model_methods({{ @type }})
