@@ -2442,7 +2442,7 @@
   target: test/grant_persistence_touch_options_test.iyi
   area: dirty_state
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/w6_dirty_typed_spec.cr
   target: test/grant_persistence_w6_dirty_typed_test.iyi
   area: dirty_state
