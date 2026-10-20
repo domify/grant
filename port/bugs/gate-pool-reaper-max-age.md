@@ -23,3 +23,6 @@ review of native PostgreSQL startup performance or the timing gate's assumptions
 The port also fixes concurrent lazy database initialization: PostgreSQL startup yields, so
 simultaneous first checkouts previously created separate pools. Initialization now serializes,
 and pool growth counts pending connection opens toward its configured capacity.
+
+Reconfirmed on 2026-10-21: SQLite passes; PostgreSQL fails at target line 85.
+The first connection aged 267 ms before release; the other two aged 2 ms and 0 ms.
