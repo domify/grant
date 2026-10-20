@@ -8,6 +8,8 @@ import grant/adapter/driver::{Value, Mutation}
 import grant/errors::{DatabaseError, RecordNotFound, ErrorBase}
 import grant/error::{ArgumentError}
 import grant/locking::{LockMode}
+import grant/locking/clause::{Clause}
+import grant/query/locking::{Locking}
 import grant/query/where_field::{Bind, WhereField, StructuredWhere, JoinClause, HavingClause, OrderField, GroupField}
 pub import grant/query/where_field
 import grant/query/bind_value::{to_bind, to_value}
@@ -66,6 +68,7 @@ pub class Builder(Model)
   getter offset : Int64? = nil
   getter limit : Int64? = nil
   getter lock_mode : LockMode? = nil
+  property lock_clause : Clause? = nil
   property select_columns : Array(String)? = nil
   property includes_associations = [] of Symbol
   property preload_associations = [] of Symbol
@@ -118,12 +121,16 @@ pub class Builder(Model)
   end
 
   def locked? : Bool
-    !@lock_mode.nil?
+    !@lock_mode.nil? || !@lock_clause.nil?
   end
 
   def lock_sql(adapter : ::Grant::Adapter::Base::Base) : String?
     mode = @lock_mode
-    return nil if mode.nil?
+    if mode.nil?
+      custom = @lock_clause
+      return nil if custom.nil?
+      return adapter.supports_lock_mode?(LockMode::Update) ? custom.sql : ""
+    end
     clause = mode.to_sql(adapter)
     clause.empty? ? nil : clause
   end
@@ -263,6 +270,7 @@ pub class Builder(Model)
     @offset = source.offset
     @limit = source.limit
     @lock_mode = source.lock_mode
+    @lock_clause = source.lock_clause
     columns = source.select_columns
     @select_columns = columns.nil? ? nil : columns.dup
     @distinct = source.distinct?
@@ -867,6 +875,7 @@ pub class Builder(Model)
   def lock_in_place(mode : LockMode? = LockMode::Update) : self
     reset_load_state
     @lock_mode = mode
+    @lock_clause = nil
     self
   end
 
@@ -987,7 +996,7 @@ pub class Builder(Model)
       when :left_joins, :left_outer_joins then @join_clauses = @join_clauses.reject { |clause| clause[:type] == :left }
       when :select             then @select_columns = nil
       when :distinct           then @distinct = false
-      when :lock               then @lock_mode = nil
+      when :lock               then unlock_in_place
       when :readonly           then @readonly = false
       when :strict_loading     then @strict_loading = false
       when :optimizer_hints    then @optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
@@ -1519,4 +1528,7 @@ impl QueryMethods(Model) for Builder(Model) forall Model
 end
 
 impl CacheKeys(Model) for Builder(Model) forall Model
+end
+
+impl Locking(Model) for Builder(Model) forall Model
 end

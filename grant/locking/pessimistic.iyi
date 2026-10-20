@@ -23,6 +23,14 @@ pub macro model_methods(model)
     current_scope.lock(mode)
   end
 
+  def self.lock(clause : ::Grant::Locking::Clause::Clause) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.lock(clause)
+  end
+
+  def self.lock(enabled : Bool) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.lock(enabled)
+  end
+
   def self.with_lock(id : ::Grant::Adapter::Driver::Value, mode : ::Grant::Locking::LockMode = ::Grant::Locking::LockMode::Update, requires_new : Bool = false, isolation : ::Grant::Transaction::IsolationLevel? = nil, &block : {{ model }} -> U) : U | ::Grant::Error::ErrorBase | ::Grant::Errors::RecordNotFound forall U
     outcomes = [] of U
     result = transaction(requires_new: requires_new, isolation: isolation) do

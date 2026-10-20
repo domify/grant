@@ -103,6 +103,8 @@ pub trait RelationMerging(Model)
     offset_in_place(incoming_offset) unless incoming_offset.nil?
     incoming_lock = other.lock_mode
     lock_in_place(incoming_lock) unless incoming_lock.nil?
+    incoming_clause = other.lock_clause
+    lock_in_place(incoming_clause) unless incoming_clause.nil?
     other.join_clauses.each do |clause|
       own_join_clauses << clause unless join_clauses.any? { |existing| existing.to_s == clause.to_s }
     end

@@ -1,5 +1,6 @@
 module grant/locking
 
+pub import grant/locking/clause
 import grant/error_taxonomy
 
 pub alias LockWaitTimeoutError = ::Grant::ErrorTaxonomy::LockWaitTimeout

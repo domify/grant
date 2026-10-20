@@ -890,7 +890,7 @@
   target: test/grant_locking_lock_clause_test.iyi
   area: query
   examples: 18
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/middleware/database_selector_databases_spec.cr
   target: test/grant_middleware_database_selector_databases_test.iyi
   area: query
