@@ -1,14 +1,91 @@
 module grant/query/relation_merging
 
+import grant/query/where_field::{WhereField, StructuredWhere}
+import grant/query/predicate_renderer::{PredicateRenderer}
+import grant/adapter/driver::{Value}
+import grant/error::{ErrorBase}
+import std/set
+
 # Structural merge slice of upstream query/builder.cr. Clause equality uses
 # printed tuples because native NamedTuple equality currently returns false.
 pub trait RelationMerging(Model)
+  def merge(&block : self -> self) : self
+    merge(yield self.class.new(db_type))
+  end
+
+  def merge_in_place(&block : self -> self) : self
+    merge_in_place(yield self.class.new(db_type))
+  end
+
+  def merge(**matches) : self
+    merge(self.class.new(db_type).where(**matches))
+  end
+
+  def merge_in_place(**matches) : self
+    merge_in_place(self.class.new(db_type).where(**matches))
+  end
+
+  private def merge_where_fields_in_place(other : self) : Nil
+    incoming = other.where_fields
+    return nil if incoming.empty?
+    if incoming.all? { |clause| clause[:join] == :and } && where_fields.all? { |clause| clause[:join] == :and }
+      replaced = Set(String).new
+      incoming.each do |clause|
+        if clause.is_a?(StructuredWhere)
+          replaced << clause[:field].split('.').last if clause[:operator] == :eq || clause[:operator] == :in
+        else
+          registered = other.raw_where_columns[clause[:stmt]]?
+          replaced << registered[0] if registered && registered[1]
+        end
+      end
+      unscope_where_columns(replaced.to_a) unless replaced.empty?
+      own_where_fields.concat(incoming)
+      incoming.each do |clause|
+        unless clause.is_a?(StructuredWhere)
+          registered = other.raw_where_columns[clause[:stmt]]?
+          raw_where_columns[clause[:stmt]] = registered unless registered.nil?
+        end
+      end
+    else
+      if where_fields.any? { |clause| clause[:join] == :or }
+        rendered = merged_where_group(where_fields)
+        if rendered.is_a?(ErrorBase)
+          self.defer(rendered)
+          return nil
+        end
+        sql, values = rendered
+        clear_where_fields
+        own_where_fields << {join: :and, stmt: "(#{sql})", values: values}
+      end
+      rendered = merged_where_group(incoming)
+      if rendered.is_a?(ErrorBase)
+        self.defer(rendered)
+      else
+        sql, values = rendered
+        own_where_fields << {join: :and, stmt: "(#{sql})", values: values}
+      end
+    end
+    nil
+  end
+
+  private def merged_where_group(fields : Array(WhereField)) : Tuple(String, Array(Value)) | ErrorBase
+    values = [] of Value
+    renderer = PredicateRenderer.new(Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, join_clauses)
+    renderer.rendering_where_group = true
+    sql = renderer.render_where_fields(fields)!
+    {sql, values}
+  end
+
   def merge(other : self) : self
     chain_copy.merge_in_place(other)
   end
 
   def merge_in_place(other : self) : self
-    own_where_fields.concat(other.where_fields)
+    reset_load_state
+    merge_where_fields_in_place(other)
     other.order_fields.each do |term|
       own_order_fields << term unless order_fields.any? { |existing| existing.to_s == term.to_s }
     end

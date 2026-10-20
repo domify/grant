@@ -1133,7 +1133,7 @@
   target: test/grant_query_merge_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/modifiers_spec.cr
   target: test/grant_query_modifiers_test.iyi
   area: query
