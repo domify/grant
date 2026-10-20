@@ -1021,7 +1021,11 @@ pub class Builder(Model)
       end
     end
     unknown = normalized.reject { |component| RELATION_COMPONENTS.includes?(component) }
-    return chain_copy.defer(ArgumentError.new("only: unknown component #{unknown.first.inspect}")) unless unknown.empty?
+    unless unknown.empty?
+      copy = chain_copy
+      copy.deferred_error = copy.deferred_error || ArgumentError.new("only: unknown component #{unknown.first.inspect}")
+      return copy
+    end
     dropped = RELATION_COMPONENTS.reject { |component| normalized.includes?(component) }
     chain_copy.unscope_components_in_place(dropped)
   end

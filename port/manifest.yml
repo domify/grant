@@ -1188,7 +1188,7 @@
   target: test/grant_query_relation_components_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/relation_immutability_spec.cr
   target: test/grant_query_relation_immutability_test.iyi
   area: query
