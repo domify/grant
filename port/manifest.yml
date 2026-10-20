@@ -1718,7 +1718,7 @@
   target: test/grant_validations_validator_test.iyi
   area: query
   examples: 7
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/w6_i18n_spec.cr
   target: test/grant_validations_w6_i18n_test.iyi
   area: query
