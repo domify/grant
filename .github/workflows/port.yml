@@ -70,4 +70,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p build/tmp
+          # The iyi pg driver cannot resolve service hostnames; hand it the address.
+          export PG_SERVER_URL="postgres://grant:password@$(getent hosts postgres | cut -d' ' -f1):5432"
           IYI=$PWD/iyi/bin/iyi TMPDIR=$PWD/build/tmp bin/port-check --integrate
