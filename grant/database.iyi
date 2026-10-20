@@ -3,6 +3,8 @@ module grant/database
 import grant/adapter/driver::{Connection}
 import grant/adapter/drivers::{open_connection}
 import grant/errors::{DatabaseError}
+import std/time::{Span}
+import grant/adapter/pool_support::{ticks}
 import grant/error::{ErrorBase}
 import grant/error_taxonomy::{ConnectionTimeoutError}
 
@@ -62,8 +64,10 @@ pub struct PoolStats
 end
 
 pub class Pool
+  property max_age : Span? = nil
   @connections = [] of Connection
   @reserved = [] of Connection
+  @opening_connections : Int32 = 0
   @path : String
   @max_connections : Int32
   @busy_timeout_ms : Int32
@@ -84,10 +88,12 @@ pub class Pool
     @connections.each do |connection|
       return connection unless @reserved.includes?(connection)
     end
-    if @connections.size >= @max_connections
+    if @connections.size + @opening_connections >= @max_connections
       cause = PoolTimeout.new("Connection pool exhausted")
       return ConnectionTimeoutError.new(cause.message, cause)
     end
+    @opening_connections += 1
+    defer (@opening_connections -= 1)
     connection = open_connection(@path, @busy_timeout_ms)!
     @connections << connection
     connection
@@ -100,7 +106,54 @@ pub class Pool
 
   def release(connection : Connection) : Nil
     @reserved.delete(connection)
+    age = @max_age
+    retire(connection) if age && ticks - connection.grant_created_ticks >= age.total_milliseconds
     nil
+  end
+
+  private def retire(connection : Connection) : Bool
+    return false if connection.close.is_a?(::Error)
+    @connections.delete(connection)
+    true
+  end
+
+  def close_idle_connections(keep : Int32 = 0) : Int32
+    closed = 0
+    @connections.dup.each do |connection|
+      next if @reserved.includes?(connection) || @connections.size <= keep
+      closed += 1 if retire(connection)
+    end
+    closed
+  end
+
+  def close_aged_connections : Int32
+    age = @max_age
+    return 0 unless age
+    closed = 0
+    now = ticks
+    @connections.dup.each do |connection|
+      next if @reserved.includes?(connection)
+      if now - connection.grant_created_ticks >= age.total_milliseconds
+        closed += 1 if retire(connection)
+      end
+    end
+    closed
+  end
+
+  def keepalive_idle_connections : Int32
+    checked = 0
+    @connections.dup.each do |connection|
+      next if @reserved.includes?(connection)
+      reserve(connection)
+      result = connection.scalar("SELECT 1")
+      release(connection)
+      if result.is_a?(::Error)
+        retire(connection)
+      else
+        checked += 1
+      end
+    end
+    checked
   end
 
   def discard(connection : Connection, path : String) : Nil | DatabaseError

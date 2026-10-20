@@ -64,6 +64,7 @@ end
 pub abstract class Connection
   @savepoint_sequence : UInt64 = 0_u64
   property name : String = "sqlite"
+  property grant_created_ticks : Int64 = ::Grant::Adapter::PoolSupport.ticks
   property grant_last_used_ticks : Int64 = ::Grant::Adapter::PoolSupport.ticks
   property transaction_materializer : Proc(Nil | DatabaseError)? = nil
   property query_observer : Proc(String, Nil)? = nil

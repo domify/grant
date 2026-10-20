@@ -3,7 +3,8 @@ module grant/connection_registry
 import std/time::{Span}
 import grant/adapter/base::{Base}
 import grant/adapter/registry::{Registry, UnknownAdapterError}
-import grant/health_monitor::{HealthMonitorRegistry}
+import grant/health_monitor::{HealthMonitorRegistry, HealthMonitor}
+import grant/pool_reaper::{PoolReaper}
 import grant/error_taxonomy::{ConnectionFailed}
 import grant/settings
 import grant/connections::{Connections}
@@ -30,6 +31,7 @@ pub class ConnectionRegistry
     end
   end
 
+  @@reapers = {} of String => PoolReaper
   @@default_database : String? = nil
 
   def self.default_database : String
@@ -89,6 +91,27 @@ pub class ConnectionRegistry
     nil
   end
 
+  def self.establish_connection(database : String, adapter : T.class, url : String,
+                                role : Symbol = :primary, **options) : Nil | ErrorBase forall T
+    establish_connection(database: database, adapter: adapter, url: url, role: role,
+      pool_size: options[:pool_size]? || 25,
+      initial_pool_size: options[:initial_pool_size]? || 2,
+      max_idle_pool_size: options[:max_idle_pool_size]? || 25)!
+    instance = get_adapter(database, role)
+    instance.idle_timeout = options[:idle_timeout]? || nil
+    instance.min_connections = options[:min_connections]? || 0
+    instance.max_age = options[:max_age]? || nil
+    instance.keepalive = options[:keepalive]? || nil
+    if frequency = options[:reaping_frequency]?
+      unless HealthMonitor.test_mode
+        reaper = PoolReaper.new(instance, frequency)
+        @@reapers[key_for(database, normalize_role(role))] = reaper
+        reaper.start
+      end
+    end
+    nil
+  end
+
   def self.get_adapter?(database : String, role : Symbol = :primary) : Base?
     role = normalize_role(role)
     requested = @@adapters[key_for(database, role)]?
@@ -117,6 +140,8 @@ pub class ConnectionRegistry
   def self.remove_connection(database : String, role : Symbol = :writing, shard : Symbol? = nil, replica_index : Int32 = 0) : Bool | ErrorBase
     role = normalize_role(role)
     key = key_for(database, role, shard, replica_index)
+    reaper = @@reapers.delete(key)
+    reaper.stop if reaper
     HealthMonitorRegistry.unregister(key)
     spec = @@specifications.delete(key)
     removed = @@adapters.delete(key)
@@ -128,6 +153,9 @@ pub class ConnectionRegistry
   end
 
   def self.clear_all : Nil | ErrorBase
+    reapers = @@reapers.values
+    @@reapers = {} of String => PoolReaper
+    reapers.each(&.stop)
     HealthMonitorRegistry.clear
     retired = @@adapters.values
     @@specifications.values.each do |spec|

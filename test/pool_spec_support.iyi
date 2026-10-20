@@ -49,6 +49,18 @@ pub class C02Support
     nil
   end
 
+  def self.establish(database : String, pool_size : Int32 = 25, initial_pool_size : Int32 = 2,
+                     max_idle_pool_size : Int32 = 25, **options) : Base
+    if CURRENT_ADAPTER == "pg"
+      ConnectionRegistry.establish_connection(**options, database: database, adapter: Pg, url: url(database), role: :writing,
+        pool_size: pool_size, initial_pool_size: initial_pool_size, max_idle_pool_size: max_idle_pool_size).or_panic
+    else
+      ConnectionRegistry.establish_connection(**options, database: database, adapter: Sqlite, url: url(database), role: :writing,
+        pool_size: pool_size, initial_pool_size: initial_pool_size, max_idle_pool_size: max_idle_pool_size).or_panic
+    end
+    ConnectionRegistry.get_adapter(database, :writing)
+  end
+
   def self.establish(database : String, role : Symbol = :writing, pool_size : Int32 = 25, initial_pool_size : Int32 = 2, max_idle_pool_size : Int32 = 25, checkout_timeout : Span = Span.seconds(5_i64), verify_idle_after : Span? = Span.seconds(30_i64), retry_attempts : Int32 = 1, retry_delay : Span = Span.milliseconds(200_i64)) : Base
     if CURRENT_ADAPTER == "pg"
       ConnectionRegistry.establish_connection(database: database, adapter: Pg, url: url(database), role: role, pool_size: pool_size, initial_pool_size: initial_pool_size, max_idle_pool_size: max_idle_pool_size, checkout_timeout: checkout_timeout, verify_idle_after: verify_idle_after).or_panic

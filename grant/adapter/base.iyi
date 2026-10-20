@@ -172,6 +172,30 @@ pub abstract class Base
   getter name : String
   getter url : String
   @_database : Database? = nil
+  @opening_database : Bool = false
+  property idle_timeout : Span? = nil
+  property max_age : Span? = nil
+  property keepalive : Span? = nil
+  property min_connections : Int32 = 0
+  getter last_used_ticks : Int64 = ticks
+
+  def close_idle_connections(*, keep : Int32 = 0) : Int32
+    opened = @_database
+    opened ? opened.pool.close_idle_connections(keep) : 0
+  end
+
+  def close_aged_connections : Int32
+    opened = @_database
+    return 0 unless opened
+    opened.pool.max_age = @max_age
+    opened.pool.close_aged_connections
+  end
+
+  def keepalive_idle_connections : Int32
+    opened = @_database
+    opened ? opened.pool.keepalive_idle_connections : 0
+  end
+
   property retry_attempts : Int32 = 1
   property retry_delay : Span = Span.milliseconds(200_i64)
   property verify_idle_after : Span? = Span.seconds(30_i64)
@@ -188,9 +212,15 @@ pub abstract class Base
   end
 
   def database : Database | DatabaseError | ConnectionRefused
+    while @opening_database
+      return ConnectionRefused.new if sleep(1).is_a?(Cancelled)
+    end
     opened = @_database
     return opened unless opened.nil?
+    @opening_database = true
+    defer (@opening_database = false)
     opened = Database.open(database_path, @pool_size, @busy_timeout_ms)!
+    opened.pool.max_age = @max_age
     @_database = opened
     opened
   end
@@ -376,6 +406,7 @@ pub abstract class Base
           return usable
         end
         if usable
+          @last_used_ticks = ticks
           connection.name = name
           @waiting_checkouts -= 1
           return connection
