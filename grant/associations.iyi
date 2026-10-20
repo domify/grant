@@ -257,7 +257,7 @@ pub macro has_one_through(name, target, foreign_key, primary_key, through, sourc
     owner_key = {{ target }}.quote({{ foreign_key.id.stringify }})
     value = read_attribute({{ primary_key.id.stringify }})!
     sql = "SELECT #{table}.* FROM #{table} JOIN #{join_table} ON #{join_table}.#{source_key} = #{table}.#{target_key} WHERE #{join_table}.#{owner_key} = ? LIMIT 1"
-    {{ target }}.find_by_sql(sql, [value] of ::Grant::Adapter::Driver::Value)!.first?
+    {{ target }}.find_by_sql(sql, [::Grant::Base.sqlite_value(value)] of ::Grant::Adapter::Driver::Value)!.first?
   end
 
   def {{ name }}_strict : {{ target }} | ::Grant::Error::ErrorBase

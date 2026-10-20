@@ -1,6 +1,7 @@
 module grant/association_collection
 
 import grant/query/builder::{Builder}
+import grant/query/bind_value
 import grant/associations/collection_finders::{CollectionFinders}
 import grant/associations/collection_relation::{CollectionRelation}
 import grant/error::{ErrorBase}
@@ -70,8 +71,8 @@ pub class AssociationCollection(Owner, Target)
   end
 
   def all(clause : String, params : Array(V)) : Array(Target) | ErrorBase forall V
-    values = [owner_key] of ::Grant::Adapter::Driver::Value
-    params.each { |value| values << value }
+    values = [::Grant::Query::BindValue.to_value(owner_key)] of ::Grant::Adapter::Driver::Value
+    params.each { |value| values << ::Grant::Query::BindValue.to_value(value) }
     condition = @through_condition || "#{Target.table_name}.#{@foreign_key} = ?"
     Target.find_by_sql("SELECT #{Target.table_name}.* FROM #{Target.table_name} WHERE #{condition} #{clause}", values)
   end

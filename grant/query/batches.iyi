@@ -1,6 +1,7 @@
 module grant/query/batches
 
 import grant/adapter/driver::{Value}
+import grant/query/bind_value
 import grant/errors::{DatabaseError, ErrorBase}
 
 import grant/error::{ArgumentError}
@@ -94,7 +95,7 @@ pub trait Batches(Model)
       plan.fields.each do |field|
         value = last.read_attribute(field.split('.').last)!
         return ArgumentError.new("Cannot batch #{Model} by #{field}: a row has NULL there") if value.nil?
-        values << value
+        values << ::Grant::Query::BindValue.to_value(value)
       end
       position.last_values = values
     end

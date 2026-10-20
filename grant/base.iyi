@@ -1389,6 +1389,14 @@ pub abstract class Base
       record
     end
 
+    def self.find(id : ::Std::Big::BigDecimal) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+      find(::Grant::Base.sqlite_value(id))
+    end
+
+    def self.find_strict(id : ::Std::Big::BigDecimal) : {{ @type }} | ::Grant::Errors::RecordNotFound | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
+      find_strict(::Grant::Base.sqlite_value(id))
+    end
+
     def self.find(id : Int32) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       find(::Grant::Base.sqlite_value(id))
     end
