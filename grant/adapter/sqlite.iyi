@@ -183,7 +183,7 @@ pub class Sqlite < Base
   end
 
   def quote(name : String) : String
-    "\"#{name.gsub("\"", "\"\"")}\""
+    name.split('.').map { |part| "\"#{part.gsub("\"", "\"\"")}\"" }.join(".")
   end
 
   protected def database_path : String

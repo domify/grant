@@ -169,7 +169,7 @@ pub class Pg < Base
   end
 
   def quote(name : String) : String
-    "\"#{name.gsub("\"", "\"\"")}\""
+    name.split('.').map { |part| "\"#{part.gsub("\"", "\"\"")}\"" }.join(".")
   end
 
   def quote_boolean(value : Bool) : String
