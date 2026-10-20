@@ -58,6 +58,8 @@ end
 
 STATE = State.new
 
+@@scoped_locales = {} of UInt64 => String
+
 pub def translator : Translator
   STATE.translator
 end
@@ -69,7 +71,7 @@ pub def translator=(replacement : Translator) : Translator
 end
 
 pub def locale : String
-  STATE.locale
+  @@scoped_locales[IyiScheduler.current.object_id]? || STATE.locale
 end
 
 pub def locale=(replacement : String) : String
@@ -145,4 +147,31 @@ end
 pub def full_message(attribute : String, message : String) : String
   format = translator.translate(locale, "errors.format") || "%{attribute} %{message}"
   format.gsub("%{attribute}", attribute).gsub("%{message}", message)
+end
+
+pub def with_locale(locale : String, &block : -> T) : T forall T
+  key = IyiScheduler.current.object_id
+  previous = @@scoped_locales[key]?
+  @@scoped_locales[key] = locale
+  result = yield
+  if previous.nil?
+    @@scoped_locales.delete(key)
+  else
+    @@scoped_locales[key] = previous
+  end
+  result
+end
+
+pub def demodulize(model : String) : String
+  model.split("::").last
+end
+
+pub def human_model_name(model : String, count : Int? = nil) : String
+  active = translator
+  key = "models.#{model_key(model)}"
+  if count
+    found = active.translate(locale, "#{key}.#{count == 1 ? "one" : "other"}")
+    return found unless found.nil?
+  end
+  active.translate(locale, key) || humanize(model_key(demodulize(model)))
 end

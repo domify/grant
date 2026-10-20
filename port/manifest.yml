@@ -935,7 +935,7 @@
   target: test/grant_persistence_w6_model_name_test.iyi
   area: query
   examples: 9
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/w6_signed_id_spec.cr
   target: test/grant_persistence_w6_signed_id_test.iyi
   area: query
