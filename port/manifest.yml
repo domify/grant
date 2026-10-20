@@ -535,7 +535,7 @@
   target: test/integration_mixed_adapter_test.iyi
   area: transactions
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/adapter/adapter_matrix_doc_spec.cr
   target: test/adapter_adapter_matrix_doc_test.iyi
   area: query

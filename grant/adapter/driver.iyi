@@ -210,7 +210,7 @@ pub abstract class LibraryConnection < Connection
 
   private def publish_sql(sql : String, binds : Array(Value), operation : String, started : ::Std::Time::Span) : Nil
     return nil unless ::Grant::Events::SQL.subscribed?
-    ::Grant::Events::SQL.publish(::Grant::Events::SQL.new(sql, binds, operation, Time.monotonic - started, name))
+    ::Grant::Events::SQL.publish(::Grant::Events::SQL.new(statement_sql(sql), binds, operation, Time.monotonic - started, name))
   end
 
   def execute(sql : String, parameters : Array(Value) = [] of Value) : Mutation | DatabaseError
