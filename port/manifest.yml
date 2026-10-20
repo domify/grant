@@ -2367,7 +2367,7 @@
   target: test/grant_dirty_dirty_tracking_test.iyi
   area: dirty_state
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/dirty/mutation_detection_spec.cr
   target: test/grant_dirty_mutation_detection_test.iyi
   area: dirty_state

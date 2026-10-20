@@ -74,6 +74,32 @@ pub macro model_methods(model)
     end
   {% end %}
 
+  def saved_changes : Hash(String, Tuple(SavedValue, SavedValue))
+    previous_changes
+  end
+
+  def restore_attributes(names : Array(String) = changed) : Nil
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      @\{{ v.name }} = @__persisted_\{{ v.name }} if names.includes?(\{{ v.name.stringify }})
+    \{% end %}
+    nil
+  end
+
+  {% for method in model.resolve.methods.select { |method| method.name.starts_with?("__raw_") && !method.name.ends_with?("=") } %}
+    {% name = method.name[6..-1] %}
+    def {{ name.id }}_was : {{ method.return_type }}?
+      {{ name.id }}_in_database
+    end
+
+    def {{ name.id }}_change : Tuple({{ method.return_type }}?, {{ method.return_type }}?)?
+      {{ name.id }}_change_to_be_saved
+    end
+
+    def {{ name.id }}_before_last_save : {{ method.return_type }}?
+      {{ name.id }}_previously_was
+    end
+  {% end %}
+
   def clear_previous_changes : Nil
     @previous_changes = {} of String => Tuple(SavedValue, SavedValue)
     nil
