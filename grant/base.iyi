@@ -2028,6 +2028,7 @@ pub abstract class Base
   def save_strict(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
     __guard_context_writes!
     result = __run_save_transaction(validate: validate, skip_timestamps: skip_timestamps)
+    return result.cause if result.is_a?(::Grant::Callbacks::Failure)
     if result.is_a?(::Grant::Callbacks::Abort)
       errors << ::Grant::Error::Error.new(:base, result.message)
       return RecordNotSaved.new(__table_name)

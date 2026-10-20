@@ -10,6 +10,16 @@ impl ::Error for Abort
   end
 end
 
+# Retains an unexpected returned callback error through the existing Abort-only
+# hook signatures. Strict persistence unwraps it rather than treating it as an abort.
+pub class Failure < Abort
+  getter cause : ::Grant::Error::ErrorBase
+
+  def initialize(@cause : ::Grant::Error::ErrorBase)
+    super(@cause.message)
+  end
+end
+
 pub annotation Callback
 end
 
