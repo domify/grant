@@ -1128,7 +1128,7 @@
   target: test/grant_query_left_outer_joins_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/merge_spec.cr
   target: test/grant_query_merge_test.iyi
   area: query

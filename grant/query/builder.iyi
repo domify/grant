@@ -11,6 +11,7 @@ import grant/locking::{LockMode}
 import grant/query/where_field::{Bind, WhereField, StructuredWhere, JoinClause, HavingClause, OrderField, GroupField}
 pub import grant/query/where_field
 import grant/query/bind_value::{to_bind, to_value}
+pub import grant/query/join_support
 import grant/query/join_support::{JoinSupport}
 import grant/query/joins::{Joins}
 import grant/query/assembler

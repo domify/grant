@@ -5,6 +5,68 @@ import grant/error::{ArgumentError}
 
 # Association-name join slice of the upstream Builder reopening in joins.cr.
 pub trait Joins(Model)
+  private def append_association_path(path : Array(String), join_type : Symbol, alias_name : String? = nil) : self
+    clauses = Model.__query_join_path(path, join_type, Model.table_name, alias_name)
+    return self.defer(clauses) if clauses.is_a?(ArgumentError)
+    clauses.each do |clause|
+      own_join_clauses << clause unless join_clauses.any? { |existing| existing.to_s == clause.to_s }
+    end
+    self
+  end
+
+  def left_joins_in_place(name : Symbol, *, as alias_name : String? = nil) : self
+    append_association_path([name.to_s], :left, alias_name)
+  end
+
+  def left_joins_in_place(first : Symbol, second : Symbol) : self
+    left_joins_in_place(first)
+    left_joins_in_place(second)
+  end
+
+  def left_joins_in_place(first : Symbol, second : Symbol, *rest : Symbol) : self
+    left_joins_in_place(first)
+    left_joins_in_place(second)
+    rest.each { |name| left_joins_in_place(name) }
+    self
+  end
+
+  def left_joins_in_place(fragment : String) : self
+    joins_in_place(fragment)
+  end
+
+  def left_joins_in_place(**paths) : self
+    paths.each { |name, child| append_association_path([name.to_s, child.to_s], :left) }
+    self
+  end
+
+  def left_joins(name : Symbol, *, as alias_name : String? = nil) : self
+    chain_copy.left_joins_in_place(name, as: alias_name)
+  end
+
+  def left_joins(first : Symbol, second : Symbol) : self
+    chain_copy.left_joins_in_place(first, second)
+  end
+
+  def left_joins(first : Symbol, second : Symbol, *rest : Symbol) : self
+    chain_copy.left_joins_in_place(first, second, *rest)
+  end
+
+  def left_joins(fragment : String) : self
+    chain_copy.left_joins_in_place(fragment)
+  end
+
+  def left_joins(**paths) : self
+    chain_copy.left_joins_in_place(**paths)
+  end
+
+  def left_outer_joins(*args, **options) : self
+    left_joins(*args, **options)
+  end
+
+  def left_outer_joins_in_place(*args, **options) : self
+    left_joins_in_place(*args, **options)
+  end
+
   def joins(name : Symbol) : self
     chain_copy.joins_in_place(name)
   end
@@ -20,6 +82,41 @@ pub trait Joins(Model)
 end
 
 pub macro model_methods(model)
+  {% for operation in [:left_joins, :left_outer_joins] %}
+    def self.{{ operation.id }}(*args, **options) : ::Grant::Query::Builder::Builder({{ model }})
+      current_scope.{{ operation.id }}(*args, **options)
+    end
+  {% end %}
+
+  def self.__query_join_path(path : Array(String), join_type : Symbol, owner_ref : String, alias_name : String? = nil) : Array(::Grant::Query::WhereField::JoinClause) | ::Grant::Error::ArgumentError
+    return ::Grant::Error::ArgumentError.new("Join path is empty") if path.empty?
+    if alias_name && !::Grant::Query::JoinSupport::JoinSupport.identifier?(alias_name)
+      return ::Grant::Error::ArgumentError.new("Invalid join alias #{alias_name.inspect}")
+    end
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        if path.first == \{{ method.name.stringify }}
+          target_table = \{{ ann[:target] }}.table_name
+          target_ref = alias_name || target_table
+          \{% if ann[:type] == :belongs_to %}
+            on = "#{target_ref}.\{{ ann[:primary_key].id }} = #{owner_ref}.\{{ ann[:foreign_key].id }}"
+          \{% else %}
+            on = "#{target_ref}.\{{ ann[:foreign_key].id }} = #{owner_ref}.\{{ ann[:primary_key].id }}"
+          \{% end %}
+          table = alias_name ? "#{target_table} AS #{alias_name}" : target_table
+          clauses = [{type: join_type, table: table, on: on}] of ::Grant::Query::WhereField::JoinClause
+          if path.size > 1
+            remaining = [] of String
+            path.each_with_index { |part, index| remaining << part if index > 0 }
+            clauses.concat(\{{ ann[:target] }}.__query_join_path(remaining, join_type, target_ref)!)
+          end
+          return clauses
+        end
+      \{% end %}
+    \{% end %}
+    ::Grant::Error::ArgumentError.new("Unknown association #{path.first.inspect} for #{self}")
+  end
+
   def self.joins(name : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
     current_scope.joins(name)
   end
