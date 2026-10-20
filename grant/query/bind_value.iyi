@@ -49,7 +49,3 @@ pub def to_value(value : T) : Value forall T
   bound = to_bind(value)
   bound.is_a?(Array) ? nil : bound
 end
-
-pub def to_bind(value : ::Enum) : Bind
-  value.to_s
-end
