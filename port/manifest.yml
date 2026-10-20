@@ -2237,7 +2237,7 @@
   target: test/grant_schema_schema_cache_test.iyi
   area: associations
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/schema/type_mapping_spec.cr
   target: test/grant_schema_type_mapping_test.iyi
   area: associations
