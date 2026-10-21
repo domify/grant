@@ -42,11 +42,25 @@ pub class OrderSupport
 end
 
 pub trait Ordering(Model)
+  def order(field : Symbol | String, *, nulls : Symbol) : self
+    order(field, :asc, nulls: nulls)
+  end
+
+  def order(sql : ::Grant::Query::SqlExpression::Trusted) : self
+    chain_copy.order_in_place(sql)
+  end
+
+  def order_in_place(sql : ::Grant::Query::SqlExpression::Trusted) : self
+    append_order_terms(sql.sql, true)
+  end
+
   def order(field : Symbol | String, direction : Symbol, *, nulls : Symbol) : self
     chain_copy.order_in_place(field, direction, nulls: nulls)
   end
 
   def order_in_place(field : Symbol | String, direction : Symbol, *, nulls : Symbol) : self
+    return self.defer(ArgumentError.new("direction must be :asc or :desc")) unless direction == :asc || direction == :desc
+    return self.defer(ArgumentError.new("NULLS ordering takes a column name")) unless ::Grant::Query::SqlExpression.identifier?(field.to_s)
     return self.defer(ArgumentError.new("nulls must be :first or :last")) unless nulls == :first || nulls == :last
     own_order_fields << {field: field.to_s, direction: OrderSupport.sort_for(direction.to_s, nulls.to_s)}
     self
@@ -123,6 +137,14 @@ pub trait Ordering(Model)
 end
 
 pub macro model_methods(model)
+  def self.order(field : Symbol | String, *, nulls : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.order(field, nulls: nulls)
+  end
+
+  def self.order(sql : ::Grant::Query::SqlExpression::Trusted) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.order(sql)
+  end
+
   def self.in_order_of(column : Symbol | String, values : Array(T), filter : Bool = true) : ::Grant::Query::Builder::Builder({{ model }}) forall T
     current_scope.in_order_of(column, values, filter)
   end

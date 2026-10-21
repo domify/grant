@@ -10,6 +10,7 @@ import grant/query/from_and_with
 import grant/query/relation_rewrites
 pub import grant/query/builder
 pub import grant/scoping
+import grant/query/select_expressions::{SelectExtras}
 import grant/aggregations
 pub import grant/sti
 pub import grant/eager_loading
@@ -2240,6 +2241,9 @@ pub abstract class Base
     return true if destroy
     ::Grant::Errors::RecordNotDestroyed.new(self.class.to_s, self)
   end
+end
+
+impl SelectExtras for Base
 end
 
 pub def sqlite_value(value : Array(T)) : Value forall T

@@ -765,7 +765,13 @@ pub class Builder(Model)
 
   def order(field : Symbol | String, direction : Symbol) : self
     copy = chain_copy
-    copy.order_in_place({field.to_s => direction})
+    copy.order_in_place(field, direction)
+  end
+
+  def order_in_place(field : Symbol | String, direction : Symbol) : self
+    return self.defer(ArgumentError.new("direction must be :asc or :desc")) unless direction == :asc || direction == :desc
+    return self.defer(ArgumentError.new("ORDER BY is not a column or a function of columns")) unless ::Grant::Query::SqlExpression.identifier?(field.to_s)
+    order_in_place({field.to_s => direction})
   end
 
   def order(field : Symbol | String) : self
@@ -1127,9 +1133,23 @@ pub class Builder(Model)
 
   # SELECT projection: only these columns (upstream `select(*columns)`).
   def select(*columns : Symbol | String) : self
-    copy = chain_copy
-    copy.select_columns = columns.to_a.map { |column| column.to_s }
-    copy
+    chain_copy.select_in_place(*columns)
+  end
+
+  def select_in_place(*columns : Symbol | String) : self
+    reset_load_state
+    fields = [] of String
+    columns.each do |column|
+      if column.is_a?(String)
+        field = ::Grant::Query::SqlExpression.validate_strict(column, "SELECT expression")
+        return self.defer(field) if field.is_a?(ErrorBase)
+        fields << field
+      else
+        fields << resolved_attribute_field(column.to_s)
+      end
+    end
+    self.select_columns = fields
+    self
   end
 
   def select : Array(Model) | ErrorBase
