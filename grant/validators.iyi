@@ -2,6 +2,7 @@ module grant/validators
 
 import std/regex::{Regex}
 import std/text
+pub import grant/validator_info
 import grant/error
 pub import grant/validators/uniqueness
 pub import grant/validators/numericality
@@ -60,6 +61,7 @@ pub def blank?(value : T) : Bool forall T
 end
 
 pub macro model_methods(model)
+  ::Grant::ValidatorInfo.model_methods({{ model }})
   @validation_contexts : Array(Symbol)? = nil
 
   def __active_validation_contexts : Array(Symbol)
@@ -202,6 +204,7 @@ pub macro model_methods(model)
 
   macro validates_inclusion_of(*fields, **options)
     \{% for field in fields %}
+      ::Grant::ValidatorInfo.declare(:inclusion, \{{ field }}, \{{ options.double_splat }})
       def __validate_inclusion_\{{ field.id }} : Nil
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
@@ -371,6 +374,7 @@ pub macro model_methods(model)
 
   macro validates_exclusion_of(*fields, **options)
     \{% for field in fields %}
+      ::Grant::ValidatorInfo.declare(:exclusion, \{{ field }}, \{{ options.double_splat }})
       def __validate_exclusion_\{{ field.id }} : Nil
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})

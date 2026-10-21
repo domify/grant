@@ -1,5 +1,6 @@
 module grant/validators/numericality
 
+import grant/validator_info
 import std/text
 
 pub def numeric_value(value : T) : Int64 | Float64 | Nil forall T
@@ -28,6 +29,7 @@ end
 pub macro model_methods(model)
   macro validates_numericality_of(*fields, **options)
     \{% for field in fields %}
+      ::Grant::ValidatorInfo.declare(:numericality, \{{ field }}, \{{ options.double_splat }})
       def __validate_numericality_\{{ field.id }} : Nil | ::Grant::Error::ErrorBase
         input = __unconvertible_input(\{{ field.id.stringify }})
         unless input.nil?
