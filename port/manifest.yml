@@ -1738,7 +1738,7 @@
   target: test/grant_validators_built_in_test.iyi
   area: query
   examples: 19
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validators/parity_spec.cr
   target: test/grant_validators_parity_test.iyi
   area: query

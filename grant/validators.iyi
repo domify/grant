@@ -85,6 +85,12 @@ pub macro model_methods(model)
   end
 
 
+  def __unconvertible_input(attribute : String) : ::Grant::Columns::Type?
+    return nil unless errors.objects.any? { |error| error.is_a?(::Grant::Error::ConversionError) && error.attribute == attribute }
+    raw = attribute_before_type_cast(attribute)
+    raw.is_a?(::Grant::Error::ErrorBase) ? nil : raw
+  end
+
   def invalid?(context : Symbol | Array(Symbol) | Nil = nil) : Bool | ::Grant::Callbacks::Abort | ::Grant::Error::ErrorBase
     !valid?(context)!
   end
@@ -173,7 +179,7 @@ pub macro model_methods(model)
       def __validate_inclusion_\{{ field.id }} : Nil
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
-        unless (\{{ options[:in] || options[:within] }}).includes?(value)
+        unless (\{{ options[:in] || options[:within] }}).any? { |candidate| candidate == value }
           errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
             \{{ options[:message] || "is not included in the list" }}, :inclusion)
         end
@@ -331,10 +337,31 @@ pub macro model_methods(model)
       def __validate_exclusion_\{{ field.id }} : Nil
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
-        if (\{{ options[:in] || options[:within] }}).includes?(value)
+        if (\{{ options[:in] || options[:within] }}).any? { |candidate| candidate == value }
           errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
             \{{ options[:message] || "is reserved" }}, :exclusion)
         end
+        nil
+      end
+    \{% end %}
+  end
+
+  macro validates_associated(*associations, **options)
+    \{% for association in associations %}
+      def __validate_associated_\{{ association.id }} : Nil | ::Grant::Error::ErrorBase
+        associated = self.\{{ association.id }}
+        __validation_rule_options(\{{ association }}, associated, \{{ options.double_splat }})
+        valid = true
+        unless associated.nil?
+          if associated.responds_to?(:to_a)
+            records = associated.to_a
+            return records if records.is_a?(::Grant::Error::ErrorBase)
+            records.each { |record| valid = false unless record.valid?! }
+          else
+            valid = associated.valid?!
+          end
+        end
+        errors.add(\{{ association.id.stringify }}, :invalid, message: \{{ options[:message] || nil }}) unless valid
         nil
       end
     \{% end %}

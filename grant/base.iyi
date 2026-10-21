@@ -1884,6 +1884,7 @@ pub abstract class Base
           converted = value.to_i64?
           if converted.nil?
             errors.clear_conversion_error({{ key.symbolize }})
+            capture_before_type_cast({{ key.stringify }}, value)
             errors << ::Grant::Error::ConversionError.new({{ key.symbolize }}, "Expected {{ key.id }} to be {{ column.annotation(::Grant::Base::Column)[:type].id }}")
           else
             {% if column.annotation(::Grant::Base::Column)[:type].includes?("Int32") %}
@@ -1943,6 +1944,7 @@ pub abstract class Base
               self.{{ column.name }} = nil
             elsif converted.nil?
               errors.clear_conversion_error({{ column.name.symbolize }})
+              capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
               errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, "Expected integer")
             else
               self.{{ column.name }} = converted.to_i32
@@ -1954,6 +1956,7 @@ pub abstract class Base
               self.{{ column.name }} = nil
             elsif converted.nil?
               errors.clear_conversion_error({{ column.name.symbolize }})
+              capture_before_type_cast({{ column.name.stringify }}, value) if value.is_a?(String)
               errors << ::Grant::Error::ConversionError.new({{ column.name.symbolize }}, "Expected integer")
             else
               self.{{ column.name }} = converted

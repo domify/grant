@@ -10,7 +10,7 @@ pub def numeric_value(value : T) : Int64 | Float64 | Nil forall T
   elsif value.is_a?(String)
     integer = value.strip.to_i64?
     return integer unless integer.nil?
-    number = value.strip.to_f64?
+    number = value.strip.to_f?
     number && number.finite? ? number : nil
   else
     nil
@@ -21,10 +21,21 @@ pub def integer_value?(raw : T, number : Int64 | Float64) : Bool forall T
   number.is_a?(Int64) || raw.is_a?(Int32) || raw.is_a?(Int64)
 end
 
+pub def unstorable_type(number : Int64 | Float64) : Symbol
+  number.is_a?(Float64) ? :not_an_integer : :out_of_range
+end
+
 pub macro model_methods(model)
   macro validates_numericality_of(*fields, **options)
     \{% for field in fields %}
       def __validate_numericality_\{{ field.id }} : Nil | ::Grant::Error::ErrorBase
+        input = __unconvertible_input(\{{ field.id.stringify }})
+        unless input.nil?
+          typed = ::Grant::Validators::Numericality.numeric_value(input)
+          code = typed.nil? ? :not_a_number : ::Grant::Validators::Numericality.unstorable_type(typed)
+          errors.add(\{{ field.id.stringify }}, code, message: \{{ options[:message] || nil }}, value: input)
+          return nil
+        end
         value = self.\{{ field.id }}
         __validation_rule_options(\{{ field }}, value, \{{ options.double_splat }})
         number = ::Grant::Validators::Numericality.numeric_value(value)
