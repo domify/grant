@@ -1,5 +1,6 @@
 module grant/tasks/database
 
+import grant/database_configurations::{DatabaseConfig, DatabaseConfigurations}
 import grant/adapter/base::{Base}
 import grant/adapter/pg::{Pg}
 import grant/adapter/sqlite::{Sqlite}
@@ -41,6 +42,14 @@ pub class Database
                  @database_tasks : Bool = true)
     @adapter = adapter
   end
+  def self.for_config(config : DatabaseConfig, **options) : Database
+    new(config.url, config.env, config.name, **options, database_tasks: config.database_tasks?)
+  end
+
+  def self.for_configurations(configurations : DatabaseConfigurations, **options) : Array(Database)
+    configurations.task_configs.map { |config| for_config(config, **options) }
+  end
+
   def database_tasks? : Bool
     @database_tasks
   end
