@@ -495,7 +495,9 @@ pub class Builder(Model)
   def and_in_place(stmt : String, value : T) : self forall T
     bound = to_bind(value)
     if bound.is_a?(Array)
-      own_where_fields << {join: :and, stmt: stmt, values: bound.as(Array(Value))}
+      binds = [] of Value
+      bound.each { |item| binds << ::Db::Value.to_db_value(item) }
+      own_where_fields << {join: :and, stmt: stmt, values: binds}
     else
       own_where_fields << {join: :and, stmt: stmt, value: bound.as(Bind)}
     end
@@ -536,7 +538,9 @@ pub class Builder(Model)
   def or_in_place(stmt : String, value : T) : self forall T
     bound = to_bind(value)
     if bound.is_a?(Array)
-      own_where_fields << {join: :or, stmt: stmt, values: bound.as(Array(Value))}
+      binds = [] of Value
+      bound.each { |item| binds << ::Db::Value.to_db_value(item) }
+      own_where_fields << {join: :or, stmt: stmt, values: binds}
     else
       own_where_fields << {join: :or, stmt: stmt, value: bound.as(Bind)}
     end

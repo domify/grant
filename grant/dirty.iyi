@@ -7,6 +7,10 @@ import grant/columns::{Type}
 
 pub alias DirtyValue = Type | UUID | Bytes | Array(String) | Array(Int16) | Array(Int32) | Array(Int64) | Array(Float32) | Array(Float64) | Array(Bool) | Array(UUID) | Array(Time)
 
+pub def snapshot(value : T) : T forall T
+  value.is_a?(Array) ? value.dup : value
+end
+
 # Upstream's marker distinguishes an omitted filter from an explicit nil.
 pub struct Unfiltered
 end
@@ -15,9 +19,60 @@ pub UNFILTERED = Unfiltered.new
 # Scalar pre-save predicates share the column baselines already captured by
 # Base on construction, hydration, successful persistence and rollback.
 pub macro model_methods(model)
+  @__forced_dirty_columns = [] of String
+
+  def __forced_dirty_attribute?(name : String) : Bool
+    @__forced_dirty_columns.includes?(name)
+  end
+
+  def attribute_changed?(name : String | Symbol, *, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
+    will_save_change_to_attribute?(name, from: from, to: to)
+  end
+
+  def attribute_will_change_in_place(name : String | Symbol) : Nil
+    key = name.to_s
+    @__forced_dirty_columns << key unless @__forced_dirty_columns.includes?(key)
+    nil
+  end
+
+  def restore_attribute_in_place(name : String | Symbol) : Nil
+    restore_attributes([name.to_s])
+  end
+
+  def clear_attribute_changes(names : Array(String)? = nil) : Nil
+    clear_dirty_tracking_for(names || changed)
+  end
+
+  def clear_changes_information : Nil
+    establish_initial_dirty_baseline
+    @__forced_dirty_columns.clear
+    clear_previous_changes
+  end
+
+  def changes_applied : Nil
+    __capture_saved_changes
+    establish_initial_dirty_baseline
+    @__forced_dirty_columns.clear
+    nil
+  end
+
+  {% for method in model.resolve.methods.select { |method| method.name.starts_with?("__raw_") && !method.name.ends_with?("=") } %}
+    {% name = method.name[6..-1] %}
+    def restore_{{ name.id }}_in_place : Nil
+      restore_attribute_in_place({{ name.stringify }})
+    end
+
+    def {{ name.id }}_will_change_in_place : Nil
+      attribute_will_change_in_place({{ name.stringify }})
+    end
+  {% end %}
+
   def clear_dirty_tracking_for(names : Array(String)) : Nil
     \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-      @__persisted_\{{ column.name }} = @\{{ column.name }} if names.includes?(\{{ column.name.stringify }})
+      if names.includes?(\{{ column.name.stringify }})
+        @__persisted_\{{ column.name }} = ::Grant::Dirty.snapshot(@\{{ column.name }})
+        @__forced_dirty_columns.delete(\{{ column.name.stringify }})
+      end
     \{% end %}
     nil
   end
@@ -80,7 +135,10 @@ pub macro model_methods(model)
 
   def restore_attributes(names : Array(String) = changed) : Nil
     \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-      @\{{ v.name }} = @__persisted_\{{ v.name }} if names.includes?(\{{ v.name.stringify }})
+      if names.includes?(\{{ v.name.stringify }})
+        @\{{ v.name }} = ::Grant::Dirty.snapshot(@__persisted_\{{ v.name }})
+        @__forced_dirty_columns.delete(\{{ v.name.stringify }})
+      end
     \{% end %}
     nil
   end

@@ -9,7 +9,7 @@ import grant/query/where_field::{Bind}
 # drivers bind the five of Value. These overloads narrow a condition value
 # the way the model's own writes do (grant/base sqlite_value).
 pub def to_bind(value : Value) : Bind
-  value
+  ::Db::Value.to_db_value(value)
 end
 
 pub def to_bind(value : Int32) : Bind

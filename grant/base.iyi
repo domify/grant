@@ -452,6 +452,7 @@ pub abstract class Base
     {% end %}
 
     def {{decl.var}}_changed? : Bool
+      return true if __forced_dirty_attribute?({{ decl.var.stringify }})
       return false if @{{decl.var}} == @__persisted_{{decl.var}}
       {% if options[:encrypted] %}
         # The Symbol/database reader in the upstream setter compares stored
@@ -920,8 +921,9 @@ pub abstract class Base
     ::Grant::Transactions.model_methods({{ @type }})
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
+      @__forced_dirty_columns.clear
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-        @__persisted_\{{ v.name }} = @\{{ v.name }}
+        @__persisted_\{{ v.name }} = ::Grant::Dirty.snapshot(@\{{ v.name }})
       \{% end %}
       nil
     end
@@ -970,8 +972,9 @@ pub abstract class Base
 
     def __mark_persisted : Nil
       super
+      @__forced_dirty_columns.clear
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
-        @__persisted_\{{ v.name }} = @\{{ v.name }}
+        @__persisted_\{{ v.name }} = ::Grant::Dirty.snapshot(@\{{ v.name }})
       \{% end %}
       nil
     end
@@ -1366,6 +1369,10 @@ pub abstract class Base
           \{% end %}
           return %converted if %converted.is_a?(::Error)
           record.__raw_\{{ v.name }} = %converted
+        \{% elsif type.includes?("Array(String)") %}
+          %array = %raw.is_a?(Array) ? ::Grant::ColumnsHelpers.string_array_from_db(%raw) : nil
+          return %array if %array.is_a?(::Error)
+          record.__raw_\{{ v.name }} = %array
         \{% elsif type.includes?("UUID") %}
           record.__raw_\{{ v.name }} = %raw.is_a?(String) ? ::Std::Uuid::UUID.parse(%raw) : nil
         \{% elsif type.includes?("Int32") %}

@@ -40,3 +40,6 @@ Schema cache `reset!` becomes `reset_in_place`; `load_all!` becomes `load_all_in
 Errors collection `uniq!` and `copy!` become `uniq_in_place` and `copy_in_place`.
 
 Dirty attribute `restore_<attribute>!` becomes `restore_<attribute>_in_place`.
+
+Dirty `restore_attribute!`, `attribute_will_change!`, and generated `<attribute>_will_change!`
+use the `_in_place` suffix.

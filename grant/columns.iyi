@@ -7,7 +7,7 @@ pub import std/yaml
 pub import std/big
 
 # Scalar column values retain their model types at the reflective boundary.
-pub alias Type = ::Std::Big::BigDecimal | Nil | String | Int32 | Int64 | Float32 | Float64 | Bool | ::Std::Time::Time
+pub alias Type = Array(String) | ::Std::Big::BigDecimal | Nil | String | Int32 | Int64 | Float32 | Float64 | Bool | ::Std::Time::Time
 
 # Grant::DATETIME_FORMAT under the native UTC settings implementation.
 pub def datetime_text(value : ::Std::Time::Time) : String

@@ -75,3 +75,13 @@ pub def time_from_db_strict(value : String) : Time | ::Grant::Error::ArgumentErr
   end
   Time.parse_rfc3339(text)
 end
+
+
+pub def string_array_from_db(values : Array(T)) : Array(String) | ::Grant::Error::ArgumentError forall T
+  result = [] of String
+  values.each do |value|
+    return ::Grant::Error::ArgumentError.new("Array element does not fit String") unless value.is_a?(String)
+    result << value
+  end
+  result
+end
