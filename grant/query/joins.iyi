@@ -139,6 +139,16 @@ pub macro model_methods(model)
     \{% for method in @type.methods %}
       \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
         if name == \{{ method.name.stringify }}
+          \{% if ann[:through] %}
+            return ::Grant::Error::ArgumentError.new("A through association cannot be joined under an alias") unless alias_name.nil?
+            through_ref = __query_collect_step(collector, \{{ ann[:through].id.stringify }}, type, owner_ref)!
+            \{% for through_method in @type.methods %}
+              \{% if through_method.name.stringify == ann[:through].id.stringify %}
+                \{% through_ann = through_method.annotation(::Grant::Associations::Relationship) %}
+                return \{{ through_ann[:target] }}.__query_collect_target(collector, \{{ ann[:target] }}, type, through_ref)
+              \{% end %}
+            \{% end %}
+          \{% end %}
           return collector.emit(type, \{{ ann[:target] }}.table_name, alias_name, name, owner_ref) do |ref|
             \{% if ann[:type] == :belongs_to %}
               "#{ref}.\{{ ann[:primary_key].id }} = #{owner_ref}.\{{ ann[:foreign_key].id }}"
@@ -150,6 +160,19 @@ pub macro model_methods(model)
       \{% end %}
     \{% end %}
     ::Grant::Error::ArgumentError.new("Unknown association :#{name} for #{self}")
+  end
+
+  # Resolve the source edge of a through association from target metadata.
+  def self.__query_collect_target(collector : ::Grant::Query::JoinSupport::Collector,
+      target : Target.class, type : Symbol, owner_ref : String) : String | ::Grant::Error::ArgumentError forall Target
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        if target.to_s == \{{ ann[:target] }}.to_s
+          return __query_collect_step(collector, \{{ method.name.stringify }}, type, owner_ref)
+        end
+      \{% end %}
+    \{% end %}
+    ::Grant::Error::ArgumentError.new("No source association for #{target} on #{self}")
   end
 
   def self.__query_collect_nested(collector : ::Grant::Query::JoinSupport::Collector, spec : T,

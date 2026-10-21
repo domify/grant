@@ -2181,10 +2181,6 @@ pub abstract class Base
     return RecordNotSaved.new(__table_name) if @destroyed
     return RecordNotSaved.new(__table_name) if errors.conversion_errors?
     errors.clear
-    if @new_record && !__primary_auto? && __primary_value.nil?
-      errors << ::Grant::Error::Error.new(__primary_name, "Primary key('#{__primary_name}') cannot be null")
-      return RecordNotSaved.new(__table_name)
-    end
     return ::Grant::Errors::RecordInvalid.new(self) if validate && !valid?!
     __remember_transaction_state
     operation = @new_record ? :create : :update
@@ -2209,6 +2205,10 @@ pub abstract class Base
     values = __column_values!
     if @new_record
       __generate_primary_uuid
+      if !__primary_auto? && __primary_value.nil?
+        errors << ::Grant::Error::Error.new(__primary_name, "Primary key('#{__primary_name}') cannot be null")
+        return RecordNotSaved.new(__table_name)
+      end
       primary_value = __primary_value
       unless primary_value.nil?
         names << __primary_name

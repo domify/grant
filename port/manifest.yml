@@ -1298,7 +1298,7 @@
   target: test/grant_query_query_regressions_test.iyi
   area: query
   examples: 15
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/readonly_relation_spec.cr
   target: test/grant_query_readonly_relation_test.iyi
   area: query
