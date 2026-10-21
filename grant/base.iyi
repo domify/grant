@@ -1,5 +1,5 @@
 module grant/base
-import grant/replica_load_balancer
+pub import grant/replica_load_balancer
 
 import db/db/value
 import std/named_tuple
@@ -177,6 +177,7 @@ pub abstract class Base
         ::Grant::ConnectionHandling.model_methods(\{{ @type }})
         ::Grant::ConnectionManagement.model_methods(\{{ @type }})
         ::Grant::DatabaseConfigurations.model_methods(\{{ @type }})
+        ::Grant::ReplicaLoadBalancer.model_methods(\{{ @type }})
       \{% else %}
         __process_columns
       \{% end %}
@@ -185,6 +186,15 @@ pub abstract class Base
 
   def self._has_default_scope? : Bool
     false
+  end
+
+  # Defaults for `Base` and abstract classes; models with columns override them.
+  def self.attribute_aliases : Hash(String, String)
+    {} of String => String
+  end
+
+  def self.record_timestamps? : Bool
+    true
   end
 
   def self.apply_default_scope(query : ::Grant::Query::Builder::Builder(Model)) forall Model

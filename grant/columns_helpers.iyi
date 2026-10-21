@@ -13,6 +13,9 @@ pub macro model_methods(model)
       when \{{ v.name.stringify }}
         \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
           self.\{{ v.name }}!
+        \{% elsif (conv = v.annotation(::Grant::Base::Column)[:converter]) && !v.type.union_types.all? { |t| [Nil, Bool, Int32, Int64, Float32, Float64, String, ::Std::Time::Time, ::Std::Big::BigDecimal].includes?(t.resolve) } %}
+          # A converted value outside Columns::Type (an enum) reads as its database form.
+          (value = @\{{ v.name }}).nil? ? nil : \{{ conv }}.to_db(value)
         \{% else %}
           @\{{ v.name }}
         \{% end %}
