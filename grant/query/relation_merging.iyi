@@ -84,6 +84,7 @@ pub trait RelationMerging(Model)
   end
 
   def merge_in_place(other : self) : self
+    merge_from_and_with_in_place(other)
     reset_load_state
     merge_where_fields_in_place(other)
     other.order_fields.each do |term|

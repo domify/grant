@@ -1033,7 +1033,7 @@
   target: test/grant_query_cte_test.iyi
   area: query
   examples: 21
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/destroy_all_callbacks_spec.cr
   target: test/grant_query_destroy_all_callbacks_test.iyi
   area: query

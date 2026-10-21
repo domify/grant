@@ -6,6 +6,7 @@ import std/named_tuple
 pub import std/time
 pub import grant/timestamps
 pub import grant/counters
+import grant/query/from_and_with
 import grant/query/relation_rewrites
 pub import grant/query/builder
 pub import grant/scoping
@@ -895,6 +896,7 @@ pub abstract class Base
     ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
     ::Grant::Columns.model_methods({{ @type }})
+    ::Grant::Query::FromAndWith.model_methods({{ @type }})
     ::Grant::Query::RelationRewrites.model_methods({{ @type }})
     ::Grant::Timestamps.model_methods({{ @type }})
     ::Grant::Counters.model_methods({{ @type }})

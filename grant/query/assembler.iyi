@@ -21,6 +21,10 @@ pub abstract class Base(Model, Query)
   getter numbered_parameters : Array(Value)
   getter error : ErrorBase? = nil
   @placeholder : String = "?"
+  @with_sql : String? = nil
+  @with_rendered : Bool = false
+  @from_sql : String? = nil
+  @from_rendered : Bool = false
   @where : String? = nil
   @where_rendered : Bool = false
   @order : String? = nil
@@ -46,6 +50,10 @@ pub abstract class Base(Model, Query)
 
   def table_name : String
     Model.table_name
+  end
+
+  def record_error(failure : ErrorBase) : Nil
+    fail(failure)
   end
 
   # Remembers the first clause error; the terminal returns it.
@@ -160,11 +168,15 @@ pub abstract class Base(Model, Query)
   end
 
   def with_clause : String?
-    @query.with_sql_for(self)
+    return @with_sql if @with_rendered
+    @with_rendered = true
+    @with_sql = @query.with_sql_for(self)
   end
 
   def from_source_sql : String?
-    @query.from_sql_for(self)
+    return @from_sql if @from_rendered
+    @from_rendered = true
+    @from_sql = @query.from_sql_for(self)
   end
 
   def from_clause : String

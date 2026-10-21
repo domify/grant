@@ -27,6 +27,7 @@ import grant/query_extensions::{QueryExtensions}
 import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
 import grant/query/ordering::{Ordering, OrderSupport}
+import grant/query/from_and_with::{FromAndWith, CommonTable}
 import grant/query/sql_expression
 import grant/query/relation_rewrites::{RelationRewrites}
 import grant/query/relation_merging::{RelationMerging}
@@ -82,6 +83,11 @@ pub class Builder(Model)
   def reordering? : Bool
     @reordering
   end
+
+  property from_alias : String? = nil
+  property from_kind : Symbol = :none
+  property from_render : Proc(::Grant::Query::Assembler::Base(Model, Builder(Model)), String)? = nil
+  property common_tables = [] of CommonTable(Model, Builder(Model))
 
   property annotation_comment : String? = nil
   property index_hint_sql : String? = nil
@@ -275,6 +281,10 @@ pub class Builder(Model)
     @having_clauses = source.having_clauses.empty? ? EmptyClauses::HAVING_CLAUSES : source.having_clauses.dup
     @optimizer_hint_list = source.optimizer_hint_list.empty? ? EmptyClauses::OPTIMIZER_HINTS : source.optimizer_hint_list.dup
     @reordering = source.reordering?
+    @from_alias = source.from_alias
+    @from_kind = source.from_kind
+    @from_render = source.from_render
+    @common_tables = source.common_tables.dup
     @offset = source.offset
     @limit = source.limit
     @lock_mode = source.lock_mode
@@ -333,11 +343,27 @@ pub class Builder(Model)
 
   # Hooks the assembler calls for FROM and WITH sources.
   def from_sql_for(assembler : A) : String? forall A
-    @from_source
+    render = @from_render
+    return @from_source if render.nil?
+    body = render.call(assembler)
+    alias_name = @from_alias
+    if @from_kind == :subquery
+      "(#{body}) AS #{Model.quote(alias_name || Model.table_name)}"
+    else
+      alias_name ? "#{body} AS #{Model.quote(alias_name)}" : body
+    end
   end
 
   def with_sql_for(assembler : A) : String? forall A
-    @with_source
+    return @with_source if @common_tables.empty?
+    failure = ::Grant::Query::FromAndWith::CommonTableExpressions.ensure_supported_strict(Model.adapter)
+    unless failure.nil?
+      assembler.record_error(failure)
+      return nil
+    end
+    entries = @common_tables.map { |table| "#{Model.quote(table.name)} AS (#{table.render.call(assembler)})" }
+    keyword = @common_tables.any?(&.recursive) ? "WITH RECURSIVE" : "WITH"
+    "#{keyword} #{entries.join(", ")}"
   end
 
   private def defer(failure : ErrorBase) : self
@@ -1013,8 +1039,12 @@ pub class Builder(Model)
       when :strict_loading     then @strict_loading = false
       when :optimizer_hints    then @optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
       when :annotate           then @annotation_comment = nil
-      when :from               then @from_source = nil
-      when :with               then @with_source = nil
+      when :from
+        @from_source = nil
+        clear_from_source_in_place
+      when :with
+        @with_source = nil
+        clear_common_tables_in_place
       when :includes
         @includes_associations = [] of Symbol
         refresh_preload_names
@@ -1546,4 +1576,7 @@ impl Locking(Model) for Builder(Model) forall Model
 end
 
 impl RelationRewrites(Model) for Builder(Model) forall Model
+end
+
+impl FromAndWith(Model, Builder(Model)) for Builder(Model) forall Model
 end
