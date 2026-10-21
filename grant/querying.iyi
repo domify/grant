@@ -27,6 +27,10 @@ pub macro model_methods(model)
   def self.extract_associated(association : Symbol, as type : T.class) : Array(T) | ::Grant::Error::ErrorBase forall T
     current_scope.extract_associated(association, as: type)
   end
+  def self.order(field : Symbol | String, direction : Symbol, *, nulls : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.order(field, direction, nulls: nulls)
+  end
+
   def self.order(field : Symbol | String, direction : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
     current_scope.order(field, direction)
   end
@@ -176,6 +180,22 @@ pub macro model_methods(model)
   def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : Array({{ model }}) -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
     return ::Grant::Error::ArgumentError.new("batch_size must be positive") if batch_size < 1
     batch_scope(clause, params, offset)!.find_in_batches(batch_size) { |batch| yield batch }
+  end
+
+  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options, &block : {{ model }} -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
+    batch_scope(clause, params, offset)!.find_each(batch_size, **options) { |item| yield item }
+  end
+
+  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options) : ::Grant::Query::Batches::RecordIterator({{ model }}, ::Grant::Query::Builder::Builder({{ model }})) | ::Grant::Error::ErrorBase
+    batch_scope(clause, params, offset)!.find_each(batch_size, **options)
+  end
+
+  def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options, &block : Array({{ model }}) -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
+    batch_scope(clause, params, offset)!.find_in_batches(batch_size, **options) { |item| yield item }
+  end
+
+  def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options) : ::Grant::Query::Batches::RecordBatchIterator({{ model }}, ::Grant::Query::Builder::Builder({{ model }})) | ::Grant::Error::ErrorBase
+    batch_scope(clause, params, offset)!.find_in_batches(batch_size, **options)
   end
 
   private def self.batch_scope(clause : String, params : Array(::Grant::Adapter::Driver::Value), offset : Int32) : ::Grant::Query::Builder::Builder({{ model }}) | ::Grant::Error::ErrorBase

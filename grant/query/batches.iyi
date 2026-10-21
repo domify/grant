@@ -1,5 +1,6 @@
 module grant/query/batches
 
+import std/iterator::{Iterator, Stop}
 import grant/adapter/driver::{Value}
 import grant/query/bind_value
 import grant/errors::{DatabaseError, ErrorBase}
@@ -8,7 +9,13 @@ import grant/error::{ArgumentError}
 import grant/query/where_field::{Sort}
 
 # State for the upstream keyset batch scan. Each page follows all cursor columns.
+pub class BatchOptionIgnoredError < ErrorBase
+end
+
 pub class BatchPlan
+  property start : Value = nil
+  property finish : Value = nil
+  property bound_index : Int32 = 0
   getter size : Int32
   getter fields : Array(String)
   getter ascending : Array(Bool)
@@ -29,6 +36,52 @@ pub class BatchPosition
   def initialize(plan : BatchPlan)
     @remaining = plan.limit
   end
+end
+
+# Native Iterator has an infallible next protocol; options are checked before construction.
+pub class RecordBatchIterator(Model, Query)
+  @position : BatchPosition
+  def initialize(@relation : Query, @plan : BatchPlan)
+    @position = BatchPosition.new(@plan)
+  end
+  def next : Array(Model) | Stop
+    records = @relation.next_batch_records(@plan, @position).or_panic
+    records.nil? ? Stop.new : records
+  end
+  def rewind : self
+    @position = BatchPosition.new(@plan)
+    self
+  end
+end
+impl Iterator for RecordBatchIterator(Model, Query) forall Model, Query
+  type Elem = Array(Model)
+end
+
+pub class RecordIterator(Model, Query)
+  @batch = [] of Model
+  @index : Int32 = 0
+  def initialize(@batches : RecordBatchIterator(Model, Query))
+  end
+  def next : Model | Stop
+    if @index >= @batch.size
+      batch = @batches.next
+      return batch if batch.is_a?(Stop)
+      @batch = batch
+      @index = 0
+    end
+    record = @batch[@index]
+    @index += 1
+    record
+  end
+  def rewind : self
+    @batches.rewind
+    @batch.clear
+    @index = 0
+    self
+  end
+end
+impl Iterator for RecordIterator(Model, Query) forall Model, Query
+  type Elem = Model
 end
 
 pub trait Batches(Model)
@@ -61,6 +114,73 @@ pub trait Batches(Model)
       nil
     end
   end
+  def find_in_batches(batch_size : Int32 = DEFAULT_BATCH_SIZE, start : Value = nil,
+      finish : Value = nil, cursor : Array(Symbol)? = nil, order : Symbol = :asc,
+      error_on_ignore : Bool = false) : RecordBatchIterator(Model, self) | ErrorBase
+    plan = batch_plan_with_options(batch_size, start, finish, cursor, order, error_on_ignore)!
+    RecordBatchIterator(Model, self).new(chain_copy, plan)
+  end
+
+  def find_each(batch_size : Int32 = DEFAULT_BATCH_SIZE, start : Value = nil,
+      finish : Value = nil, cursor : Array(Symbol)? = nil, order : Symbol = :asc,
+      error_on_ignore : Bool = false) : RecordIterator(Model, self) | ErrorBase
+    batches = find_in_batches(batch_size, start, finish, cursor, order, error_on_ignore)!
+    RecordIterator(Model, self).new(batches)
+  end
+
+  def find_in_batches(batch_size : Int32 = DEFAULT_BATCH_SIZE, **options,
+      &block : Array(Model) -> T) : Nil | T | ErrorBase forall T
+    plan = batch_plan_with_options(batch_size, **options)!
+    position = BatchPosition.new(plan)
+    loop do
+      records = next_batch_records(plan, position)!
+      break if records.nil?
+      result = yield records
+      return result if result.is_a?(::Error)
+    end
+    nil
+  end
+
+  def find_each(batch_size : Int32 = DEFAULT_BATCH_SIZE, **options,
+      &block : Model -> T) : Nil | T | ErrorBase forall T
+    find_in_batches(batch_size, **options) do |batch|
+      batch.each do |record|
+        result = yield record
+        return result if result.is_a?(::Error)
+      end
+      nil
+    end
+  end
+
+  private def batch_plan_with_options(batch_size : Int32, start : Value = nil, finish : Value = nil,
+      cursor : Array(Symbol)? = nil, order : Symbol = :asc,
+      error_on_ignore : Bool = false) : BatchPlan | ErrorBase
+    return ArgumentError.new("batch_size must be >= 1") if batch_size < 1
+    return ArgumentError.new("order must be :asc or :desc") unless order == :asc || order == :desc
+    fields = [] of String
+    ascending = [] of Bool
+    if requested = cursor
+      return ArgumentError.new("cursor must name at least one column") if requested.empty?
+      if error_on_ignore && !order_fields.empty?
+        return BatchOptionIgnoredError.new("cursor: overrides the ORDER BY of this #{Model} relation")
+      end
+      requested.each { |field| fields << field.to_s; ascending << (order == :asc) }
+    elsif !order_fields.empty?
+      plan = batch_plan(batch_size)!
+      plan.start = start
+      plan.finish = finish
+      plan.bound_index = plan.fields.index { |field| field.split('.').last == Model.primary_name } || 0
+      return plan
+    else
+      implicit_order_columns.each { |field| fields << field; ascending << (order == :asc) }
+    end
+    plan = BatchPlan.new(batch_size, fields, ascending, limit, offset)
+    plan.start = start
+    plan.finish = finish
+    plan.bound_index = fields.index { |field| field.split('.').last == Model.primary_name } || 0
+    plan
+  end
+
   private def batch_plan(batch_size : Int32) : BatchPlan | ErrorBase
     return ArgumentError.new("batch_size must be >= 1") if batch_size < 1
     fields = [] of String
@@ -113,6 +233,10 @@ pub trait Batches(Model)
     end
     page.limit_in_place(page_size)
     page.offset_in_place(nil) if position.started
+    bound = plan.fields[plan.bound_index]
+    ascending = plan.ascending[plan.bound_index]
+    page.where_in_place(bound, ascending ? :gteq : :lteq, plan.start) unless plan.start.nil?
+    page.where_in_place(bound, ascending ? :lteq : :gteq, plan.finish) unless plan.finish.nil?
     last = position.last_values
     unless last.nil?
       statement, values = keyset_condition(plan, last)

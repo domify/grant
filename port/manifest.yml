@@ -1084,7 +1084,7 @@
   target: test/grant_query_find_each_test.iyi
   area: query
   examples: 13
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/from_subquery_spec.cr
   target: test/grant_query_from_subquery_test.iyi
   area: query

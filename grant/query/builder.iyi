@@ -717,6 +717,7 @@ pub class Builder(Model)
   # ---- ORDER / GROUP -----------------------------------------------------
 
   def order_in_place(field : Symbol | String) : self
+    return append_order_terms(field, false) if field.is_a?(String)
     own_order_fields << {field: field.to_s, direction: Sort::Ascending}
     self
   end

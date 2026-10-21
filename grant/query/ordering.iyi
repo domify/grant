@@ -42,6 +42,16 @@ pub class OrderSupport
 end
 
 pub trait Ordering(Model)
+  def order(field : Symbol | String, direction : Symbol, *, nulls : Symbol) : self
+    chain_copy.order_in_place(field, direction, nulls: nulls)
+  end
+
+  def order_in_place(field : Symbol | String, direction : Symbol, *, nulls : Symbol) : self
+    return self.defer(ArgumentError.new("nulls must be :first or :last")) unless nulls == :first || nulls == :last
+    own_order_fields << {field: field.to_s, direction: OrderSupport.sort_for(direction.to_s, nulls.to_s)}
+    self
+  end
+
   private def append_order_terms(sql : String, trusted : Bool) : self
     ::Grant::Query::SqlExpression.split_terms(sql).each do |term|
       validated = ::Grant::Query::SqlExpression.validate_strict(term, "ORDER BY expression")
