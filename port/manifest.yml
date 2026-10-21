@@ -2773,7 +2773,7 @@
   target: test/grant_validations_condition_arrays_test.iyi
   area: other
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validations/validate_bang_spec.cr
   target: test/grant_validations_validate_bang_test.iyi
   area: other

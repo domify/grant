@@ -2,6 +2,7 @@
 require "open3"
 require "pathname"
 require "digest"
+require "set"
 require_relative "../port/manifest"
 
 Dir.chdir(CoverageGen::ROOT)
@@ -95,6 +96,13 @@ end
 puts "INTEGRATE validation only; OK means no regression, full mode is the only completion result" if integrate
 
 tests = fast ? selected : all_tests
+# Comment lines copied verbatim from a test's upstream spec are provenance, not disabling markers.
+upstream_comments = Hash.new { |hash, key| hash[key] = Set.new }
+entries.each do |entry|
+  targets = entry["children"] ? entry["children"].map { |child| child["target"] } : [entry["target"]]
+  comments = File.readlines(entry["source"]).map(&:strip).select { |line| line.start_with?("#") }
+  targets.compact.each { |target| upstream_comments[target].merge(comments) }
+end
 if adapters.include?("pg") && !ENV.key?("PG_DATABASE_URL")
   _, status = Open3.capture2e("psql", "#{pg_server}/postgres", "-qtc", "SELECT 1")
   errors << "PostgreSQL is unreachable at #{pg_server} (docker start grant-pg)" unless status.success?
@@ -108,7 +116,7 @@ tests.each do |file|
     next
   end
   # Example descriptions are provenance; reject disabling markers in all other lines.
-  contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) }.join
+  contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) || upstream_comments[file].include?(line.strip) }.join
   # A trailing comment after code (upstream `x.should be_true # skipped`) disables nothing; only
   # whole-line comment markers do.
   # Disabling constructs, not words: upstream names such as `skipped` and SQL
