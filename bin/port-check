@@ -109,9 +109,11 @@ tests.each do |file|
   end
   # Example descriptions are provenance; reject disabling markers in all other lines.
   contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) }.join
+  # A trailing comment after code (upstream `x.should be_true # skipped`) disables nothing; only
+  # whole-line comment markers do.
   # Disabling constructs, not words: upstream names such as `skipped` and SQL
   # such as SKIP LOCKED are ordinary code.
-  errors << "skip/pending/TODO marker: #{file}" if contents.gsub(/^\s*(?:pub\s+)?enum\s+\w+[^\n]*\n(?:[ \t]+[A-Z]\w*(?:[ \t]*=[^\n]*)?[ \t]*\n)+[ \t]*end\b/, "").match?(/^\s*(skip|pending|xit)\b|\bpending!|\b(TODO|FIXME)\b|#\s*(skip|skipped|pending)\b/i)
+  errors << "skip/pending/TODO marker: #{file}" if contents.gsub(/^\s*(?:pub\s+)?enum\s+\w+[^\n]*\n(?:[ \t]+[A-Z]\w*(?:[ \t]*=[^\n]*)?[ \t]*\n)+[ \t]*end\b/, "").match?(/^\s*(skip|pending|xit)\b|\bpending!|\b(TODO|FIXME)\b|^\s*#\s*(skip|skipped|pending)\b/i)
   adapters.each do |adapter|
     env = ENV.to_h.merge("CURRENT_ADAPTER" => adapter, "PG_DATABASE_URL" => pg_url)
     output, status = Open3.capture2e(env, iyi, "test", "--json", file)
