@@ -21,6 +21,8 @@ import grant/polymorphic_types
 import grant/dependent
 pub import grant/columns
 pub import grant/attribute_api
+pub import grant/serialized_column
+pub import grant/store_accessor
 pub import grant/schema/verify
 pub import grant/schema/model_indexes
 pub import grant/migrator
@@ -365,6 +367,18 @@ pub abstract class Base
         } of Symbol => Hash(Symbol, String)
       end
     {% end %}
+  end
+
+  macro serialized_column(name, klass, format = :json)
+    ::Grant::SerializedColumn.serialized_column({{ name }}, {{ klass }}, {{ format }})
+  end
+
+  macro store_accessor(store, *keys, **options)
+    ::Grant::StoreAccessor.store_accessor({{ store }}, {% for key in keys %}{{ key }}, {% end %}{% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  end
+
+  def _mark_serialized_column_changed(attribute_name : String) : Nil
+    nil
   end
 
   macro attribute(decl, **options)
@@ -918,6 +932,7 @@ pub abstract class Base
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
     ::Grant::AttributeApi.model_methods({{ @type }})
+    ::Grant::SerializedColumn.model_methods({{ @type }})
     ::Grant::EnumAttributes.model_methods({{ @type }})
     ::Grant::ModelName.model_methods({{ @type }})
     ::Grant::Integration.model_methods({{ @type }})

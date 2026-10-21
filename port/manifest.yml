@@ -2363,7 +2363,7 @@
   target: test/grant_attributes_store_accessor_test.iyi
   area: dirty_state
   examples: 6
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/composite/locking_constraints_spec.cr
   target: test/grant_composite_locking_constraints_test.iyi
   area: dirty_state
