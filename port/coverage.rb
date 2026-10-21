@@ -173,6 +173,15 @@ module CoverageGen
       end
       heredoc.concat(heredoc_terms(line))
     end
+    # An example whose body renders SQL only through the MySQL assembler is MySQL specific.
+    lines = File.readlines(file)
+    entries.each do |e|
+      start = e["source_ref"][/:(\d+)\z/, 1].to_i
+      body = lines[start..].take_while { |l| l.strip.empty? || l[/^\s*/].size > e["_indent"] }.join
+      next unless body =~ /Assembler::Mysql\b/ && body !~ /Assembler::(Sqlite|Pg|Postgres\w*)\b/
+      e["status"] = "excluded"
+      e["exclusion_reason"] = EXCLUDE_REASON
+    end
     entries.each { |e| e.delete("_indent") }
   end
 

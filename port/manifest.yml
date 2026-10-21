@@ -1233,7 +1233,7 @@
 - source: crystal-upstream/spec/grant/query/select_order_expressions_spec.cr
   target: test/grant_query_select_order_expressions_test.iyi
   area: query
-  examples: 25
+  examples: 24
   status: todo
 - source: crystal-upstream/spec/grant/query/unscope_where_column_spec.cr
   target: test/grant_query_unscope_where_column_test.iyi
