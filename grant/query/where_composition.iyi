@@ -26,6 +26,7 @@ pub trait WhereComposition(Model)
     copy = chain_copy
     names = columns.is_a?(Array) ? columns.map { |column| column.to_s } : [columns.to_s]
     names = names.map { |name| association_foreign_key(name) || name }
+    copy.record_unscoped_columns(names)
     copy.unscope_where_columns(names)
     copy
   end
@@ -34,6 +35,7 @@ pub trait WhereComposition(Model)
     copy = unscope(*components)
     names = columns.is_a?(Array) ? columns.map { |column| column.to_s } : [columns.to_s]
     names = names.map { |name| association_foreign_key(name) || name }
+    copy.record_unscoped_columns(names)
     copy.unscope_where_columns(names)
     copy
   end
@@ -229,6 +231,18 @@ pub trait WhereComposition(Model)
 end
 
 pub macro model_methods(model)
+  def self.unscope(*, where columns : T) : ::Grant::Query::Builder::Builder({{ model }}) forall T
+    current_scope.unscope(where: columns)
+  end
+
+  def self.unscope(*components : Symbol) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.unscope(*components)
+  end
+
+  def self.unscope(*components : Symbol, where columns : T) : ::Grant::Query::Builder::Builder({{ model }}) forall T
+    current_scope.unscope(*components, where: columns)
+  end
+
   def self.__query_association_foreign_key(name : String) : String?
     \{% for method in @type.methods %}
       \{% if ann = method.annotation(::Grant::Associations::Relationship) %}

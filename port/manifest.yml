@@ -1249,7 +1249,7 @@
   target: test/grant_query_w6_merge_order_test.iyi
   area: query
   examples: 17
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/w6_on_shard_immutability_spec.cr
   target: test/grant_query_w6_on_shard_immutability_test.iyi
   area: query

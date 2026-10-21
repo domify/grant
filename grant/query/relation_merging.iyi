@@ -1,14 +1,61 @@
 module grant/query/relation_merging
 
-import grant/query/where_field::{WhereField, StructuredWhere}
+import grant/query/where_field::{WhereField, StructuredWhere, JoinClause}
 import grant/query/predicate_renderer::{PredicateRenderer}
 import grant/adapter/driver::{Value}
 import grant/error::{ErrorBase}
 import std/set
 
+# Immutable notes shared by relation copies, as in upstream relation_merging.cr.
+pub class RelationNotes
+  getter reordering : Bool
+  getter unscoped_components : Array(Symbol)
+  getter unscoped_columns : Array(String)
+  getter eager_load_joins : Array(JoinClause)
+  getter eager_load_distinct : Bool
+
+  def initialize(@reordering : Bool = false,
+      @unscoped_components : Array(Symbol) = [] of Symbol,
+      @unscoped_columns : Array(String) = [] of String,
+      @eager_load_joins : Array(JoinClause) = [] of JoinClause,
+      @eager_load_distinct : Bool = false)
+  end
+
+  def with(reordering : Bool = @reordering,
+      unscoped_components : Array(Symbol) = @unscoped_components,
+      unscoped_columns : Array(String) = @unscoped_columns,
+      eager_load_joins : Array(JoinClause) = @eager_load_joins,
+      eager_load_distinct : Bool = @eager_load_distinct) : RelationNotes
+    RelationNotes.new(reordering, unscoped_components, unscoped_columns,
+      eager_load_joins, eager_load_distinct)
+  end
+end
+
 # Structural merge slice of upstream query/builder.cr. Clause equality uses
 # printed tuples because native NamedTuple equality currently returns false.
 pub trait RelationMerging(Model)
+  protected def record_unscope(components : Array(Symbol)) : Nil
+    return nil if components.empty?
+    self.relation_notes = relation_notes.with(
+      unscoped_components: (relation_notes.unscoped_components + components).uniq)
+    nil
+  end
+
+  protected def record_unscoped_columns(names : Array(String)) : Nil
+    return nil if names.empty?
+    self.relation_notes = relation_notes.with(
+      unscoped_columns: (relation_notes.unscoped_columns + names).uniq)
+    nil
+  end
+
+  protected def merge_unscopes_in_place(other : Other) : Nil forall Other
+    notes = other.relation_notes
+    unscope_components_in_place(notes.unscoped_components) unless notes.unscoped_components.empty?
+    unscope_where_columns(notes.unscoped_columns) unless notes.unscoped_columns.empty?
+    record_unscope(notes.unscoped_components)
+    nil
+  end
+
   def merge(&block : self -> self) : self
     merge(yield self.class.new(db_type))
   end
@@ -26,6 +73,10 @@ pub trait RelationMerging(Model)
   end
 
   private def merge_where_fields_in_place(other : self) : Nil
+    merge_where_fields_from(other)
+  end
+
+  protected def merge_where_fields_from(other : Other) : Nil forall Other
     incoming = other.where_fields
     return nil if incoming.empty?
     if incoming.all? { |clause| clause[:join] == :and } && where_fields.all? { |clause| clause[:join] == :and }
@@ -79,17 +130,27 @@ pub trait RelationMerging(Model)
     {sql, values}
   end
 
+  protected def merge_order_from(other : Other) : Nil forall Other
+    if other.reordering?
+      clear_order_fields
+      self.reordering = true
+    end
+    other.order_fields.each do |term|
+      own_order_fields << term unless order_fields.any? { |existing| existing.to_s == term.to_s }
+    end
+    nil
+  end
+
   def merge(other : self) : self
     chain_copy.merge_in_place(other)
   end
 
   def merge_in_place(other : self) : self
+    merge_unscopes_in_place(other)
     merge_from_and_with_in_place(other)
     reset_load_state
     merge_where_fields_in_place(other)
-    other.order_fields.each do |term|
-      own_order_fields << term unless order_fields.any? { |existing| existing.to_s == term.to_s }
-    end
+    merge_order_from(other)
     other.group_fields.each do |field|
       own_group_fields << field unless group_fields.any? { |existing| existing.to_s == field.to_s }
     end

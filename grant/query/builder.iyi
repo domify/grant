@@ -78,6 +78,7 @@ pub class Builder(Model)
   getter join_clauses = EmptyClauses::JOIN_CLAUSES
   getter having_clauses = EmptyClauses::HAVING_CLAUSES
   getter optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
+  property relation_notes : ::Grant::Query::RelationMerging::RelationNotes = ::Grant::Query::RelationMerging::RelationNotes.new
   property reordering : Bool = false
 
   def reordering? : Bool
@@ -280,6 +281,7 @@ pub class Builder(Model)
     @join_clauses = source.join_clauses.empty? ? EmptyClauses::JOIN_CLAUSES : source.join_clauses.dup
     @having_clauses = source.having_clauses.empty? ? EmptyClauses::HAVING_CLAUSES : source.having_clauses.dup
     @optimizer_hint_list = source.optimizer_hint_list.empty? ? EmptyClauses::OPTIMIZER_HINTS : source.optimizer_hint_list.dup
+    @relation_notes = source.relation_notes
     @reordering = source.reordering?
     @from_alias = source.from_alias
     @from_kind = source.from_kind
@@ -1016,11 +1018,14 @@ pub class Builder(Model)
                          :includes, :preload, :eager_load, :strict_loading, :readonly, :optimizer_hints, :annotate, :create_with, :reordering, :extending]
 
   def unscope_in_place(*components : Symbol) : self
+    record_unscope(components.to_a)
     unscope_components_in_place(components.to_a)
   end
 
   def unscope(*components : Symbol) : self
-    chain_copy.unscope_components_in_place(components.to_a)
+    copy = chain_copy
+    copy.record_unscope(components.to_a)
+    copy.unscope_components_in_place(components.to_a)
   end
 
   protected def unscope_components_in_place(components : Array(Symbol)) : self
