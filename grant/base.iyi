@@ -922,6 +922,7 @@ pub abstract class Base
     end
 
     def __run_save_transaction(*, validate : Bool, skip_timestamps : Bool) : Bool | Nil | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase
+      return true if self.class.suppressed?
       \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
         pending_\{{ v.name }} = @\{{ v.name }}
       \{% end %}
@@ -1097,6 +1098,7 @@ pub abstract class Base
 
     def touch(*fields, time : ::Std::Time::Time = ::Grant::Timestamps.current_time) : Bool | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError | ::Grant::Callbacks::Abort
       \{% begin %}
+      return true if no_touching?
       return ::Grant::Error::ErrorBase.new("Cannot touch on a new record object") unless persisted?
       __remember_transaction_state
       touch_fields = [] of String
