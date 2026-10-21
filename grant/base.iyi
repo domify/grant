@@ -55,6 +55,7 @@ pub import grant/database_configurations
 pub import grant/connection_handling
 pub import grant/connection_management
 pub import grant/connection_pool
+import grant/connection_pooling
 pub import grant/connection
 pub import grant/connections
 import grant/connections::{Connections}
@@ -172,6 +173,7 @@ pub abstract class Base
 
     macro finished
       \{% if @type.abstract? %}
+        ::Grant::ConnectionPooling.model_methods(\{{ @type }})
         ::Grant::ConnectionHandling.model_methods(\{{ @type }})
         ::Grant::ConnectionManagement.model_methods(\{{ @type }})
         ::Grant::DatabaseConfigurations.model_methods(\{{ @type }})
@@ -874,6 +876,7 @@ pub abstract class Base
     ::Grant::Callbacks.model_methods({{ @type }})
     ::Grant::Associations.model_methods({{ @type }})
     ::Grant::Dependent.model_methods({{ @type }})
+    ::Grant::ConnectionPooling.model_methods({{ @type }})
     ::Grant::ConnectionHandling.model_methods({{ @type }})
     ::Grant::ConnectionManagement.model_methods({{ @type }})
     ::Grant::ReplicaLoadBalancer.model_methods({{ @type }})

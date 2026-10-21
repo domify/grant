@@ -3,6 +3,7 @@ module grant/connection_registry
 import std/time::{Span}
 import grant/adapter/base::{Base}
 import grant/adapter/registry::{Registry, UnknownAdapterError}
+import grant/connection_pool::{ConnectionPool}
 import grant/health_monitor::{HealthMonitorRegistry, HealthMonitor}
 import grant/pool_reaper::{PoolReaper}
 import grant/replica_load_balancer::{ReplicaLoadBalancer, LoadBalancingStrategy, RoundRobinStrategy, LoadBalancerRegistry}
@@ -176,7 +177,10 @@ pub class ConnectionRegistry
     role = normalize_role(role)
     key = key_for(database, role, shard, replica_index)
     balancer = LoadBalancerRegistry.get(database)
-    balancer.remove_key(key) if role == :reading && balancer
+    if role == :reading && balancer
+      balancer.remove_key(key)
+      LoadBalancerRegistry.unregister(database) if balancer.size == 0
+    end
     reaper = @@reapers.delete(key)
     reaper.stop if reaper
     HealthMonitorRegistry.unregister(key)
@@ -187,6 +191,29 @@ pub class ConnectionRegistry
     Connections.unregister_role(database, role)
     removed.disconnect_strict! unless removed.nil?
     true
+  end
+
+  def self.adapter_names : Array(String)
+    @@adapters.keys
+  end
+
+  def self.adapters_for_database(database : String) : Array(Base)
+    result = [] of Base
+    @@adapters.each do |key, adapter|
+      spec = @@specifications[key]?
+      result << adapter if spec && spec.database == database
+    end
+    result
+  end
+
+  def self.connection_pool(database : String, role : Symbol = :writing, shard : Symbol? = nil) : ConnectionPool?
+    adapter = @@adapters[key_for(database, normalize_role(role), shard)]?
+    adapter.nil? ? nil : ConnectionPool.new(adapter)
+  end
+
+  def self.disconnect_all_strict : Nil | ErrorBase
+    @@adapters.values.each { |adapter| adapter.disconnect_strict! }
+    nil
   end
 
   def self.clear_all : Nil | ErrorBase

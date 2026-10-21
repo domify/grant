@@ -2553,7 +2553,7 @@
   target: test/grant_connection_disconnect_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/connection/failover_spec.cr
   target: test/grant_connection_failover_test.iyi
   area: other
