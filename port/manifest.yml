@@ -1289,7 +1289,7 @@
   target: test/grant_query_where_nested_hash_test.iyi
   area: query
   examples: 24
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/where_not_or_and_spec.cr
   target: test/grant_query_where_not_or_and_test.iyi
   area: query

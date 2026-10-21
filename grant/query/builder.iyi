@@ -628,11 +628,24 @@ pub class Builder(Model)
 
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
-    field = resolved_attribute_field(field)
-    {% if T <= NamedTuple || T <= Hash %}
-      return add_nested_where_condition(join, field, value)
+    {% if T.union_types.size > 1 %}
+      {% for member in T.union_types %}
+        if value.is_a?({{ member }})
+          return add_condition(join, field, value.as({{ member }}))
+        end
+      {% end %}
+      self
     {% else %}
-      foreign_key = association_foreign_key(field)
+    field = resolved_attribute_field(field)
+    if value.is_a?(NamedTuple) || value.is_a?(Hash)
+      return add_nested_where_condition(join, field, value)
+    else
+      type_column = association_type_column(field)
+    unless type_column.nil?
+      key_column = association_foreign_key(field).as(String)
+      return add_polymorphic_condition(join, key_column, type_column, value)
+    end
+    foreign_key = association_foreign_key(field)
       field = foreign_key unless foreign_key.nil?
       if value.responds_to?(:subquery_parts)
         safe_field = structured_field_sql(field)
@@ -653,6 +666,7 @@ pub class Builder(Model)
         own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(normalized_where_value(field, value))}
         self
       end
+    end
     {% end %}
   end
 

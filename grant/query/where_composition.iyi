@@ -9,6 +9,12 @@ import grant/sanitization
 # Value-shaped conditions and grouped negation, as in upstream
 # src/grant/query/where_composition.cr.
 pub trait WhereComposition(Model)
+  def or_where(matches : Hash(K, V)) : self forall K, V
+    copy = chain_copy
+    matches.each { |field, value| copy.add_condition(:or, field.to_s, value) }
+    copy
+  end
+
   def invert_where : self
     chain_copy.invert_where_in_place
   end
@@ -33,7 +39,7 @@ pub trait WhereComposition(Model)
     {% if Model.class.has_method?(:__query_nested_table) %}
       table = Model.__query_nested_table(name)
       fields = Model.__query_nested_fields(name)
-      return self.defer(ArgumentError.new("Unknown query table #{name.inspect}")) if table.nil? || fields.nil?
+      return self.defer(ArgumentError.new("Unknown table #{name.inspect}")) if table.nil? || fields.nil?
       matches.each do |column, value|
         field = "#{table}.#{column}"
         unless fields.includes?(column.to_s)
@@ -43,7 +49,63 @@ pub trait WhereComposition(Model)
       end
       self
     {% else %}
-      self.defer(ArgumentError.new("Unknown query table #{name.inspect}"))
+      self.defer(ArgumentError.new("Unknown table #{name.inspect}"))
+    {% end %}
+  end
+
+  protected def add_polymorphic_condition(join : Symbol, field : String, type_column : String, value : T) : self forall T
+    entries = association_key_entries(value)
+    if entries.empty?
+      own_where_fields << {join: join, stmt: "1=0", value: nil.as(Value)}
+      return self
+    end
+    key_sql = "#{Model.quote(Model.table_name)}.#{Model.quote(field)}"
+    type_sql = "#{Model.quote(Model.table_name)}.#{Model.quote(type_column)}"
+    parts = [] of String
+    values = [] of Value
+    by_type = {} of String => Array(Value)
+    null_key = false
+    entries.each do |entry|
+      key, type_name = entry
+      if type_name
+        by_type[type_name] = [] of Value unless by_type.has_key?(type_name)
+        by_type[type_name] << key
+      elsif key.nil?
+        null_key = true
+      else
+        return self.defer(ArgumentError.new("#{Model} association is polymorphic; pass records so the type column can be matched"))
+      end
+    end
+    by_type.each do |name, keys|
+      predicate = keys.size == 1 ? "#{key_sql} = ?" : "#{key_sql} IN (#{Array.new(keys.size, "?").join(", ")})"
+      parts << "(#{predicate} AND #{type_sql} = ?)"
+      values.concat(keys)
+      values << name
+    end
+    parts << "#{key_sql} IS NULL" if null_key
+    statement = "(#{parts.join(" OR ")})"
+    own_where_fields << {join: join, stmt: statement, values: values}
+    register_raw_where_column(statement, field)
+    self
+  end
+
+  private def association_key_entries(value : T) : Array(Tuple(Value, String?)) forall T
+    entries = [] of Tuple(Value, String?)
+    if value.is_a?(Array)
+      value.each { |item| entries.concat(association_key_entries(item)) }
+    elsif value.responds_to?(:__primary_value)
+      entries << {value.__primary_value, value.class.to_s.as(String?)}
+    else
+      entries << {to_value(value), nil.as(String?)}
+    end
+    entries
+  end
+
+  private def association_type_column(name : String) : String?
+    {% if Model.class.has_method?(:__query_association_type_column) %}
+      Model.__query_association_type_column(name)
+    {% else %}
+      nil
     {% end %}
   end
 
@@ -306,6 +368,17 @@ pub macro model_methods(model)
         if name == \{{ method.name.stringify }} || name == \{{ ann[:target] }}.table_name
           return \{{ ann[:target] }}.fields
         end
+      \{% end %}
+    \{% end %}
+    nil
+  end
+
+  def self.__query_association_type_column(name : String) : String?
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        \{% if ann[:polymorphic] && ann[:type] == :belongs_to %}
+          return \{{ ann[:type_column] }} if name == \{{ method.name.stringify }}
+        \{% end %}
       \{% end %}
     \{% end %}
     nil
