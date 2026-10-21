@@ -68,7 +68,7 @@ pub macro model_methods(model)
   {% end %}
 
   def clear_dirty_tracking_for(names : Array(String)) : Nil
-    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
       if names.includes?(\{{ column.name.stringify }})
         @__persisted_\{{ column.name }} = ::Grant::Dirty.snapshot(@\{{ column.name }})
         @__forced_dirty_columns.delete(\{{ column.name.stringify }})
@@ -82,7 +82,7 @@ pub macro model_methods(model)
 
   def changes : Hash(String, Tuple(SavedValue, SavedValue))
     pending = {} of String => Tuple(SavedValue, SavedValue)
-    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
       if \{{ v.name }}_changed?
         pending[\{{ v.name.stringify }}] = {@__persisted_\{{ v.name }}, @\{{ v.name }}}
       end
@@ -134,7 +134,7 @@ pub macro model_methods(model)
   end
 
   def restore_attributes(names : Array(String) = changed) : Nil
-    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
       if names.includes?(\{{ v.name.stringify }})
         @\{{ v.name }} = ::Grant::Dirty.snapshot(@__persisted_\{{ v.name }})
         @__forced_dirty_columns.delete(\{{ v.name.stringify }})
@@ -217,7 +217,7 @@ pub macro model_methods(model)
 
   def __capture_saved_changes : Nil
     pending = {} of String => Tuple(SavedValue, SavedValue)
-    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+    \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
       if \{{ v.name }}_changed?
         pending[\{{ v.name.stringify }}] = {@__persisted_\{{ v.name }}, @\{{ v.name }}}
       end
@@ -229,7 +229,7 @@ pub macro model_methods(model)
   def will_save_change_to_attribute?(name : String | Symbol, *, from = ::Grant::Dirty::UNFILTERED, to = ::Grant::Dirty::UNFILTERED) : Bool
     \{% begin %}
       case name.to_s
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
       when \{{ v.name.stringify }}
         will_save_change_to_\{{ v.name }}?(from: from, to: to)
       \{% end %}

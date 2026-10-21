@@ -20,6 +20,7 @@ pub import grant/associations
 import grant/polymorphic_types
 import grant/dependent
 pub import grant/columns
+pub import grant/attribute_api
 pub import grant/schema/verify
 pub import grant/schema/model_indexes
 pub import grant/migrator
@@ -258,6 +259,9 @@ pub abstract class Base
         return true if name.to_s == {{ ann[:name] }}
       {% end %}
     {% end %}
+    {% for attribute in @type.instance_vars.select { |v| v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
+      return true if name.to_s == {{ attribute.name.stringify }}
+    {% end %}
     false
   end
 
@@ -361,6 +365,14 @@ pub abstract class Base
         } of Symbol => Hash(Symbol, String)
       end
     {% end %}
+  end
+
+  macro attribute(decl, **options)
+    ::Grant::AttributeApi.attribute({{ decl }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  end
+
+  macro attributes(**attrs)
+    ::Grant::AttributeApi.attributes({% for key, value in attrs %}{{ key.id }}: {{ value }}, {% end %})
   end
 
   macro column(decl, **options)
@@ -905,6 +917,7 @@ pub abstract class Base
     ::Grant::Encryption.model_methods({{ @type }})
     ::Grant::ColumnsHelpers.model_methods({{ @type }})
     ::Grant::Attributes.model_methods({{ @type }})
+    ::Grant::AttributeApi.model_methods({{ @type }})
     ::Grant::EnumAttributes.model_methods({{ @type }})
     ::Grant::ModelName.model_methods({{ @type }})
     ::Grant::Integration.model_methods({{ @type }})
@@ -922,7 +935,7 @@ pub abstract class Base
     ::Grant::Locking::Pessimistic.model_methods({{ @type }})
     def establish_initial_dirty_baseline : Nil
       @__forced_dirty_columns.clear
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
         @__persisted_\{{ v.name }} = ::Grant::Dirty.snapshot(@\{{ v.name }})
       \{% end %}
       nil
@@ -930,7 +943,7 @@ pub abstract class Base
 
     def changed : Array(String)
       names = [] of String
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
         names << \{{ v.name.stringify }} if \{{ v.name }}_changed?
       \{% end %}
       names
@@ -941,7 +954,7 @@ pub abstract class Base
     end
 
     def changed? : Bool
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
         return true if \{{ v.name }}_changed?
       \{% end %}
       false
@@ -949,7 +962,7 @@ pub abstract class Base
 
     def __run_save_transaction(*, validate : Bool, skip_timestamps : Bool) : Bool | Nil | ::Grant::Errors::RecordNotSaved | ::Grant::Errors::DatabaseError | ::Grant::Errors::TransactionIsolationError | ::Grant::Error::ErrorBase
       return true if self.class.suppressed?
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
         pending_\{{ v.name }} = @\{{ v.name }}
       \{% end %}
       operation = new_record? ? :create : :update
@@ -963,7 +976,7 @@ pub abstract class Base
         saved
       end
       if failed
-        \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
           @\{{ v.name }} = pending_\{{ v.name }}
         \{% end %}
       end
@@ -973,7 +986,7 @@ pub abstract class Base
     def __mark_persisted : Nil
       super
       @__forced_dirty_columns.clear
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
         @__persisted_\{{ v.name }} = ::Grant::Dirty.snapshot(@\{{ v.name }})
       \{% end %}
       nil
@@ -982,11 +995,11 @@ pub abstract class Base
     def __remember_transaction_state : Nil
       return if ::Grant::Transaction::TransactionState.current_state_for_connection?(__adapter).nil?
       __remember_record_flags
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
         snapshot_\{{ v.name }} = new_record? ? @\{{ v.name }} : @__persisted_\{{ v.name }}
       \{% end %}
       ::Grant::Transaction.enlist_record_rollback_action(__adapter) do
-        \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+        \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
           @\{{ v.name }} = snapshot_\{{ v.name }}
           @__persisted_\{{ v.name }} = snapshot_\{{ v.name }}
         \{% end %}

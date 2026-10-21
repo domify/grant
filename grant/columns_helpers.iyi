@@ -11,11 +11,11 @@ pub macro model_methods(model)
   def read_attribute(name : String) : ::Grant::Columns::Type | ::Grant::Error::ErrorBase
     \{% begin %}
       case name
-      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% for v in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) || v.annotation(::Grant::AttributeApi::VirtualAttribute) } %}
       when \{{ v.name.stringify }}
-        \{% if v.annotation(::Grant::Base::Column)[:lazy] %}
+        \{% if v.annotation(::Grant::Base::Column) && v.annotation(::Grant::Base::Column)[:lazy] %}
           self.\{{ v.name }}!
-        \{% elsif (conv = v.annotation(::Grant::Base::Column)[:converter]) && !v.type.union_types.all? { |t| [Nil, Bool, Int32, Int64, Float32, Float64, String, ::Std::Time::Time, ::Std::Big::BigDecimal].includes?(t.resolve) } %}
+        \{% elsif v.annotation(::Grant::Base::Column) && (conv = v.annotation(::Grant::Base::Column)[:converter]) && !v.type.union_types.all? { |t| [Nil, Bool, Int32, Int64, Float32, Float64, String, ::Std::Time::Time, ::Std::Big::BigDecimal].includes?(t.resolve) } %}
           # A converted value outside Columns::Type (an enum) reads as its database form.
           (value = @\{{ v.name }}).nil? ? nil : \{{ conv }}.to_db(value)
         \{% else %}

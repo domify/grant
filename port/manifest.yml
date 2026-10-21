@@ -2358,7 +2358,7 @@
   target: test/grant_attribute_api_test.iyi
   area: dirty_state
   examples: 20
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/attributes/store_accessor_spec.cr
   target: test/grant_attributes_store_accessor_test.iyi
   area: dirty_state
