@@ -126,6 +126,7 @@ pub trait Aggregations(Model)
   end
 
   def avg(column : Symbol | String)
+    return group_fields.empty? ? nil : empty_group_sum if is_none?
     rows = aggregate_rows("AVG", column.to_s)!
     if group_fields.empty?
       rows.first[1]
@@ -155,6 +156,7 @@ pub trait Aggregations(Model)
   end
 
   private def extremum(function : String, column : String)
+    return group_fields.empty? ? nil : empty_group_sum if is_none?
     rows = aggregate_rows(function, column)!
     if group_fields.empty?
       rows.first[1]
