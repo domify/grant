@@ -59,6 +59,23 @@ private def push_entry(model_name : String, entry : ScopeEntry, &block : -> T) :
   result
 end
 
+# The upstream fiber slot is nil after the last model scope is popped.
+pub def current_stacks : Hash(String, Array(ScopeEntry))?
+  fiber = IyiScheduler.current.object_id
+  stacks = {} of String => Array(ScopeEntry)
+  @@scoping_stacks.each { |key, stack| stacks[key[1]] = stack if key[0] == fiber }
+  stacks.empty? ? nil : stacks
+end
+
+pub trait QueryMethods(Model)
+  def scoping(&block : -> T) : T forall T
+    Model.scoping(self) { yield }
+  end
+end
+
+impl QueryMethods(Model) for Builder(Model) forall Model
+end
+
 pub annotation NamedScope
 end
 
@@ -71,6 +88,10 @@ end
 
 # Class finder and delete delegations from upstream Grant::Scoping.
 pub macro model_methods(model)
+  def self.scoping(relation : ::Grant::Query::Builder::Builder({{ model }}), &block : -> T) : T forall T
+    ::Grant::Scoping.with_relation(self, relation) { yield }
+  end
+
   {% scopes = model.resolve.methods.select { |method| method.annotation(::Grant::Scoping::NamedScope) } %}
   {% unless scopes.empty? %}
     pub class BuildNamedScopeRelation < ::Grant::Query::Builder::Builder({{ model }})

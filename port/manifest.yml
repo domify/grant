@@ -1334,6 +1334,23 @@
   area: query
   examples: 10
   status: todo
+  children:
+  - target: test/grant_query_scoping_block_test.iyi
+    status: done
+    examples:
+    - T-50c1a53147
+    - T-6d7f21cb8c
+    - T-00166480e2
+    - T-7aa79b5cd9
+    - T-99b214b03e
+    - T-baa0af7702
+    - T-fb606ae066
+    - T-d93e061c74
+    - T-7c4853b601
+  - target: test/grant_query_scoping_block_async_test.iyi
+    status: todo
+    examples:
+    - T-51e62b7114
 - source: crystal-upstream/spec/grant/query/select_order_expressions_spec.cr
   target: test/grant_query_select_order_expressions_test.iyi
   area: query
