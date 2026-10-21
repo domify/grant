@@ -1092,6 +1092,30 @@
   area: query
   examples: 17
   status: todo
+  children:
+  - target: test/grant_query_excluding_invert_test.iyi
+    status: done
+    examples:
+    - T-90daf58c9f
+    - T-60bada0c4a
+    - T-82ab343b9e
+    - T-c0112ef6e3
+    - T-5173ac4bc5
+    - T-b58f048ba3
+    - T-a015147b25
+    - T-fd080850c4
+    - T-733152f25e
+    - T-8a86d86b00
+    - T-fa1e324a90
+    - T-7842bb12e9
+    - T-8eb62b0910
+    - T-bdfaec4563
+    - T-1684fcd9e2
+    - T-307ca7e956
+  - target: test/grant_query_excluding_invert_composite_test.iyi
+    status: todo
+    examples:
+    - T-423c9e630d
 - source: crystal-upstream/spec/grant/query/executor_spec.cr
   target: test/grant_query_executor_test.iyi
   area: query

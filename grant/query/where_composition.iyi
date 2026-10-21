@@ -15,6 +15,41 @@ pub trait WhereComposition(Model)
     copy
   end
 
+  def excluding_in_place(*records : Model) : self
+    excluding_in_place(records.to_a)
+  end
+
+  def excluding_in_place(records : Array(Model)) : self
+    return self if records.empty?
+    ids = records.map(&.__primary_value).reject(&.nil?)
+    and_in_in_place(Model.primary_name, ids, negated: true) unless ids.empty?
+    self
+  end
+
+  def excluding(*records : Model) : self
+    chain_copy.excluding_in_place(records.to_a)
+  end
+
+  def excluding(records : Array(Model)) : self
+    chain_copy.excluding_in_place(records)
+  end
+
+  def without_in_place(*records : Model) : self
+    excluding_in_place(records.to_a)
+  end
+
+  def without_in_place(records : Array(Model)) : self
+    excluding_in_place(records)
+  end
+
+  def without(*records : Model) : self
+    chain_copy.excluding_in_place(records.to_a)
+  end
+
+  def without(records : Array(Model)) : self
+    chain_copy.excluding_in_place(records)
+  end
+
   def invert_where : self
     chain_copy.invert_where_in_place
   end
@@ -333,6 +368,16 @@ pub trait WhereComposition(Model)
 end
 
 pub macro model_methods(model)
+  {% for name in ["excluding", "without"] %}
+    def self.{{ name.id }}(*records : {{ model }}) : ::Grant::Query::Builder::Builder({{ model }})
+      current_scope.{{ name.id }}(*records)
+    end
+
+    def self.{{ name.id }}(records : Array({{ model }})) : ::Grant::Query::Builder::Builder({{ model }})
+      current_scope.{{ name.id }}(records)
+    end
+  {% end %}
+
   def self.unscope(*, where columns : T) : ::Grant::Query::Builder::Builder({{ model }}) forall T
     current_scope.unscope(where: columns)
   end
