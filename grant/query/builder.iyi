@@ -28,6 +28,7 @@ import grant/query/aggregations::{Aggregations}
 import grant/query/grouping::{Grouping}
 import grant/query/ordering::{Ordering, OrderSupport}
 import grant/query/sql_expression
+import grant/query/relation_rewrites::{RelationRewrites}
 import grant/query/relation_merging::{RelationMerging}
 import grant/query/existence_enumerable::{ExistenceEnumerable}
 import grant/columns::{Type}
@@ -76,6 +77,12 @@ pub class Builder(Model)
   getter join_clauses = EmptyClauses::JOIN_CLAUSES
   getter having_clauses = EmptyClauses::HAVING_CLAUSES
   getter optimizer_hint_list = EmptyClauses::OPTIMIZER_HINTS
+  property reordering : Bool = false
+
+  def reordering? : Bool
+    @reordering
+  end
+
   property annotation_comment : String? = nil
   property index_hint_sql : String? = nil
   @distinct : Bool = false
@@ -267,6 +274,7 @@ pub class Builder(Model)
     @join_clauses = source.join_clauses.empty? ? EmptyClauses::JOIN_CLAUSES : source.join_clauses.dup
     @having_clauses = source.having_clauses.empty? ? EmptyClauses::HAVING_CLAUSES : source.having_clauses.dup
     @optimizer_hint_list = source.optimizer_hint_list.empty? ? EmptyClauses::OPTIMIZER_HINTS : source.optimizer_hint_list.dup
+    @reordering = source.reordering?
     @offset = source.offset
     @limit = source.limit
     @lock_mode = source.lock_mode
@@ -757,21 +765,25 @@ pub class Builder(Model)
   end
 
   def reorder_in_place(field : Symbol) : self
+    self.reordering = true
     clear_order_fields
     order_in_place(field)
   end
 
   def reorder_in_place(fields : Array(Symbol)) : self
+    self.reordering = true
     clear_order_fields
     order_in_place(fields)
   end
 
   def reorder_in_place(**dsl) : self
+    self.reordering = true
     clear_order_fields
     order_in_place(**dsl)
   end
 
   def reorder_in_place(none : Nil) : self
+    self.reordering = true
     clear_order_fields
     self
   end
@@ -1531,4 +1543,7 @@ impl CacheKeys(Model) for Builder(Model) forall Model
 end
 
 impl Locking(Model) for Builder(Model) forall Model
+end
+
+impl RelationRewrites(Model) for Builder(Model) forall Model
 end

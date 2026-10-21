@@ -6,6 +6,7 @@ import std/named_tuple
 pub import std/time
 pub import grant/timestamps
 pub import grant/counters
+import grant/query/relation_rewrites
 pub import grant/query/builder
 pub import grant/scoping
 import grant/aggregations
@@ -81,6 +82,12 @@ pub struct TransactionState
 end
 
 pub abstract class Base
+  getter extra_attributes = {} of String => ::Grant::Adapter::Driver::Value
+
+  def extra_attribute(name : String) : ::Grant::Adapter::Driver::Value
+    extra_attributes[name]?
+  end
+
   def self.connected_to(database : String? = nil, role : Symbol? = nil,
                         shard : Symbol? = nil, prevent_writes : Bool = false,
                         &block : -> T) : T forall T
@@ -875,6 +882,7 @@ pub abstract class Base
     ::Grant::Scoping.model_methods({{ @type }})
     ::Grant::RecordCopy.model_methods({{ @type }})
     ::Grant::Columns.model_methods({{ @type }})
+    ::Grant::Query::RelationRewrites.model_methods({{ @type }})
     ::Grant::Timestamps.model_methods({{ @type }})
     ::Grant::Counters.model_methods({{ @type }})
     ::Grant::Encryption.model_methods({{ @type }})
@@ -1323,6 +1331,7 @@ pub abstract class Base
       %sti = __sti_rehome_row(row)
       return %sti unless %sti.nil?
       record = \{{ @type }}.allocate_record
+      row.each { |name, value| record.extra_attributes[name] = value unless fields.includes?(name) }
       \{% for v in columns %}
         \{% type = v.annotation(::Grant::Base::Column)[:type] %}
         %raw = row[\{{ v.name.stringify }}]?

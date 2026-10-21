@@ -1248,7 +1248,7 @@
   target: test/grant_query_w6_reorder_sql_test.iyi
   area: query
   examples: 14
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/query/w6_scoping_create_with_spec.cr
   target: test/grant_query_w6_scoping_create_with_test.iyi
   area: query

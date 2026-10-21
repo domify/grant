@@ -49,6 +49,8 @@ pub trait WhereComposition(Model)
 
   def reorder(first : Symbol, second : Symbol, *rest) : self
     copy = chain_copy
+    return chain_copy.reorder_in_place(first, second) if rest.empty? && (second == :asc || second == :desc)
+    copy.reordering = true
     copy.clear_order_fields
     copy.order_in_place(first)
     copy.order_in_place(second)

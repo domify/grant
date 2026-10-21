@@ -1,5 +1,7 @@
 module grant
 
+import grant/query/sql_expression
+
 pub import grant/base
 pub import grant/settings
 import grant/settings::{Settings}
@@ -80,3 +82,8 @@ pub def adapter_for_scheme(scheme : String) : ::Grant::Adapter::Registry::Regist
 end
 
 pub import grant/query/extract_associated
+
+# Mark a developer-owned SQL expression as trusted.
+pub def sql(fragment : String) : ::Grant::Query::SqlExpression::Trusted
+  ::Grant::Query::SqlExpression::Trusted.new(fragment)
+end
