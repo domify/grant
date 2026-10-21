@@ -369,6 +369,18 @@ pub abstract class Base
     {% end %}
   end
 
+  macro detect_mutation(*names)
+    ::Grant::Dirty.detect_mutation({% for name in names %}{{ name }}, {% end %})
+  end
+
+  def __refresh_mutation_tracking : Nil
+    nil
+  end
+
+  def self.mutation_detected_attributes : Array(String)
+    [] of String
+  end
+
   macro serialized_column(name, klass, format = :json)
     ::Grant::SerializedColumn.serialized_column({{ name }}, {{ klass }}, {{ format }})
   end
@@ -478,6 +490,7 @@ pub abstract class Base
     {% end %}
 
     def {{decl.var}}_changed? : Bool
+      __refresh_mutation_tracking
       return true if __forced_dirty_attribute?({{ decl.var.stringify }})
       return false if @{{decl.var}} == @__persisted_{{decl.var}}
       {% if options[:encrypted] %}

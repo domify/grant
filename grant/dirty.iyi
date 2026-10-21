@@ -18,7 +18,51 @@ pub UNFILTERED = Unfiltered.new
 
 # Scalar pre-save predicates share the column baselines already captured by
 # Base on construction, hydration, successful persistence and rollback.
+pub annotation MutationDetection
+end
+
+pub macro detect_mutation(*names)
+  @[::Grant::Dirty::MutationDetection(names: [{% for name in names %}{{ name.id.stringify }}, {% end %}] of String)]
+  def __detect_mutation_{{ @type.methods.size }} : Nil
+    nil
+  end
+end
+
 pub macro model_methods(model)
+  def self.mutation_detected_attributes : Array(String)
+    \{% begin %}
+    names = [] of String
+    \{% for column in @type.instance_vars.select { |v| v.annotation(::Grant::Base::Column) } %}
+      \{% if column.annotation(::Grant::Base::Column)[:type].includes?("Array(") %}
+        names << \{{ column.name.stringify }}
+      \{% end %}
+    \{% end %}
+    \{% declarations = @type.methods.select { |m| m.annotation(::Grant::Dirty::MutationDetection) } %}
+    \{% for method in @type.methods %}
+      \{% if store = method.annotation(::Grant::SerializedColumn::Storage) %}
+        \{% if declarations.any? { |d| d.annotation(::Grant::Dirty::MutationDetection)[:names].empty? || d.annotation(::Grant::Dirty::MutationDetection)[:names].includes?(store[:name]) || d.annotation(::Grant::Dirty::MutationDetection)[:names].includes?("_serialized_#{store[:name].id}") } %}
+          names << \{{ "_serialized_#{store[:name].id}" }}
+        \{% end %}
+      \{% end %}
+    \{% end %}
+    names
+    \{% end %}
+  end
+
+  def __refresh_mutation_tracking : Nil
+    \{% begin %}
+    \{% declarations = @type.methods.select { |m| m.annotation(::Grant::Dirty::MutationDetection) } %}
+    \{% for method in @type.methods %}
+      \{% if store = method.annotation(::Grant::SerializedColumn::Storage) %}
+        \{% if declarations.any? { |d| d.annotation(::Grant::Dirty::MutationDetection)[:names].empty? || d.annotation(::Grant::Dirty::MutationDetection)[:names].includes?(store[:name]) || d.annotation(::Grant::Dirty::MutationDetection)[:names].includes?("_serialized_#{store[:name].id}") } %}
+          _serialize_\{{ store[:name].id }}
+        \{% end %}
+      \{% end %}
+    \{% end %}
+    nil
+    \{% end %}
+  end
+
   @__forced_dirty_columns = [] of String
 
   def __forced_dirty_attribute?(name : String) : Bool
