@@ -8,6 +8,7 @@ import grant/query/where_field::{Bind, WhereField, JoinClause, OrderField, Sort}
 import grant/query/predicate_renderer::{PredicateRenderer}
 import grant/query/join_support::{JoinSupport}
 import grant/query/executor
+import grant/query/sql_expression
 
 # Native counterpart of Grant::Query::Assembler::Base and its PostgreSQL and
 # SQLite subclasses (crystal-upstream/src/grant/query/assemblers/*.cr). The
@@ -328,6 +329,50 @@ pub abstract class Base(Model, Query)
   def default_order : Array(OrderField)
     field = qualify_join_field(Model.primary_name, Model.quote(Model.table_name))
     [{field: field, direction: Sort::Descending}]
+  end
+
+  # Structural aggregate SQL from src/grant/aggregations.cr.
+  def aggregate_sql(function : String, column : String, cast : Symbol = :none,
+                    distinct : Bool = false) : String
+    keyword = distinct ? "DISTINCT " : ""
+    if !@query.group_fields.empty?
+      keys = @query.group_fields.map { |field| qualify_join_field(field[:field], Model.quote(Model.table_name)) }
+      value = aggregate_expression(function, "#{keyword}#{aggregate_column_sql(column)}", cast)
+      return build_sql([
+        with_clause, "#{select_prefix} #{keys.join(", ")}, #{value}", from_clause,
+        joins, where, group_by, having, order(false), limit, offset,
+      ] of String?)
+    end
+    with_sql = with_clause
+    if !@query.limit.nil? || !@query.offset.nil?
+      value = aggregate_expression(function, "#{keyword}grant_value", cast)
+      inner = build_sql([
+        "SELECT #{aggregate_column_sql(column)} AS grant_value", from_clause,
+        joins, where, having, order(false), limit || "LIMIT 9223372036854775807", offset,
+      ] of String?)
+      return [with_sql, "#{select_prefix} #{value} FROM (#{inner}) AS grant_limited_rows"].compact.join(" ")
+    end
+    value = aggregate_expression(function, "#{keyword}#{aggregate_column_sql(column)}", cast)
+    build_sql([with_sql, "#{select_prefix} #{value}", from_clause, joins, where, having] of String?)
+  end
+
+  private def aggregate_expression(function : String, argument : String, cast : Symbol) : String
+    expression = "#{function}(#{argument})"
+    case cast
+    when :text then "CAST(#{expression} AS TEXT)"
+    when :double then "CAST(#{expression} AS DOUBLE PRECISION)"
+    else expression
+    end
+  end
+
+  private def aggregate_column_sql(column : String) : String
+    return "*" if column == "*"
+    if ::Grant::Query::SqlExpression.identifier?(column)
+      return order_field_sql(column)
+    end
+    validation = ::Grant::Query::SqlExpression.validate_strict(column, "aggregate expression")
+    fail(validation) if validation.is_a?(ArgumentError)
+    column
   end
 
   def count : ::Grant::Query::Executor::Value(Model, Int64)

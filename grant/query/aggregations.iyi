@@ -74,6 +74,10 @@ pub trait Aggregations(Model)
   end
 
   def sum(column : Symbol | String)
+    if is_none?
+      return empty_group_sum unless group_fields.empty?
+      return float_column?(column) ? 0.0 : 0_i64
+    end
     rows = aggregate_rows("SUM", column.to_s)!
     if group_fields.empty?
       value = rows.first[1]
@@ -82,10 +86,22 @@ pub trait Aggregations(Model)
           return BigDecimal.new(value.nil? ? "0" : value.to_s)
         end
       {% end %}
-      value.nil? ? 0_i64 : value
+      value.nil? ? (float_column?(column) ? 0.0 : 0_i64) : value
     else
       grouped_values(rows, Value) { |value| value.nil? ? 0_i64 : value }
     end
+  end
+
+  private def float_column?(column : Symbol | String) : Bool
+    {% if Model.class.has_method?(:type_for_attribute) %}
+      (Model.type_for_attribute(column) || "").includes?("Float")
+    {% else %}
+      false
+    {% end %}
+  end
+
+  private def empty_group_sum : Hash(Value, Value) | Hash(Array(Value), Value)
+    group_fields.size == 1 ? ({} of Value => Value) : ({} of Array(Value) => Value)
   end
 
   def sum(column : Symbol | String, as numeric_type : T.class) : T | ErrorBase forall T

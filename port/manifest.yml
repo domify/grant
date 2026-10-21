@@ -1014,6 +1014,33 @@
   area: query
   examples: 20
   status: todo
+  children:
+  - target: test/grant_query_aggregations_typed_test.iyi
+    status: done
+    examples:
+    - T-3d3b26e211
+    - T-3b5d1734ce
+    - T-3b096e816d
+    - T-a8e4f76619
+    - T-00ae012db8
+    - T-736fe6073c
+    - T-35dbcf9fec
+    - T-f0dbaa4d32
+    - T-bb40d5b4ba
+    - T-2853bff02c
+    - T-d7da36fe44
+    - T-9adeee2cf5
+    - T-1641799050
+    - T-5fe5268090
+    - T-0d28833429
+    - T-a59f100252
+    - T-5c484eddca
+    - T-a7832a26f6
+  - target: test/grant_query_aggregations_typed_chunked_test.iyi
+    status: todo
+    examples:
+    - T-9cf8dc0a1a
+    - T-ea9b428541
 - source: crystal-upstream/spec/grant/query/assemblers/mysql_spec.cr
   target: test/grant_query_assemblers_mysql_test.iyi
   area: query

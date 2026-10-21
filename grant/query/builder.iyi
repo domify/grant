@@ -1522,23 +1522,18 @@ pub class Builder(Model)
   # Runs an aggregate projection: the GROUP BY keys, then *function*.
   protected def aggregate_rows(function : String, column : String) : Array(Tuple(Array(Value), Value)) | ErrorBase
     query_assembler = prepared { |built| built }!
-    fields = [] of String
-    @group_fields.each_with_index do |field, index|
-      fields << "#{field[:field]} AS \"grant_group_#{index}\""
-    end
-    aggregate = "#{function}(#{column})"
+    cast = function == "AVG" ? :double : :none
     {% if Model.class.has_method?(:type_for_attribute) %}
       if function == "SUM" && (Model.type_for_attribute(column) || "").includes?("BigDecimal")
-        aggregate = "CAST(#{aggregate} AS TEXT)"
+        cast = :text
       end
     {% end %}
-    aggregate = "CAST(#{aggregate} AS DOUBLE PRECISION)" if function == "AVG" && Model.adapter.postgres?
-    fields << "#{aggregate} AS \"grant_aggregate\""
-    sql = query_assembler.build_sql([
-      query_assembler.with_clause, "#{query_assembler.select_prefix} #{fields.join(", ")}", query_assembler.from_clause,
-      query_assembler.joins, query_assembler.where, query_assembler.group_by, query_assembler.having,
-      @group_fields.empty? ? nil : query_assembler.order(false), query_assembler.limit, query_assembler.offset,
-    ] of String?)
+    aggregate_distinct = distinct?
+    if column.starts_with?("DISTINCT ")
+      column = column[9, column.bytesize - 9]
+      aggregate_distinct = true
+    end
+    sql = query_assembler.aggregate_sql(function, column, cast, aggregate_distinct)
     assembled_error = query_assembler.error
     return assembled_error unless assembled_error.nil?
     ::Grant::Query::Executor::Aggregate(Model).new(sql, query_assembler.numbered_parameters, @group_fields.size).run
