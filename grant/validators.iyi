@@ -95,10 +95,30 @@ pub macro model_methods(model)
     !valid?(context)!
   end
 
-  macro validate(method, *, on, **options)
+  {% for event in ["before_validation", "after_validation"] %}
+    macro {{ event.id }}(method, **options)
+      def __callback_{{ event.id }}_\{{ @type.methods.size }} : Nil | ::Grant::Callbacks::Abort
+        ::Grant::Callbacks.guard(\{{ options[:if] }}, \{{ options[:unless] }}, nil)
+        result = self.\{{ method.id }}
+        return result if result.is_a?(::Grant::Callbacks::Abort)
+        nil
+      end
+    end
+  {% end %}
+
+  macro validate(method, **options, &block)
     def __validate_method_\{{ @type.methods.size }} : Nil
-      __validation_rule_options(:base, nil, on: \{{ on }}, \{{ options.double_splat }})
-      self.\{{ method.id }}
+      __validation_rule_options(:base, nil, \{{ options.double_splat }})
+      \{% if block %}
+        \{% if block.args.size > 0 %}\{{ block.args[0].id }} = self\{% end %}
+        unless begin
+          \{{ block.body }}
+        end
+          errors.add(:base, \{{ method }})
+        end
+      \{% else %}
+        self.\{{ method.id }}
+      \{% end %}
       nil
     end
   end
@@ -147,17 +167,23 @@ pub macro model_methods(model)
 
   macro __validation_rule_options(field, rule_value, **options)
     \{% if options[:if] %}
-      \{% if options[:if].is_a?(SymbolLiteral) %}
-        return nil unless self.\{{ options[:if].id }}
-      \{% else %}
-        return nil unless (\{{ options[:if] }}).call(self)
+      \{% terms = options[:if].is_a?(ArrayLiteral) ? options[:if] : [options[:if]] %}
+      \{% for term in terms %}
+        \{% if term.is_a?(SymbolLiteral) %}
+          return nil unless self.\{{ term.id }}
+        \{% else %}
+          return nil unless (\{{ term }}).call(self)
+        \{% end %}
       \{% end %}
     \{% end %}
     \{% if options[:unless] %}
-      \{% if options[:unless].is_a?(SymbolLiteral) %}
-        return nil if self.\{{ options[:unless].id }}
-      \{% else %}
-        return nil if (\{{ options[:unless] }}).call(self)
+      \{% terms = options[:unless].is_a?(ArrayLiteral) ? options[:unless] : [options[:unless]] %}
+      \{% for term in terms %}
+        \{% if term.is_a?(SymbolLiteral) %}
+          return nil if self.\{{ term.id }}
+        \{% else %}
+          return nil if (\{{ term }}).call(self)
+        \{% end %}
       \{% end %}
     \{% end %}
     \{% if options[:on] %}
@@ -192,18 +218,24 @@ pub macro model_methods(model)
     \{% for field in fields %}
       def __validate_presence_\{{ field.id }} : Nil
         \{% if options[:if] %}
-          \{% if options[:if].is_a?(SymbolLiteral) %}
-        return nil unless self.\{{ options[:if].id }}
-      \{% else %}
-        return nil unless (\{{ options[:if] }}).call(self)
-      \{% end %}
+          \{% terms = options[:if].is_a?(ArrayLiteral) ? options[:if] : [options[:if]] %}
+          \{% for term in terms %}
+            \{% if term.is_a?(SymbolLiteral) %}
+              return nil unless self.\{{ term.id }}
+            \{% else %}
+              return nil unless (\{{ term }}).call(self)
+            \{% end %}
+          \{% end %}
         \{% end %}
         \{% if options[:unless] %}
-          \{% if options[:unless].is_a?(SymbolLiteral) %}
-        return nil if self.\{{ options[:unless].id }}
-      \{% else %}
-        return nil if (\{{ options[:unless] }}).call(self)
-      \{% end %}
+          \{% terms = options[:unless].is_a?(ArrayLiteral) ? options[:unless] : [options[:unless]] %}
+          \{% for term in terms %}
+            \{% if term.is_a?(SymbolLiteral) %}
+              return nil if self.\{{ term.id }}
+            \{% else %}
+              return nil if (\{{ term }}).call(self)
+            \{% end %}
+          \{% end %}
         \{% end %}
         \{% if options[:on] %}
           contexts = \{{ options[:on] }}

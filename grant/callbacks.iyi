@@ -52,26 +52,32 @@ end
 # Symbol conditions call an instance method; Proc conditions receive the record.
 pub macro guard(condition, unless_condition, continuation)
   {% if condition %}
-    {% if condition.is_a?(SymbolLiteral) %}
-      %enabled = {{ condition.id }}
-    {% else %}
-      %enabled = {{ condition }}.call(self)
+    {% terms = condition.is_a?(ArrayLiteral) ? condition : [condition] %}
+    {% for term in terms %}
+      {% if term.is_a?(SymbolLiteral) %}
+        %enabled = {{ term.id }}
+      {% else %}
+        %enabled = {{ term }}.call(self)
+      {% end %}
+      unless %enabled
+        {% if continuation != nil %}{{ continuation }}.call{% end %}
+        return nil
+      end
     {% end %}
-    unless %enabled
-      {% if continuation != nil %}{{ continuation }}.call{% end %}
-      return nil
-    end
   {% end %}
   {% if unless_condition %}
-    {% if unless_condition.is_a?(SymbolLiteral) %}
-      %disabled = {{ unless_condition.id }}
-    {% else %}
-      %disabled = {{ unless_condition }}.call(self)
+    {% terms = unless_condition.is_a?(ArrayLiteral) ? unless_condition : [unless_condition] %}
+    {% for term in terms %}
+      {% if term.is_a?(SymbolLiteral) %}
+        %disabled = {{ term.id }}
+      {% else %}
+        %disabled = {{ term }}.call(self)
+      {% end %}
+      if %disabled
+        {% if continuation != nil %}{{ continuation }}.call{% end %}
+        return nil
+      end
     {% end %}
-    if %disabled
-      {% if continuation != nil %}{{ continuation }}.call{% end %}
-      return nil
-    end
   {% end %}
 end
 
