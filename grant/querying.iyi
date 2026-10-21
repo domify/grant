@@ -83,6 +83,14 @@ pub macro model_methods(model)
     current_scope.in_batches(of: batch_size) { |batch| yield batch }
   end
 
+  def self.in_batches(of batch_size : Int32 = 1000, **options, &block : ::Grant::Query::Builder::Builder({{ model }}) -> T) : Nil | ::Grant::Error::ErrorBase forall T
+    current_scope.in_batches(batch_size, **options) { |batch| yield batch }
+  end
+
+  def self.in_batches(of batch_size : Int32 = 1000, **options) : ::Grant::Query::Batches::RelationBatchIterator({{ model }}, ::Grant::Query::Builder::Builder({{ model }})) | ::Grant::Error::ErrorBase
+    current_scope.in_batches(batch_size, **options)
+  end
+
   def self.each_streamed(&block : {{ model }} -> T) : Nil | ::Grant::Error::ErrorBase forall T
     current_scope.each_streamed { |record| yield record }
   end
