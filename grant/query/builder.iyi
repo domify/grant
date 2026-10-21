@@ -629,27 +629,31 @@ pub class Builder(Model)
   # One keyword condition: an Array becomes IN, anything else equality.
   protected def add_condition(join : Symbol, field : String, value : T) : self forall T
     field = resolved_attribute_field(field)
-    foreign_key = association_foreign_key(field)
-    field = foreign_key unless foreign_key.nil?
-    if value.responds_to?(:subquery_parts)
-      safe_field = structured_field_sql(field)
-      return self if safe_field.nil?
-      parts = value.subquery_parts
-      return self.defer(parts) if parts.is_a?(ErrorBase)
-      statement, values = parts
-      own_where_fields << {join: join, stmt: "#{safe_field} IN (#{statement})", values: values}
-      self
-    elsif value.responds_to?(:__primary_value)
-      return self.defer(ArgumentError.new("#{field.inspect} is not an association of #{Model}")) if foreign_key.nil?
-      add_condition(join, field, value.__primary_value)
-    elsif value.is_a?(Range)
-      add_range_condition(join, field, value)
-    elsif value.is_a?(Array)
-      add_value_array_condition(join, field, value)
-    else
-      own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(normalized_where_value(field, value))}
-      self
-    end
+    {% if T <= NamedTuple || T <= Hash %}
+      return add_nested_where_condition(join, field, value)
+    {% else %}
+      foreign_key = association_foreign_key(field)
+      field = foreign_key unless foreign_key.nil?
+      if value.responds_to?(:subquery_parts)
+        safe_field = structured_field_sql(field)
+        return self if safe_field.nil?
+        parts = value.subquery_parts
+        return self.defer(parts) if parts.is_a?(ErrorBase)
+        statement, values = parts
+        own_where_fields << {join: join, stmt: "#{safe_field} IN (#{statement})", values: values}
+        self
+      elsif value.responds_to?(:__primary_value)
+        return self.defer(ArgumentError.new("#{field.inspect} is not an association of #{Model}")) if foreign_key.nil?
+        add_condition(join, field, value.__primary_value)
+      elsif value.is_a?(Range)
+        add_range_condition(join, field, value)
+      elsif value.is_a?(Array)
+        add_value_array_condition(join, field, value)
+      else
+        own_where_fields << {join: join, field: field, operator: :eq, value: to_bind(normalized_where_value(field, value))}
+        self
+      end
+    {% end %}
   end
 
   private def add_array_condition(join : Symbol, field : String, operator : Symbol, values : Array(T)) : self forall T

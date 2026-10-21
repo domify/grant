@@ -9,6 +9,44 @@ import grant/sanitization
 # Value-shaped conditions and grouped negation, as in upstream
 # src/grant/query/where_composition.cr.
 pub trait WhereComposition(Model)
+  def invert_where : self
+    chain_copy.invert_where_in_place
+  end
+
+  def invert_where_in_place : self
+    return self if where_fields.empty?
+    values = [] of Value
+    renderer = PredicateRenderer.new(
+      Model.to_s, Model.table_name, Model.fields,
+      ->(name : String) { Model.quote(name) },
+      ->(value : Value) { values << value; "?" },
+      ->(name : String) { nil }, join_clauses)
+    renderer.rendering_where_group = true
+    sql = renderer.render_where_fields(where_fields)
+    return self.defer(sql) if sql.is_a?(ErrorBase)
+    clear_where_fields
+    own_where_fields << {join: :and, stmt: "NOT (#{sql})", values: values}
+    self
+  end
+
+  protected def add_nested_where_condition(join : Symbol, name : String, matches : T) : self forall T
+    {% if Model.class.has_method?(:__query_nested_table) %}
+      table = Model.__query_nested_table(name)
+      fields = Model.__query_nested_fields(name)
+      return self.defer(ArgumentError.new("Unknown query table #{name.inspect}")) if table.nil? || fields.nil?
+      matches.each do |column, value|
+        field = "#{table}.#{column}"
+        unless fields.includes?(column.to_s)
+          return self.defer(ArgumentError.new("Unknown query field #{field.inspect} for #{Model}"))
+        end
+        add_condition(join, "#{table}.#{column}", value)
+      end
+      self
+    {% else %}
+      self.defer(ArgumentError.new("Unknown query table #{name.inspect}"))
+    {% end %}
+  end
+
   protected def register_raw_where_column(statement : String, field : String, equality : Bool = false) : Nil
     raw_where_columns[statement] = {field.split('.').last, equality}
     nil
@@ -157,6 +195,8 @@ pub trait WhereComposition(Model)
     scope.clear_where_fields
     scope.clear_default_scope_where_fields
     matches.each { |field, value| scope.add_condition(:and, field.to_s, value) }
+    failure = scope.deferred_error
+    return self.defer(failure) unless failure.nil?
     return self if scope.where_fields.empty?
     values = [] of Value
     renderer = PredicateRenderer.new(
@@ -241,6 +281,34 @@ pub macro model_methods(model)
 
   def self.unscope(*components : Symbol, where columns : T) : ::Grant::Query::Builder::Builder({{ model }}) forall T
     current_scope.unscope(*components, where: columns)
+  end
+
+  def self.__query_nested_table(name : String) : String?
+    if name == table_name
+      return table_name
+    end
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        if name == \{{ method.name.stringify }} || name == \{{ ann[:target] }}.table_name
+          return \{{ ann[:target] }}.table_name
+        end
+      \{% end %}
+    \{% end %}
+    nil
+  end
+
+  def self.__query_nested_fields(name : String) : Array(String)?
+    if name == table_name
+      return fields
+    end
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        if name == \{{ method.name.stringify }} || name == \{{ ann[:target] }}.table_name
+          return \{{ ann[:target] }}.fields
+        end
+      \{% end %}
+    \{% end %}
+    nil
   end
 
   def self.__query_association_foreign_key(name : String) : String?

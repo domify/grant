@@ -1294,7 +1294,7 @@
   target: test/grant_query_where_not_or_and_test.iyi
   area: query
   examples: 30
-  status: todo
+  status: done
   children:
   - target: test/grant_query_where_not_or_and_not_test.iyi
     status: done
@@ -1310,7 +1310,7 @@
     - T-22d97ca296
     - T-675d469bf0
   - target: test/grant_query_where_not_or_and_relations_test.iyi
-    status: todo
+    status: done
     examples:
     - T-56508ba665
     - T-7b300fb25b
@@ -1330,7 +1330,7 @@
     - T-5da0cb7030
     - T-ce52d3a2fc
   - target: test/grant_query_where_not_or_and_test.iyi
-    status: todo
+    status: done
     examples:
     - T-9293a03531
     - T-3e87eefa98
