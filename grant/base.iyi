@@ -1374,7 +1374,9 @@ pub abstract class Base
         \{% elsif type.includes?("Float32") %}
           record.__raw_\{{ v.name }} = %raw.is_a?(Float64) ? %raw.to_f32 : nil
         \{% elsif type.includes?("Time") %}
-          record.__raw_\{{ v.name }} = %raw.is_a?(String) ? ::Grant::ColumnsHelpers.time_from_db(%raw) : nil
+          %parsed_time = %raw.is_a?(String) ? adapter.read_time(%raw) : nil
+          return %parsed_time if %parsed_time.is_a?(::Error)
+          record.__raw_\{{ v.name }} = %parsed_time
         \{% elsif type.includes?("Float") %}
           record.__raw_\{{ v.name }} = %raw.is_a?(Float64) ? %raw : nil
         \{% else %}

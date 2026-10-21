@@ -910,7 +910,7 @@
   target: test/grant_perf_w6_sqlite_time_parse_test.iyi
   area: query
   examples: 5
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/bulk_timestamps_spec.cr
   target: test/grant_persistence_bulk_timestamps_test.iyi
   area: query

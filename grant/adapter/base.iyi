@@ -2,6 +2,7 @@ module grant/adapter/base
 
 pub import grant/adapter/driver
 
+import grant/columns_helpers
 import grant/advisory_lock
 import grant/adapter/server_version::{ServerVersion}
 import grant/adapter/placeholder_scanner
@@ -16,6 +17,10 @@ import grant/errors::{DatabaseError, ErrorBase}
 import grant/error_taxonomy::{ConnectionFailed, NoDatabaseError, ConnectionTimeoutError, StatementInvalid, ReadOnlyError}
 
 pub abstract class Base
+  def read_time(text : String) : ::Std::Time::Time | ErrorBase
+    ::Grant::ColumnsHelpers.time_from_db_strict(text)
+  end
+
   @database_version : ServerVersion? = nil
 
   def database_version : ServerVersion | ErrorBase
