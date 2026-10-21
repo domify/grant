@@ -1,6 +1,8 @@
 module grant/query/join_support
 
 import std/text
+import grant/error::{ArgumentError}
+import grant/counter_cache
 import grant/query/where_field::{JoinClause}
 
 # The name-resolution half of Grant::Query::JoinSupport
@@ -17,6 +19,25 @@ pub class JoinSupport
       return false unless letter || (digit && index > 0)
     end
     true
+  end
+
+  def self.validated_alias(name : String) : String | ArgumentError
+    return ArgumentError.new("Join alias must be an identifier (got #{name.inspect})") unless identifier?(name)
+    name
+  end
+
+  def self.resolve(owner : Model.class, association : Symbol, type : Symbol, alias_name : String? = nil,
+                   existing : Array(JoinClause) = [] of JoinClause, root_table : String = owner.table_name) : Array(JoinClause) | ArgumentError forall Model
+    collector = Collector.new(root_table, existing)
+    collector.step(owner, association, type, owner.table_name, alias_name)!
+    collector.added
+  end
+
+  def self.resolve_nested(owner : Model.class, spec : T, type : Symbol,
+                          existing : Array(JoinClause) = [] of JoinClause, root_table : String = owner.table_name) : Array(JoinClause) | ArgumentError forall Model, T
+    collector = Collector.new(root_table, existing)
+    collector.nested(owner, spec, type, owner.table_name)!
+    collector.added
   end
 
   # The name a joined table is referred to by in the rest of the query: its
@@ -57,5 +78,65 @@ pub class JoinSupport
   # `true` when one of *clauses* makes *name* available as a qualifier.
   def self.joins?(clauses : Array(JoinClause), name : String) : Bool
     clauses.any? { |clause| qualifiers(clause).includes?(name) }
+  end
+end
+
+# Structural Collector from query/joins.cr. Native model macros resolve the target class.
+pub class Collector
+  getter added = [] of JoinClause
+
+  def initialize(@root_table : String, @existing : Array(JoinClause) = [] of JoinClause)
+  end
+
+  def step(owner : Model.class, association : Symbol, type : Symbol, owner_ref : String,
+           alias_name : String? = nil) : String | ArgumentError forall Model
+    owner.__query_collect_step(self, association.to_s, type, owner_ref, alias_name)
+  end
+
+  def nested(owner : Model.class, spec : T, type : Symbol, owner_ref : String) : Nil | ArgumentError forall Model, T
+    owner.__query_collect_nested(self, spec, type, owner_ref)
+  end
+
+  def emit(type : Symbol, table : String, alias_name : String?, name_hint : String,
+           parent_ref : String, &block : String -> String) : String | ArgumentError
+    if alias_name
+      ref = JoinSupport.validated_alias(alias_name)!
+      add({type: type, table: "#{table} AS #{ref}", on: yield ref})
+      return ref
+    end
+    plain = {type: type, table: table, on: yield table}
+    return table if holds?(plain)
+    unless used?(table)
+      @added << plain
+      return table
+    end
+    plural = name_hint.ends_with?("s") ? name_hint : ::Grant::CounterCache.pluralize(name_hint)
+    base = "#{plural}_#{parent_ref}"
+    ref = base
+    suffix = 1
+    loop do
+      clause = {type: type, table: "#{table} AS #{ref}", on: yield ref}
+      return ref if holds?(clause)
+      unless used?(ref)
+        @added << clause
+        return ref
+      end
+      suffix += 1
+      ref = "#{base}_#{suffix}"
+    end
+  end
+
+  private def add(clause : JoinClause) : Nil
+    @added << clause unless holds?(clause)
+    nil
+  end
+
+  private def holds?(clause : JoinClause) : Bool
+    @existing.any? { |other| other.to_s == clause.to_s } ||
+      @added.any? { |other| other.to_s == clause.to_s }
+  end
+
+  private def used?(name : String) : Bool
+    name == @root_table || JoinSupport.joins?(@existing, name) || JoinSupport.joins?(@added, name)
   end
 end

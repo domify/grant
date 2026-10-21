@@ -1,10 +1,44 @@
 module grant/query/joins
 
+import grant/query/join_support::{JoinSupport}
+import std/named_tuple
 import grant/query/where_field::{JoinClause}
 import grant/error::{ArgumentError}
 
 # Association-name join slice of the upstream Builder reopening in joins.cr.
 pub trait Joins(Model)
+  protected def add_join_clause(clause : JoinClause) : Nil
+    own_join_clauses << clause unless join_clauses.any? { |existing| existing.to_s == clause.to_s }
+    nil
+  end
+
+  protected def add_join_clauses(clauses : Array(JoinClause)) : Nil
+    clauses.each { |clause| add_join_clause(clause) }
+    nil
+  end
+
+  def joins_in_place(**nested) : self
+    clauses = JoinSupport.resolve_nested(Model, nested, :inner, join_clauses)
+    return self.defer(clauses) if clauses.is_a?(ArgumentError)
+    add_join_clauses(clauses)
+    self
+  end
+
+  def joins(**nested) : self
+    chain_copy.joins_in_place(**nested)
+  end
+
+  def joins_in_place(association : Symbol, *, as alias_name : String) : self
+    clauses = JoinSupport.resolve(Model, association, :inner, alias_name, join_clauses)
+    return self.defer(clauses) if clauses.is_a?(ArgumentError)
+    add_join_clauses(clauses)
+    self
+  end
+
+  def joins(association : Symbol, *, as alias_name : String) : self
+    chain_copy.joins_in_place(association, as: alias_name)
+  end
+
   private def append_association_path(path : Array(String), join_type : Symbol, alias_name : String? = nil) : self
     clauses = Model.__query_join_path(path, join_type, Model.table_name, alias_name)
     return self.defer(clauses) if clauses.is_a?(ArgumentError)
@@ -35,7 +69,9 @@ pub trait Joins(Model)
   end
 
   def left_joins_in_place(**paths) : self
-    paths.each { |name, child| append_association_path([name.to_s, child.to_s], :left) }
+    clauses = JoinSupport.resolve_nested(Model, paths, :left, join_clauses)
+    return self.defer(clauses) if clauses.is_a?(ArgumentError)
+    add_join_clauses(clauses)
     self
   end
 
@@ -72,11 +108,9 @@ pub trait Joins(Model)
   end
 
   def joins_in_place(name : Symbol) : self
-    clause = Model.__query_join_clause(name.to_s, :inner)
-    return self.defer(ArgumentError.new("Unknown association #{name.inspect} for #{Model}")) if clause.nil?
-    unless join_clauses.any? { |existing| existing.to_s == clause.to_s }
-      own_join_clauses << clause
-    end
+    clauses = JoinSupport.resolve(Model, name, :inner, nil, join_clauses)
+    return self.defer(clauses) if clauses.is_a?(ArgumentError)
+    add_join_clauses(clauses)
     self
   end
 end
@@ -87,6 +121,57 @@ pub macro model_methods(model)
       current_scope.{{ operation.id }}(*args, **options)
     end
   {% end %}
+
+  def self.joins(sql : String) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.joins(sql)
+  end
+
+  def self.joins(**nested) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.joins(**nested)
+  end
+
+  def self.joins(association : Symbol, *, as alias_name : String) : ::Grant::Query::Builder::Builder({{ model }})
+    current_scope.joins(association, as: alias_name)
+  end
+
+  def self.__query_collect_step(collector : ::Grant::Query::JoinSupport::Collector, name : String,
+      type : Symbol, owner_ref : String, alias_name : String? = nil) : String | ::Grant::Error::ArgumentError
+    \{% for method in @type.methods %}
+      \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+        if name == \{{ method.name.stringify }}
+          return collector.emit(type, \{{ ann[:target] }}.table_name, alias_name, name, owner_ref) do |ref|
+            \{% if ann[:type] == :belongs_to %}
+              "#{ref}.\{{ ann[:primary_key].id }} = #{owner_ref}.\{{ ann[:foreign_key].id }}"
+            \{% else %}
+              "#{ref}.\{{ ann[:foreign_key].id }} = #{owner_ref}.\{{ ann[:primary_key].id }}"
+            \{% end %}
+          end
+        end
+      \{% end %}
+    \{% end %}
+    ::Grant::Error::ArgumentError.new("Unknown association :#{name} for #{self}")
+  end
+
+  def self.__query_collect_nested(collector : ::Grant::Query::JoinSupport::Collector, spec : T,
+      type : Symbol, owner_ref : String) : Nil | ::Grant::Error::ArgumentError forall T
+    if spec.is_a?(Symbol)
+      collector.step(self, spec, type, owner_ref)!
+    elsif spec.is_a?(Array)
+      spec.each { |item| collector.nested(self, item, type, owner_ref)! }
+    else
+      spec.each do |name, children|
+        target_ref = __query_collect_step(collector, name.to_s, type, owner_ref)!
+        \{% for method in @type.methods %}
+          \{% if ann = method.annotation(::Grant::Associations::Relationship) %}
+            if name.to_s == \{{ method.name.stringify }}
+              \{{ ann[:target] }}.__query_collect_nested(collector, children, type, target_ref)!
+            end
+          \{% end %}
+        \{% end %}
+      end
+    end
+    nil
+  end
 
   def self.__query_join_path(path : Array(String), join_type : Symbol, owner_ref : String, alias_name : String? = nil) : Array(::Grant::Query::WhereField::JoinClause) | ::Grant::Error::ArgumentError
     return ::Grant::Error::ArgumentError.new("Join path is empty") if path.empty?

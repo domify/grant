@@ -922,7 +922,7 @@ pub class Builder(Model)
   end
 
   def joins_in_place(table : String, *, on : String) : self
-    own_join_clauses << {type: :inner, table: table, on: on}
+    add_join_clause({type: :inner, table: table, on: on})
     self
   end
 
@@ -931,7 +931,7 @@ pub class Builder(Model)
   end
 
   def left_joins_in_place(table : String, *, on : String) : self
-    own_join_clauses << {type: :left, table: table, on: on}
+    add_join_clause({type: :left, table: table, on: on})
     self
   end
 
@@ -941,7 +941,9 @@ pub class Builder(Model)
 
   # A raw JOIN fragment, emitted as written.
   def joins_in_place(fragment : String) : self
-    own_join_clauses << {type: :raw, table: "", on: fragment}
+    validated = ::Grant::Query::SqlExpression.validate_strict(fragment, "JOIN fragment")
+    return self.defer(validated) if validated.is_a?(ErrorBase)
+    add_join_clause({type: :raw, table: "", on: validated})
     self
   end
 
