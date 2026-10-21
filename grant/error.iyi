@@ -45,12 +45,19 @@ pub trait ErrorRecord
   abstract def __error_model_name : String
 end
 
+pub alias MessageProc = Proc(ErrorRecord, Options, String)
+
+pub def wrap_message(message : Proc(T, Options, String)) : MessageProc forall T
+  ->(base : ErrorRecord, data : Options) { message.call(base.as(T), data) }
+end
+
 # A model validation failure, distinct from returned runtime errors.
 pub class Error
   getter field : String | Symbol
   property base : ErrorRecord? = nil
   property type : Symbol?
 
+  @message_proc : MessageProc? = nil
   @raw_message : String | Symbol
   @message : String? = nil
   @full_message : String? = nil
@@ -66,6 +73,13 @@ pub class Error
                  options : Options? = nil)
     @type = type
     @raw_message = message || type
+    @options = options
+  end
+
+  def initialize(@field : String | Symbol, @type : Symbol, *, message : MessageProc,
+                 options : Options? = nil)
+    @raw_message = @type || :invalid
+    @message_proc = message
     @options = options
   end
 
@@ -111,6 +125,13 @@ pub class Error
     cached = @message
     return cached unless cached.nil?
     record = @base
+    provider = @message_proc
+    if provider
+      raise "A Proc message needs the record: add the error through the record's errors collection" if record.nil?
+      text = provider.call(record, options)
+      @message = text
+      return text
+    end
     model = record.nil? ? "" : record.__error_model_name
     text = ::Grant::I18n.generate_message(model, attribute, raw, @options)
     @message = text
@@ -145,6 +166,10 @@ pub class Error
     size == options.size && match?(attribute, type, **options)
   end
 
+  def __message_proc=(provider : MessageProc?) : MessageProc?
+    @message_proc = provider
+  end
+
   def copy(attribute : String | Symbol | Nil = nil) : Error
     stored = @options
     duplicate = Options.new
@@ -156,6 +181,7 @@ pub class Error
       Error.new(attribute || @field, @type || :invalid, message: raw,
         options: duplicate)
     end
+    result.__message_proc = @message_proc
     result.base = @base
     result
   end

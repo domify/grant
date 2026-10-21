@@ -2788,7 +2788,7 @@
   target: test/grant_validations_w6_presence_message_test.iyi
   area: other
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/validators/contexts_spec.cr
   target: test/grant_validators_contexts_test.iyi
   area: other

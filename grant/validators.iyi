@@ -251,8 +251,13 @@ pub macro model_methods(model)
           return nil if ::Grant::Validators.blank?(value)
         \{% end %}
         if ::Grant::Validators.blank?(value)
-          errors << ::Grant::Error::Error.new(\{{ field.id.stringify }},
-            \{{ options[:message] || "can't be blank" }}, :blank)
+          \{% if options[:message].is_a?(ProcLiteral) %}
+            message = ::Grant::Error.wrap_message(\{{ options[:message] }})
+            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }}, :blank, message: message)
+          \{% else %}
+            errors << ::Grant::Error::Error.new(\{{ field.id.stringify }}, :blank,
+              message: \{{ options[:message] }})
+          \{% end %}
         end
         nil
       end
