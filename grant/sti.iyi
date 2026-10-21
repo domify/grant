@@ -8,6 +8,12 @@ end
 pub class SubclassNotFound < ErrorBase
 end
 
+pub class ImmutableTypeError < ErrorBase
+end
+
+pub class TypeCastingError < ErrorBase
+end
+
 
 pub macro enable
   @[::Grant::Sti::Root]

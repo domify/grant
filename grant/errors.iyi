@@ -390,7 +390,7 @@ pub class RecordInvalid < RecordNotSaved
   getter record : ValidationRecord
 
   def initialize(@record : ValidationRecord)
-    super(@record.__table_name)
+    super(@record.__table_name, @record)
     messages = @record.errors.full_messages
     @message = messages.empty? ? "Validation failed" : "Validation failed: #{messages.join(", ")}"
   end

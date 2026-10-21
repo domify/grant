@@ -2057,7 +2057,7 @@ pub abstract class Base
     return result.cause if result.is_a?(::Grant::Callbacks::Failure)
     if result.is_a?(::Grant::Callbacks::Abort)
       errors << ::Grant::Error::Error.new(:base, result.message)
-      return RecordNotSaved.new(__table_name)
+      return RecordNotSaved.new(self.class.to_s, self)
     end
     return false if result.nil?
     result

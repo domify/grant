@@ -870,7 +870,7 @@
   target: test/grant_errors_taxonomy_test.iyi
   area: query
   examples: 15
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/geo_sharding_spec.cr
   target: test/grant_geo_sharding_test.iyi
   area: query

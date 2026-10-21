@@ -216,3 +216,9 @@ impl ::Error for ReadOnlyError
     @message
   end
 end
+
+# No connection was defined for a model.
+pub class AdapterNotAvailableError < ConnectionNotEstablished
+end
+
+pub alias ConnectionNotDefined = AdapterNotAvailableError
