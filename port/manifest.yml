@@ -1263,6 +1263,37 @@
   area: query
   examples: 24
   status: todo
+  children:
+  - target: test/grant_query_query_parity_test.iyi
+    status: done
+    examples:
+    - T-01f8aa474c
+    - T-bf8cb0a053
+    - T-2b42600022
+    - T-8cd2110805
+    - T-9cc9414b27
+    - T-e9d5b368d5
+    - T-9ca555c8fe
+    - T-e95c1e721f
+    - T-d440146c11
+    - T-c387522b73
+    - T-4d4f862748
+    - T-d2bca2b358
+    - T-45464e3f22
+    - T-e2c9ace6e5
+    - T-ea7ae6302d
+    - T-a7945b83fb
+    - T-c76d3809cc
+    - T-f06a403b6c
+    - T-489ee7a987
+    - T-e71426fd76
+    - T-e2f426b374
+    - T-350633a882
+  - target: test/grant_query_query_parity_explain_test.iyi
+    status: todo
+    examples:
+    - T-a6c22e682d
+    - T-c2c4c4bfc9
 - source: crystal-upstream/spec/grant/query/query_regressions_spec.cr
   target: test/grant_query_query_regressions_test.iyi
   area: query
