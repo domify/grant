@@ -30,7 +30,48 @@ pub def stamp(column_name : String, time : Time, precision : Int32? = nil) : Tim
   end
 end
 
+@@overrides = {} of String => Bool
+
+pub def overrides : Hash(String, Bool)
+  @@overrides
+end
+
+pub def override(model_name : String, value : Bool) : Nil
+  updated = {} of String => Bool
+  @@overrides.each { |key, current| updated[key] = current }
+  updated[model_name] = value
+  @@overrides = updated
+  nil
+end
+
+pub annotation RecordTimestamps
+end
+
 pub macro model_methods(model)
+  def self.record_timestamps? : Bool
+    overrides = ::Grant::Timestamps.overrides
+    \{% for owner in [@type] + @type.ancestors %}
+      return overrides[\{{ owner.stringify }}] if overrides.has_key?(\{{ owner.stringify }})
+    \{% end %}
+    __record_timestamps_default
+  end
+
+  def self.record_timestamps=(value : Bool) : Bool
+    ::Grant::Timestamps.override(self.to_s, value)
+    value
+  end
+
+  def self.__record_timestamps_default : Bool
+    \{% begin %}
+    \{% declaration = @type.methods.find { |method| method.annotation(::Grant::Timestamps::RecordTimestamps) } %}
+    \{% if declaration %}
+      \{{ declaration.annotation(::Grant::Timestamps::RecordTimestamps)[:value] }}
+    \{% else %}
+      true
+    \{% end %}
+    \{% end %}
+  end
+
   def self.timestamped_attributes : Array(String)
     fields.select { |field| ["created_at", "created_on", "updated_at", "updated_on"].includes?(field) }
   end

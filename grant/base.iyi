@@ -488,6 +488,18 @@ pub abstract class Base
     {% end %}
   end
 
+  macro date_timestamps
+    column created_on : ::Std::Time::Time?, column_type: "DATE"
+    column updated_on : ::Std::Time::Time?, column_type: "DATE"
+  end
+
+  macro record_timestamps(value)
+    @[::Grant::Timestamps::RecordTimestamps(value: {{ value }})]
+    def __record_timestamps_declaration : Nil
+      nil
+    end
+  end
+
   macro after_commit(method = nil, on = nil, &block)
     @[::Grant::Callbacks::Callback(event: :commit, on: {{ on }})]
     def __callback_commit_{{ @type.methods.size }} : Nil | ::Grant::Error::ErrorBase
@@ -1062,7 +1074,14 @@ pub abstract class Base
 
 
     def self.timestamp_precision : Int32?
-      nil
+      \{% begin %}
+      \{% stamp = @type.instance_vars.find { |v| v.annotation(::Grant::Base::Column) && ["created_at", "updated_at"].includes?(v.name.stringify) && v.annotation(::Grant::Base::Column)[:precision] != nil } %}
+      \{% if stamp %}
+        \{{ stamp.annotation(::Grant::Base::Column)[:precision] }}
+      \{% else %}
+        nil
+      \{% end %}
+      \{% end %}
     end
 
     def set_timestamps(*, to : ::Std::Time::Time = ::Grant::Timestamps.current_time, mode : Symbol = :create) : Nil
@@ -2108,7 +2127,7 @@ pub abstract class Base
     else
       self.before_update!
     end
-    set_timestamps(mode: @new_record ? :create : :update) if !skip_timestamps && (@new_record || !__changed_column_names.empty?)
+    set_timestamps(mode: @new_record ? :create : :update) if !skip_timestamps && self.class.record_timestamps? && (@new_record || !__changed_column_names.empty?)
     names = __column_names
     values = __column_values!
     if @new_record

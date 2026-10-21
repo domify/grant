@@ -15,8 +15,8 @@ pub trait ConvenienceMethods(Model)
     return 0_i64 if is_none?
     names = [] of String
     fields.each { |field| names << field.to_s }
-    names << "updated_at" if Model.fields.includes?("updated_at")
-    assignments = names.uniq.map { |name| {name, time.as(Value)} }
+    names.concat(Model.update_timestamp_columns)
+    assignments = names.uniq.map { |name| {name, ::Grant::Timestamps.stamp(name, time, Model.timestamp_precision).as(Value)} }
     return 0_i64 if assignments.empty?
     update_all(assignments)
   end

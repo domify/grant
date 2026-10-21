@@ -945,7 +945,7 @@
   target: test/grant_persistence_w6_timestamps_test.iyi
   area: query
   examples: 11
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence_helpers_spec.cr
   target: test/grant_persistence_helpers_test.iyi
   area: query
