@@ -52,6 +52,7 @@ pub macro model_methods(model)
                    when Int32 then value.to_i64
                    when Float32 then value.to_f64
                    when ::Std::Big::BigDecimal then value.to_s
+                   when Array(String) then value.map { |item| ::Std::Json::Any.new(item) }
                    else value
                    end
       values[name] = ::Std::Json::Any.new(normalized)
@@ -69,6 +70,7 @@ pub macro model_methods(model)
                    when Int32 then value.to_i64
                    when Float32 then value.to_f64
                    when ::Std::Big::BigDecimal then value.to_s
+                   when Array(String) then value.map { |item| ::Std::Yaml::Any.new(item) }
                    else value
                    end
       values[::Std::Yaml::Any.new(name)] = ::Std::Yaml::Any.new(normalized)
