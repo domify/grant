@@ -3,7 +3,7 @@
 Resolved: all four examples of `public_api_return_types_spec.cr` are translated, preserving
 all original type assertions. The manifest children partition the original CoverageGen IDs.
 
-`test/grant_public_api_return_types_associations_test.iyi` covers generated direct,
+`test/grant_public_api_return_types_associations_test.ri` covers generated direct,
 polymorphic and composite reader return types, including each reload reader. Native reload
 readers return query errors in their unions; the assertions unwrap errors before comparing
 successful types. The composite collection retains its owner, key columns, scope and cache.

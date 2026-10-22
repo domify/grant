@@ -10,7 +10,7 @@ Inspected on 2026-10-16, using these resolved modules:
 - `github.com/iyilang/sqlite v0.0.0-20261015191849-b0d89d58a814`
 - `github.com/iyilang/pg v0.0.0-20261015182941-6e9e50d7fef4`
 
-The dependencies are pinned in `iyi.mod` and `iyi.sum`. Driver replacement is blocked on the
+The dependencies are pinned in `ris.mod` and `ris.sum`. Driver replacement is blocked on the
 behavior below. Grant's existing drivers and all translated assertions remain intact. No library
 cache files or upstream Crystal files were changed.
 
@@ -18,17 +18,17 @@ cache files or upstream Crystal files were changed.
 
 Grant's `Driver::Connection#in_transaction?` reports SQLite autocommit state or PostgreSQL's
 transaction status, including transactions started through raw SQL. Adapter liveness and replay
-logic uses it in `grant/adapter/base.iyi` to avoid probing or replaying within a transaction.
+logic uses it in `grant/adapter/base.ri` to avoid probing or replaying within a transaction.
 
-`db/core.iyi` has a private `@transaction` flag, managed by `begin_transaction` and
+`db/core.ri` has a private `@transaction` flag, managed by `begin_transaction` and
 `release_from_transaction`; it has no public actual-state reader. Grant issues transaction control
 SQL itself to preserve lazy BEGIN, isolation modes, savepoints and manual transactions. The flag
 therefore cannot replace the existing method.
 
-`sqlite/core.iyi` exposes a raw handle but no autocommit reader. Calling SQLite directly through
+`sqlite/core.ri` exposes a raw handle but no autocommit reader. Calling SQLite directly through
 that handle would retain the driver-specific C binding this migration is intended to remove.
 
-`pg/pq/frame.iyi` decodes `ReadyForQuery#transaction_status`, but `pg/core.iyi` consumes that frame
+`pg/pq/frame.ri` decodes `ReadyForQuery#transaction_status`, but `pg/core.ri` consumes that frame
 without retaining its status on the connection. `PGConnection` and `PQConnection` have no public
 transaction-state reader. Inferring state from SQL text would be incorrect for failed COMMIT,
 server-side aborts, comments, multiple statements and statements executed by other library APIs.
@@ -41,8 +41,8 @@ updated on every server response, including errors. SQLite can derive it from au
 Run the checked-in probe from the checkout root:
 
 ```sh
-IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi \
-  run port/feedback/migrate_db_probe.iyi
+IYI_CACHE_DIR=$PWD/.ris-cache /home/priit/contribute/ris/bin/ris \
+  run port/feedback/migrate_db_probe.ri
 ```
 
 Observed output:
@@ -93,7 +93,7 @@ The local libraries now implement actual `Connection#transaction_state`:
   binding clearing, and resetting cached exec statements after errors to release locks.
 - pg `0c87010`: retain every ReadyForQuery status, including error recovery.
 
-Grant's `iyi.mod` replaces all three modules with `../iyis/<module>`. These are supported top-level
+Grant's `ris.mod` replaces all three modules with `../iyis/<module>`. These are supported top-level
 replacements; the module cache stays untouched. The db bridge uses DBValue without narrowing the
 library union and retains Grant's hooks, error boundary, normalized rows and mutation API.
 Recursive array values are converted with the library's `to_db_value` helper. Public query and
@@ -132,7 +132,7 @@ or assertions. This follows the toolchain's TypeNode metaclass reflection API.
 ## Final validation, 2026-10-17
 
 Grant migration commits are `4c70962` (db facade), `840416c` (SQLite) and `760ca33` (PostgreSQL),
-on `native-iyi-fast-port`. Library heads are db `abf1674`, SQLite `c8f9424` and pg `0c87010`.
+on `native-ris-fast-port`. Library heads are db `abf1674`, SQLite `c8f9424` and pg `0c87010`.
 The library suites pass all 15, 5 and 16 native test programs respectively.
 
 Full gate counts:

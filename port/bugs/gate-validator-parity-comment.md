@@ -3,7 +3,7 @@
 Command, with TMPDIR under build/ and the native compiler cache:
 
 ```
-bin/port-check --fast test/grant_validators_parity_test.iyi
+bin/port-check --fast test/grant_validators_parity_test.ri
 ```
 
 Both SQLite and PostgreSQL report the target as passing, with zero skipped tests.

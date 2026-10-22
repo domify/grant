@@ -3,8 +3,8 @@
 Command (both adapters, TMPDIR under build):
 
 ```
-TMPDIR=$PWD/build/tmp IYI_CACHE_DIR=$PWD/.iyi-cache \
-  bin/port-check --fast test/grant_connection_pool_reaper_test.iyi
+TMPDIR=$PWD/build/tmp IYI_CACHE_DIR=$PWD/.ris-cache \
+  bin/port-check --fast test/grant_connection_pool_reaper_test.ri
 ```
 
 SQLite passes. PostgreSQL fails the original `reaper.sweep == 3` assertion in

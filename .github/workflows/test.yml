@@ -1,0 +1,75 @@
+name: test
+
+# Runs every test under SQLite and PostgreSQL, one parallel job per adapter, with `bin/test`.
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The ris commit the tests are built with. Bump it when grant needs a newer compiler.
+  RIS_REF: b1ec7a0cef358a0f350451656b4e48d2c618d751
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [sqlite, pg]
+    container:
+      image: crystallang/crystal:1.21.0-build
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: grant
+          POSTGRES_PASSWORD: password
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_SERVER_URL: postgres://grant:password@postgres:5432
+      LC_ALL: C.UTF-8
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: "*"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: System packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ruby postgresql-client \
+            libsqlite3-dev libreadline-dev libssl-dev libncurses-dev
+
+      - name: Restore ris
+        id: ris-cache
+        uses: actions/cache@v5
+        with:
+          path: ris
+          key: ris-${{ env.RIS_REF }}
+
+      - name: Build ris
+        if: steps.ris-cache.outputs.cache-hit != 'true'
+        run: |
+          git init -q ris
+          git -C ris fetch -q --depth 1 https://github.com/rislang/ris.git "$RIS_REF"
+          git -C ris checkout -q FETCH_HEAD
+          make -C ris iyi
+
+      - name: Tests under ${{ matrix.adapter }}
+        shell: bash
+        run: |
+          mkdir -p build/tmp
+          # The ris pg driver cannot resolve service hostnames; hand it the address.
+          export PG_SERVER_URL="postgres://grant:password@$(getent hosts postgres | cut -d' ' -f1):5432"
+          TEST_ADAPTERS=${{ matrix.adapter }} TEST_JOBS=$(nproc) RIS=$PWD/ris/bin/ris \
+            TMPDIR=$PWD/build/tmp bin/test

@@ -3,7 +3,7 @@
 With TMPDIR under build/, run:
 
 ```
-bin/port-check --fast test/grant_validations_condition_arrays_test.iyi
+bin/port-check --fast test/grant_validations_condition_arrays_test.ri
 ```
 
 The preserved upstream model comment starts with `# Skipped when any unless: term holds.`

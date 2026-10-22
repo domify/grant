@@ -3,7 +3,7 @@
 Run from the checkout with the required compiler and cache:
 
 ```sh
-IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi run port/bugs/state_hash_union.iyi
+IYI_CACHE_DIR=$PWD/.ris-cache /home/priit/contribute/ris/bin/ris run port/bugs/state_hash_union.ri
 ```
 
 Expected: three true values. Actual: false, true, true.
