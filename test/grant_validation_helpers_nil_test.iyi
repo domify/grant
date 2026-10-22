@@ -44,7 +44,7 @@ nil_test.age = 32
 nil_test.born = true
 nil_test.value = 123.56.to_f32
 
-nil_test.save
+nil_test.save.or_panic
 
 assert nil_test.errors.size == 10
 assert nil_test.errors[0].message == "first_name_not_nil must not be nil"

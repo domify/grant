@@ -51,5 +51,5 @@ assert record.log == ["block_prepended", "prepended_a", "prepended_b", "first", 
 
 # it: makes a prepended around callback outermost
 record = PrependCallbackModel.new(name: "a")
-assert record.save
+assert record.save.or_panic
 assert record.log.select { |entry| entry.ends_with?("_in") } == ["outer_in", "inner_in"]

@@ -148,7 +148,7 @@ pub class AssociationCollection(Owner, Target)
   def create(**attrs) : Target | ErrorBase
     return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
     record = build(**attrs)
-    record.save
+    record.save!
     record
   end
 
@@ -187,14 +187,14 @@ pub class AssociationCollection(Owner, Target)
   def create(**attrs, &block : Target -> T) : Target | ErrorBase forall T
     return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
     record = build(**attrs) { |built| yield built }
-    record.save
+    record.save!
     record
   end
 
   def create(attrs : Hash(K, V)) : Target | ErrorBase forall K, V
     return OwnerNotSaved.new(@owner, Owner.to_s, @association_name || Target.to_s, "create") unless @owner.persisted?
     record = build(attrs)
-    record.save
+    record.save!
     record
   end
 

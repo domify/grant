@@ -11,20 +11,20 @@ Teacher.migrator.drop_and_create.or_panic
 # it: updates an object
 parent = Parent.new(name: "New Parent")
 parent.save_strict.or_panic
-assert parent.update(name: "Other parent")
+assert parent.update(name: "Other parent").or_panic
 assert parent.name == "Other parent"
 assert Parent.find_strict(parent.id).or_panic.name == "Other parent"
 
 # it: allows setting a value to nil
 model = Teacher.create_strict(name: "New Parent").or_panic
-model.update(name: nil)
+model.update(name: nil).or_panic
 assert model.name.nil?
 assert Teacher.find_strict(model.id).or_panic.name.nil?
 
 # it: does not update an invalid object
 parent = Parent.new(name: "New Parent")
 parent.save_strict.or_panic
-assert !parent.update(name: "")
+assert !parent.update(name: "").or_panic
 assert parent.name == ""
 assert Parent.find_strict(parent.id).or_panic.name == "New Parent"
 
@@ -49,7 +49,7 @@ assert saved_parent.updated_at.as(Time) > created_at
 time = Time.utc(2023, 9, 1)
 parent = Parent.create(name: "New Parent")
 parent.updated_at = time
-parent.update({name: "Other Parent"}, skip_timestamps: true)
+parent.update({name: "Other Parent"}, skip_timestamps: true).or_panic
 assert Parent.find_strict(parent.id).or_panic.updated_at == time
 
 # it: updates an object

@@ -101,7 +101,7 @@ assert error.as(RecordNotSaved).statement_error.is_a?(RecordNotUnique)
 create_g01_tables
 G01Account.create_strict(email: "same@example.com").or_panic
 duplicate = G01Account.new(email: "same@example.com")
-assert duplicate.save == false
+assert duplicate.save.or_panic == false
 assert duplicate.errors.empty? == false
 
 # it: reports a foreign key failure from save! as RecordNotSaved with an InvalidForeignKey cause
@@ -135,10 +135,10 @@ assert G01Account.find_strict(account.id).or_panic.email == "original@example.co
 assert G01Account.adapter.insert("g01_accounts", ["email"], ["fresh@example.com"] of Value, lastval: "id").or_panic > 0
 assert G01Account.count.or_panic == 2
 duplicate = G01Account.new(email: "original@example.com")
-assert duplicate.save == false
+assert duplicate.save.or_panic == false
 assert duplicate.new_record?
 assert duplicate.errors.first.message.includes?(G01Account.adapter.postgres? ? "duplicate key value" : "UNIQUE constraint failed")
 duplicate.email = "recovered@example.com"
-assert duplicate.save
+assert duplicate.save.or_panic
 assert duplicate.errors.empty?
 assert G01Account.adapter.delete("g01_accounts", "id", duplicate.id).or_panic.changes == 1

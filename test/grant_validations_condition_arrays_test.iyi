@@ -128,9 +128,9 @@ assert record.log == ["before"]
 
 # it: supports single-element arrays on save callbacks
 record = conditional
-assert record.save
+assert record.save.or_panic
 assert record.log.includes?("save")
 
 record = conditional(trial: true)
-assert record.save
+assert record.save.or_panic
 assert !record.log.includes?("save")

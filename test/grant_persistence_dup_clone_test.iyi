@@ -107,7 +107,7 @@ assert original.errors.size == 1
 # it: forgets a destroyed state
 CopyArticle.clear.or_panic
 original = CopyArticle.create_strict(title: "Doomed").or_panic
-original.destroy
+original.destroy.or_panic
 copy = original.dup
 assert !copy.destroyed?
 assert copy.new_record?

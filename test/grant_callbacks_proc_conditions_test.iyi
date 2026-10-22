@@ -95,7 +95,7 @@ SymbolCallbackModel.clear.or_panic
 m = SymbolCallbackModel.new
 m.name = "x"
 m.active = true
-m.save
+m.save.or_panic
 assert m.log.includes?("before_save:active")
 assert m.log.includes?("after_save:done")
 
@@ -106,7 +106,7 @@ SymbolCallbackModel.clear.or_panic
 m = SymbolCallbackModel.new
 m.name = "x"
 m.active = false
-m.save
+m.save.or_panic
 assert !m.log.includes?("before_save:active")
 # unless: :inactive? is now truthy -> after_save skipped
 assert !m.log.includes?("after_save:done")
@@ -118,7 +118,7 @@ SymbolCallbackModel.clear.or_panic
 m = ProcCallbackModel.new
 m.name = "x"
 m.enabled = true
-m.save
+m.save.or_panic
 assert m.log.includes?("before_save:enabled")
 
 # it: skips the callback when the proc is falsey
@@ -128,7 +128,7 @@ SymbolCallbackModel.clear.or_panic
 m = ProcCallbackModel.new
 m.name = "x"
 m.enabled = false
-m.save
+m.save.or_panic
 assert !m.log.includes?("before_save:enabled")
 
 # it: runs when the proc is falsey
@@ -138,7 +138,7 @@ SymbolCallbackModel.clear.or_panic
 m = ProcCallbackModel.new
 m.name = "x"
 m.skip_after = false
-m.save
+m.save.or_panic
 assert m.log.includes?("after_save")
 
 # it: skips when the proc is truthy
@@ -148,7 +148,7 @@ SymbolCallbackModel.clear.or_panic
 m = ProcCallbackModel.new
 m.name = "x"
 m.skip_after = true
-m.save
+m.save.or_panic
 assert !m.log.includes?("after_save")
 
 # it: wraps when the proc is truthy
@@ -158,7 +158,7 @@ SymbolCallbackModel.clear.or_panic
 m = ProcAroundCallbackModel.new
 m.name = "x"
 m.wrap = true
-m.save
+m.save.or_panic
 assert m.log == ["around:before", "around:after"]
 
 # it: does not wrap when the proc is falsey (still saves)
@@ -168,6 +168,6 @@ SymbolCallbackModel.clear.or_panic
 m = ProcAroundCallbackModel.new
 m.name = "x"
 m.wrap = false
-result = m.save
+result = m.save.or_panic
 assert result
 assert m.log.empty?

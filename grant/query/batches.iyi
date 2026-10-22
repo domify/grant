@@ -368,7 +368,7 @@ pub trait Batches(Model)
     destroyed = [] of Model
     find_in_batches do |batch|
       Model.transaction do
-        batch.each { |record| destroyed << record if record.destroy }
+        batch.each { |record| destroyed << record if record.destroy! }
         nil
       end
     end!

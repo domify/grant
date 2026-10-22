@@ -91,7 +91,7 @@ pub trait Finders(Model)
 
   def create(attrs : Hash(K, V), &block : Model -> R) : Model | ErrorBase forall K, V, R
     record = build(attrs) { |built| yield built }!
-    record.save
+    record.save!
     record
   end
 
@@ -129,7 +129,7 @@ pub trait Finders(Model)
     found = find_by(attrs)!
     return found unless found.nil?
     record = build(attrs) { |built| yield built }!
-    record.save
+    record.save!
     record
   end
 
@@ -188,7 +188,7 @@ pub trait Finders(Model)
     found = first!
     return found unless found.nil?
     record = build(attrs) { |built| yield built }!
-    record.save
+    record.save!
     record
   end
 

@@ -48,38 +48,38 @@ ThroughKlass.clear.or_panic
 ThroughStudent.clear.or_panic
 student = ThroughStudent.new
 student.name = "test student"
-assert student.save
+assert student.save.or_panic
 
 unrelated_student = ThroughStudent.new
 unrelated_student.name = "other student"
-assert unrelated_student.save
+assert unrelated_student.save.or_panic
 
 klass1 = ThroughKlass.new
 klass1.name = "Test class"
-assert klass1.save
+assert klass1.save.or_panic
 
 klass2 = ThroughKlass.new
 klass2.name = "Test class"
-assert klass2.save
+assert klass2.save.or_panic
 
 klass3 = ThroughKlass.new
 klass3.name = "Test class"
-assert klass3.save
+assert klass3.save.or_panic
 
 enrollment1 = ThroughEnrollment.new
 enrollment1.through_student_id = student.id
 enrollment1.through_klass_id = klass1.id
-assert enrollment1.save
+assert enrollment1.save.or_panic
 
 enrollment2 = ThroughEnrollment.new
 enrollment2.through_student_id = student.id
 enrollment2.through_klass_id = klass2.id
-assert enrollment2.save
+assert enrollment2.save.or_panic
 
 enrollment3 = ThroughEnrollment.new
 enrollment3.through_klass_id = klass2.id
 enrollment3.through_student_id = unrelated_student.id
-assert enrollment3.save
+assert enrollment3.save.or_panic
 
 assert student.through_klasses.compact_map { |record| record.id }.or_panic.sorted == [klass1.id, klass2.id].compact.sorted
 
@@ -91,34 +91,34 @@ ThroughKlass.clear.or_panic
 ThroughStudent.clear.or_panic
 student = ThroughStudent.new
 student.name = "test student"
-assert student.save
+assert student.save.or_panic
 
 klass1 = ThroughKlass.new
 klass1.name = "Test class X"
-assert klass1.save
+assert klass1.save.or_panic
 
 klass2 = ThroughKlass.new
 klass2.name = "Test class X"
-assert klass2.save
+assert klass2.save.or_panic
 
 klass3 = ThroughKlass.new
 klass3.name = "Test class with different name"
-assert klass3.save
+assert klass3.save.or_panic
 
 enrollment1 = ThroughEnrollment.new
 enrollment1.through_student_id = student.id
 enrollment1.through_klass_id = klass1.id
-assert enrollment1.save
+assert enrollment1.save.or_panic
 
 enrollment2 = ThroughEnrollment.new
 enrollment2.through_student_id = student.id
 enrollment2.through_klass_id = klass2.id
-assert enrollment2.save
+assert enrollment2.save.or_panic
 
 enrollment3 = ThroughEnrollment.new
 enrollment3.through_klass_id = klass3.id
 enrollment3.through_student_id = student.id
-assert enrollment3.save
+assert enrollment3.save.or_panic
 
 klasses = student.through_klasses.all("AND through_klasses.name = ? ORDER BY through_klasses.id DESC", ["Test class X"]).or_panic
 assert klasses.map(&.id) == [klass2.id, klass1.id]
@@ -129,34 +129,34 @@ ThroughKlass.clear.or_panic
 ThroughStudent.clear.or_panic
 student = ThroughStudent.new
 student.name = "test student"
-assert student.save
+assert student.save.or_panic
 
 klass1 = ThroughKlass.new
 klass1.name = "Test class X"
-assert klass1.save
+assert klass1.save.or_panic
 
 klass2 = ThroughKlass.new
 klass2.name = "Test class X"
-assert klass2.save
+assert klass2.save.or_panic
 
 klass3 = ThroughKlass.new
 klass3.name = "Test class with different name"
-assert klass3.save
+assert klass3.save.or_panic
 
 enrollment1 = ThroughEnrollment.new
 enrollment1.through_student_id = student.id
 enrollment1.through_klass_id = klass1.id
-assert enrollment1.save
+assert enrollment1.save.or_panic
 
 enrollment2 = ThroughEnrollment.new
 enrollment2.through_student_id = student.id
 enrollment2.through_klass_id = klass2.id
-assert enrollment2.save
+assert enrollment2.save.or_panic
 
 enrollment3 = ThroughEnrollment.new
 enrollment3.through_klass_id = klass3.id
 enrollment3.through_student_id = student.id
-assert enrollment3.save
+assert enrollment3.save.or_panic
 
 klass = student.through_klasses.find_by(name: "Test class with different name").or_panic
 if klass
@@ -172,34 +172,34 @@ ThroughKlass.clear.or_panic
 ThroughStudent.clear.or_panic
 student = ThroughStudent.new
 student.name = "test student"
-assert student.save
+assert student.save.or_panic
 
 klass1 = ThroughKlass.new
 klass1.name = "Test class X"
-assert klass1.save
+assert klass1.save.or_panic
 
 klass2 = ThroughKlass.new
 klass2.name = "Test class X"
-assert klass2.save
+assert klass2.save.or_panic
 
 klass3 = ThroughKlass.new
 klass3.name = "Test class with different name"
-assert klass3.save
+assert klass3.save.or_panic
 
 enrollment1 = ThroughEnrollment.new
 enrollment1.through_student_id = student.id
 enrollment1.through_klass_id = klass1.id
-assert enrollment1.save
+assert enrollment1.save.or_panic
 
 enrollment2 = ThroughEnrollment.new
 enrollment2.through_student_id = student.id
 enrollment2.through_klass_id = klass2.id
-assert enrollment2.save
+assert enrollment2.save.or_panic
 
 enrollment3 = ThroughEnrollment.new
 enrollment3.through_klass_id = klass3.id
 enrollment3.through_student_id = student.id
-assert enrollment3.save
+assert enrollment3.save.or_panic
 
 klass = student.through_klasses.find_by_strict(name: "Test class with different name").or_panic
 assert klass.id == klass3.id
@@ -215,34 +215,34 @@ ThroughKlass.clear.or_panic
 ThroughStudent.clear.or_panic
 student = ThroughStudent.new
 student.name = "test student"
-assert student.save
+assert student.save.or_panic
 
 klass1 = ThroughKlass.new
 klass1.name = "Test class X"
-assert klass1.save
+assert klass1.save.or_panic
 
 klass2 = ThroughKlass.new
 klass2.name = "Test class X"
-assert klass2.save
+assert klass2.save.or_panic
 
 klass3 = ThroughKlass.new
 klass3.name = "Test class with different name"
-assert klass3.save
+assert klass3.save.or_panic
 
 enrollment1 = ThroughEnrollment.new
 enrollment1.through_student_id = student.id
 enrollment1.through_klass_id = klass1.id
-assert enrollment1.save
+assert enrollment1.save.or_panic
 
 enrollment2 = ThroughEnrollment.new
 enrollment2.through_student_id = student.id
 enrollment2.through_klass_id = klass2.id
-assert enrollment2.save
+assert enrollment2.save.or_panic
 
 enrollment3 = ThroughEnrollment.new
 enrollment3.through_klass_id = klass3.id
 enrollment3.through_student_id = student.id
-assert enrollment3.save
+assert enrollment3.save.or_panic
 
 klass = student.through_klasses.find(klass1.id).or_panic
 if klass
@@ -258,34 +258,34 @@ ThroughKlass.clear.or_panic
 ThroughStudent.clear.or_panic
 student = ThroughStudent.new
 student.name = "test student"
-assert student.save
+assert student.save.or_panic
 
 klass1 = ThroughKlass.new
 klass1.name = "Test class X"
-assert klass1.save
+assert klass1.save.or_panic
 
 klass2 = ThroughKlass.new
 klass2.name = "Test class X"
-assert klass2.save
+assert klass2.save.or_panic
 
 klass3 = ThroughKlass.new
 klass3.name = "Test class with different name"
-assert klass3.save
+assert klass3.save.or_panic
 
 enrollment1 = ThroughEnrollment.new
 enrollment1.through_student_id = student.id
 enrollment1.through_klass_id = klass1.id
-assert enrollment1.save
+assert enrollment1.save.or_panic
 
 enrollment2 = ThroughEnrollment.new
 enrollment2.through_student_id = student.id
 enrollment2.through_klass_id = klass2.id
-assert enrollment2.save
+assert enrollment2.save.or_panic
 
 enrollment3 = ThroughEnrollment.new
 enrollment3.through_klass_id = klass3.id
 enrollment3.through_student_id = student.id
-assert enrollment3.save
+assert enrollment3.save.or_panic
 
 klass = student.through_klasses.find_strict(klass1.id).or_panic
 assert klass.id == klass1.id

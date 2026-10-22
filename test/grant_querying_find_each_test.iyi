@@ -9,7 +9,7 @@ Parent.migrator.drop_and_create.or_panic
 Parent.clear.or_panic
 model_ids = (0...100).map do |i|
   model = Parent.new(name: "role_#{i}")
-  model.save
+  model.save.or_panic
   model
 end.map(&.id)
 found_roles = [] of Int64?
@@ -24,7 +24,7 @@ Parent.find_each { raise "did yield" }.or_panic
 Parent.clear.or_panic
 created_models = (0...10).map do |i|
   model = Parent.new(name: "model_#{i}")
-  model.save
+  model.save.or_panic
   model
 end.map(&.id)
 created_models.shift
@@ -37,7 +37,7 @@ assert found_models.compact.sorted == created_models.compact
 Parent.clear.or_panic
 created_models = (0...10).map do |i|
   model = Parent.new(name: "model_#{i}")
-  model.save
+  model.save.or_panic
   model
 end.map(&.id)
 looking_for_ids = (0...5).map { |index| created_models[index] }

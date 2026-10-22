@@ -11,10 +11,10 @@ Parent.migrator.drop_and_create.or_panic
 Parent.clear.or_panic
 first = Parent.new
 first.name = "Test 1"
-first.save
+first.save.or_panic
 second = Parent.new
 second.name = "Test 2"
-second.save
+second.save.or_panic
 found = Parent.first.or_panic
 if pa = found
   assert pa.id == first.id
@@ -28,10 +28,10 @@ assert found.id == first.id
 Parent.clear.or_panic
 first = Parent.new
 first.name = "Test 1"
-first.save
+first.save.or_panic
 second = Parent.new
 second.name = "Test 2"
-second.save
+second.save.or_panic
 found = Parent.first("ORDER BY id DESC").or_panic
 if pa = found
   assert pa.id == second.id
@@ -45,7 +45,7 @@ assert found.id == second.id
 Parent.clear.or_panic
 first = Parent.new
 first.name = "Test 1"
-first.save
+first.save.or_panic
 found = Parent.first("WHERE name = 'Test 2'").or_panic
 assert found.nil?
 error = Parent.first_strict("WHERE name = 'Test 2'")

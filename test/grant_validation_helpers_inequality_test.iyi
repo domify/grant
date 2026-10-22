@@ -40,7 +40,7 @@ record.int_32_lt = 10
 record.float_32_lt = 20.5.to_f32
 record.int_32_lte = 52
 record.float_32_lte = 155.55.to_f32
-record.save
+record.save.or_panic
 assert record.errors.size == 4
 assert record.errors[0].message == "int_32_lt must be less than 10"
 assert record.errors[1].message == "float_32_lt must be less than 20.5"
@@ -58,7 +58,7 @@ record.int_32_lt = 10
 record.float_32_lt = 20.5.to_f32
 record.int_32_lte = 49
 record.float_32_lte = 100.20.to_f32
-record.save
+record.save.or_panic
 assert record.errors.size == 4
 assert record.errors[0].message == "int_32_lt must be greater than 10"
 assert record.errors[1].message == "float_32_lt must be greater than 20.5"

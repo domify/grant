@@ -17,14 +17,14 @@ ExclusionTest.migrator.drop_and_create.or_panic
 # it: should allow non reserved words
 exclusion = ExclusionTest.new
 exclusion.name = "none_conflicting"
-exclusion.save
+exclusion.save.or_panic
 
 assert exclusion.errors.size == 0
 
 # it: should disallow reservered words
 exclusion = ExclusionTest.new
 exclusion.name = "test_name"
-exclusion.save
+exclusion.save.or_panic
 
 assert exclusion.errors.size == 1
 assert exclusion.errors[0].message == "Name got reserved values. Reserved values are test_name"

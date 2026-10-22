@@ -17,37 +17,37 @@ pub macro create_methods(model)
 
   def self.destroy(id : T) : {{ model }} | ::Grant::Error::ErrorBase forall T
     record = find_strict(id)!
-    record.destroy
+    record.destroy!
     record
   end
 
   def self.destroy(ids : Array(T)) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
     records = find_strict(ids)!
-    records.each { |record| record.destroy }
+    records.each { |record| record.destroy! }
     records
   end
 
   def self.update(id : T, **attrs) : {{ model }} | ::Grant::Error::ErrorBase forall T
     record = find_strict(id)!
-    record.update(**attrs)
+    record.update(**attrs)!
     record
   end
 
   def self.update(id : T, attrs : A) : {{ model }} | ::Grant::Error::ErrorBase forall T, A
     record = find_strict(id)!
-    record.update(attrs)
+    record.update(attrs)!
     record
   end
 
   def self.update(ids : Array(T), **attrs) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T
     records = find_strict(ids)!
-    records.each { |record| record.update(**attrs) }
+    records.each { |record| record.update(**attrs)! }
     records
   end
 
   def self.update(ids : Array(T), attrs : A) : Array({{ model }}) | ::Grant::Error::ErrorBase forall T, A
     records = find_strict(ids)!
-    records.each { |record| record.update(attrs) }
+    records.each { |record| record.update(attrs)! }
     records
   end
 
@@ -139,7 +139,7 @@ pub macro create_methods(model)
     record = new
     record.assign_attributes(attributes)
     yield record
-    record.save(skip_timestamps: skip_timestamps)
+    record.save(skip_timestamps: skip_timestamps).or_panic
     record
   end
 

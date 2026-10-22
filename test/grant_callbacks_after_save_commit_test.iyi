@@ -54,14 +54,14 @@ record = SaveCommitModel.create(name: "a")
 assert SaveCommitModel.event_log == ["save_commit:a", "commit:a"]
 SaveCommitModel.event_log.clear
 record.name = "b"
-record.save
+record.save.or_panic
 assert SaveCommitModel.event_log == ["save_commit:b", "commit:b"]
 
 # it: does not fire on destroy
 reset
 record = SaveCommitModel.create(name: "a")
 SaveCommitModel.event_log.clear
-record.destroy
+record.destroy.or_panic
 assert SaveCommitModel.event_log == ["commit:a"]
 
 # it: fires once even with after_create_commit registered too
@@ -70,7 +70,7 @@ record = SaveCommitBothModel.create(name: "a")
 assert SaveCommitBothModel.event_log == ["create_commit", "save_commit"]
 SaveCommitBothModel.event_log.clear
 record.name = "b"
-record.save
+record.save.or_panic
 assert SaveCommitBothModel.event_log == ["update_commit", "save_commit"]
 
 # it: waits for the outer commit and fires once for create then update
@@ -78,7 +78,7 @@ reset
 SaveCommitBothModel.transaction do
   record = SaveCommitBothModel.create(name: "a")
   record.name = "b"
-  record.save
+  record.save.or_panic
   assert SaveCommitBothModel.event_log.empty?
 end.or_panic
 assert SaveCommitBothModel.event_log == ["create_commit", "save_commit"]

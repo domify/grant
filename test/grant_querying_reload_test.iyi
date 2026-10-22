@@ -9,7 +9,7 @@ Parent.migrator.drop_and_create.or_panic
 # it: reloads the record from the database
 Parent.clear.or_panic
 parent = Parent.create(name: "Parent")
-Parent.find_strict(parent.id).or_panic.update(name: "Other")
+Parent.find_strict(parent.id).or_panic.update(name: "Other").or_panic
 assert parent.reload.or_panic.name == "Other"
 
 # it: refreshes the receiver in place and clears dirty state
@@ -28,5 +28,5 @@ assert parent.previous_changes.empty?
 # it: raises an error if the record no longer exists
 Parent.clear.or_panic
 parent = Parent.create(name: "Parent")
-parent.destroy
+parent.destroy.or_panic
 assert parent.reload.is_a?(NotFound)

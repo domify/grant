@@ -46,17 +46,17 @@ ThroughProfile.clear.or_panic
 ThroughUser.clear.or_panic
 user = ThroughUser.new
 user.name = "Jane"
-assert user.save
+assert user.save.or_panic
 
 avatar = ThroughAvatar.new
 avatar.url = "https://example.com/jane.png"
-assert avatar.save
+assert avatar.save.or_panic
 
 profile = ThroughProfile.new
 profile.bio = "Hello world"
 profile.through_user_id = user.id
 profile.through_avatar_id = avatar.id
-assert profile.save
+assert profile.save.or_panic
 
 result = user.avatar.or_panic
 assert !result.nil?
@@ -69,7 +69,7 @@ ThroughProfile.clear.or_panic
 ThroughUser.clear.or_panic
 user = ThroughUser.new
 user.name = "Bob"
-assert user.save
+assert user.save.or_panic
 
 assert user.avatar.or_panic.nil?
 
@@ -79,13 +79,13 @@ ThroughProfile.clear.or_panic
 ThroughUser.clear.or_panic
 user = ThroughUser.new
 user.name = "Carol"
-assert user.save
+assert user.save.or_panic
 
 profile = ThroughProfile.new
 profile.bio = "No avatar"
 profile.through_user_id = user.id
 profile.through_avatar_id = nil
-assert profile.save
+assert profile.save.or_panic
 
 assert user.avatar.or_panic.nil?
 
@@ -95,31 +95,31 @@ ThroughProfile.clear.or_panic
 ThroughUser.clear.or_panic
 user1 = ThroughUser.new
 user1.name = "Dave"
-assert user1.save
+assert user1.save.or_panic
 
 user2 = ThroughUser.new
 user2.name = "Eve"
-assert user2.save
+assert user2.save.or_panic
 
 avatar1 = ThroughAvatar.new
 avatar1.url = "https://example.com/dave.png"
-assert avatar1.save
+assert avatar1.save.or_panic
 
 avatar2 = ThroughAvatar.new
 avatar2.url = "https://example.com/eve.png"
-assert avatar2.save
+assert avatar2.save.or_panic
 
 profile1 = ThroughProfile.new
 profile1.bio = "Dave's profile"
 profile1.through_user_id = user1.id
 profile1.through_avatar_id = avatar1.id
-assert profile1.save
+assert profile1.save.or_panic
 
 profile2 = ThroughProfile.new
 profile2.bio = "Eve's profile"
 profile2.through_user_id = user2.id
 profile2.through_avatar_id = avatar2.id
-assert profile2.save
+assert profile2.save.or_panic
 
 assert user1.avatar.or_panic.as(ThroughAvatar).url == "https://example.com/dave.png"
 assert user2.avatar.or_panic.as(ThroughAvatar).url == "https://example.com/eve.png"
@@ -130,17 +130,17 @@ ThroughProfile.clear.or_panic
 ThroughUser.clear.or_panic
 user = ThroughUser.new
 user.name = "Frank"
-assert user.save
+assert user.save.or_panic
 
 avatar = ThroughAvatar.new
 avatar.url = "https://example.com/frank.png"
-assert avatar.save
+assert avatar.save.or_panic
 
 profile = ThroughProfile.new
 profile.bio = "Frank's profile"
 profile.through_user_id = user.id
 profile.through_avatar_id = avatar.id
-assert profile.save
+assert profile.save.or_panic
 
 result = user.avatar_strict.or_panic
 assert result.url == "https://example.com/frank.png"
@@ -151,7 +151,7 @@ ThroughProfile.clear.or_panic
 ThroughUser.clear.or_panic
 user = ThroughUser.new
 user.name = "Grace"
-assert user.save
+assert user.save.or_panic
 
 assert user.avatar_strict.is_a?(NotFound)
 

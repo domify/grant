@@ -936,7 +936,7 @@
   target: test/grant_persistence_destroyed_guard_test.iyi
   area: query
   examples: 8
-  status: todo
+  status: done
 - source: crystal-upstream/spec/grant/persistence/no_touching_spec.cr
   target: test/grant_persistence_no_touching_test.iyi
   area: query

@@ -15,7 +15,7 @@ UUIDModel.migrator.drop_and_create.or_panic
 # it: correctly sets a RFC4122 V4 UUID on save
 item = UUIDModel.new
 assert item.uuid.nil?
-item.save
+item.save.or_panic
 assert item.uuid.is_a?(UUID)
 assert item.uuid.as(UUID).version == 4
 assert (item.uuid.as(UUID).bytes[8] & 0xc0_u8) == 0x80_u8

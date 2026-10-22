@@ -67,7 +67,7 @@ pub macro has_secure_token(name, length = 24, alphabet = :base58, on = :create)
     token
   end
 
-  def regenerate_{{ name.id }} : Bool
+  def regenerate_{{ name.id }} : Bool | ::Grant::Errors::RecordDestroyedError
     token = assign_new_{{ name.id }}
     return false if token.is_a?(::Error)
     save(validate: false)

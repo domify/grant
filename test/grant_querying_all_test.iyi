@@ -9,7 +9,7 @@ Parent.migrator.drop_and_create.or_panic
 Parent.clear.or_panic
 models = (0...100).map do |i|
   model = Parent.new(name: "model_#{i}")
-  model.save
+  model.save.or_panic
   model
 end
 model_ids = models.map { |model| model.id }
@@ -19,7 +19,7 @@ assert all.compact_map { |model| model.id }.sorted == model_ids.compact
 
 # it: finds records with question mark substition
 name = "findable model"
-Parent.new(name: name).save
+Parent.new(name: name).save.or_panic
 set = Parent.all("WHERE name = ?", [name]).or_panic
 assert set.size == 1
 assert set.first.name == name

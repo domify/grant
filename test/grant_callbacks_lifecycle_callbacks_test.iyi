@@ -119,7 +119,7 @@ assert model.callback_history.includes?("after_initialize")
 
 # it: runs when loading from database
 model = CallbackTest.new(name: "Test")
-model.save
+model.save.or_panic
 
 found = CallbackTest.find_strict(model.id).or_panic
 assert found.callback_history.includes?("after_find")
@@ -138,7 +138,7 @@ assert before_index < after_index
 
 # it: runs callbacks in correct order on create
 model = CallbackTest.new(name: "Test")
-model.save
+model.save.or_panic
 
 expected_order = [
   "after_initialize",
@@ -158,11 +158,11 @@ assert actual == expected_order
 
 # it: runs callbacks in correct order on update
 model = CallbackTest.new(name: "Test")
-model.save
+model.save.or_panic
 model.callback_history.clear
 
 model.name = "Updated"
-model.save
+model.save.or_panic
 
 expected_order = [
   "before_validation",
@@ -180,10 +180,10 @@ assert actual == expected_order
 
 # it: runs callbacks in correct order on destroy
 model = CallbackTest.new(name: "Test")
-model.save
+model.save.or_panic
 model.callback_history.clear
 
-model.destroy
+model.destroy.or_panic
 
 expected_order = [
   "before_destroy",
@@ -197,7 +197,7 @@ assert actual == expected_order
 
 # it: runs after touch
 model = CallbackTest.new(name: "Test")
-model.save
+model.save.or_panic
 model.callback_history.clear
 
 model.touch
@@ -206,7 +206,7 @@ assert model.callback_history.includes?("after_touch")
 
 # it: runs after_rollback on save failure
 model = FailingCallbackTest.new(name: "Test")
-model.save
+model.save.or_panic
 
 assert model.callback_history.includes?("before_save")
 assert model.callback_history.includes?("after_rollback")

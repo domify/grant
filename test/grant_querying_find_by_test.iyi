@@ -15,7 +15,7 @@ ReservedWord.migrator.drop_and_create.or_panic
 Parent.clear.or_panic
 name = "robinson"
 model = Parent.new(name: name)
-assert model.save
+assert model.save.or_panic
 found = Parent.find_by(name: name).or_panic
 if pa = found
   assert pa.id == model.id
@@ -43,7 +43,7 @@ assert error.as(NotFound).message.matches?(/No .*Review.* found where name = rev
 # it: finds an object with nil value
 Student.clear.or_panic
 model = Student.new
-assert model.save
+assert model.save.or_panic
 found = Student.find_by(name: nil).or_panic
 if stu = found
   assert stu.id == model.id
@@ -58,7 +58,7 @@ Parent.clear.or_panic
 value = "robinson"
 model = ReservedWord.new
 model.all = value
-assert model.save
+assert model.save.or_panic
 found = ReservedWord.find_by(all: value).or_panic
 if rw = found
   assert rw.id == model.id
@@ -72,7 +72,7 @@ assert found.id == model.id
 Parent.clear.or_panic
 name = "johnson"
 model = Parent.new(name: name)
-assert model.save
+assert model.save.or_panic
 found = Parent.find_by({"name" => name}).or_panic
 if pa = found
   assert pa.id == model.id

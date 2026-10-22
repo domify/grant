@@ -83,8 +83,8 @@ local.update_strict(amount: 6_i64).or_panic
 server.update_strict(amount: 10_i64).or_panic
 assert C03LocalNote.find_strict(local.id).or_panic.amount == 6_i64
 assert C03ServerNote.find_strict(server.id).or_panic.amount == 10_i64
-local.destroy
-server.destroy
+local.destroy.or_panic
+server.destroy.or_panic
 assert C03LocalNote.count.or_panic == 0
 assert C03ServerNote.count.or_panic == 0
 

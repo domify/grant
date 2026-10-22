@@ -87,7 +87,7 @@ fired_inside = false
 
 CommitTimingModel.transaction do
   m = CommitTimingModel.new(name: "mid-block")
-  m.save
+  m.save.or_panic
 
   # callback must not have fired yet
   fired_inside = CommitTimingModel.event_log.any?(&.starts_with?("after_commit"))
@@ -101,7 +101,7 @@ CommitTimingOther.clear.or_panic
 reset_logs
 CommitTimingModel.transaction do
   m = CommitTimingModel.new(name: "committed")
-  m.save
+  m.save.or_panic
 end
 
 ac = CommitTimingModel.event_log.select { |e| e == "after_commit:committed" }
@@ -115,7 +115,7 @@ seq = [] of String
 
 CommitTimingModel.transaction do
   m = CommitTimingModel.new(name: "newrec")
-  m.save
+  m.save.or_panic
   seq << "still_in_tx"
 end
 seq << "after_tx"
@@ -134,7 +134,7 @@ reset_logs
 
 CommitTimingModel.transaction do
   m.name = "updated"
-  m.save
+  m.save.or_panic
 end
 
 assert CommitTimingModel.event_log.includes?("after_update_commit:updated")
@@ -148,7 +148,7 @@ m = CommitTimingModel.create_strict(name: "to_destroy").or_panic
 reset_logs
 
 CommitTimingModel.transaction do
-  m.destroy
+  m.destroy.or_panic
 end
 
 assert CommitTimingModel.event_log.includes?("after_destroy_commit:to_destroy")
@@ -160,7 +160,7 @@ CommitTimingOther.clear.or_panic
 reset_logs
 error = begin
   CommitTimingModel.transaction do
-    CommitTimingModel.new(name: "lost").save
+    CommitTimingModel.new(name: "lost").save.or_panic
     ErrorBase.new("kaboom")
   end
 end
@@ -175,7 +175,7 @@ CommitTimingModel.clear.or_panic
 CommitTimingOther.clear.or_panic
 reset_logs
 CommitTimingModel.transaction do
-  CommitTimingModel.new(name: "sentinel").save
+  CommitTimingModel.new(name: "sentinel").save.or_panic
   Rollback.new
 end
 
@@ -186,7 +186,7 @@ assert !CommitTimingModel.event_log.includes?("after_commit:sentinel")
 CommitTimingModel.clear.or_panic
 CommitTimingOther.clear.or_panic
 reset_logs
-CommitTimingModel.new(name: "solo").save
+CommitTimingModel.new(name: "solo").save.or_panic
 
 assert CommitTimingModel.event_log.includes?("after_commit:solo")
 
@@ -194,7 +194,7 @@ assert CommitTimingModel.event_log.includes?("after_commit:solo")
 CommitTimingModel.clear.or_panic
 CommitTimingOther.clear.or_panic
 reset_logs
-CommitTimingModel.new(name: "solo-ok").save
+CommitTimingModel.new(name: "solo-ok").save.or_panic
 
 assert !CommitTimingModel.event_log.includes?("after_rollback:solo-ok")
 
@@ -203,8 +203,8 @@ CommitTimingModel.clear.or_panic
 CommitTimingOther.clear.or_panic
 reset_logs
 CommitTimingModel.transaction do
-  CommitTimingModel.new(name: "alpha").save
-  CommitTimingOther.new(label: "beta").save
+  CommitTimingModel.new(name: "alpha").save.or_panic
+  CommitTimingOther.new(label: "beta").save.or_panic
 end
 
 assert CommitTimingModel.event_log.includes?("after_commit:alpha")
@@ -216,8 +216,8 @@ CommitTimingOther.clear.or_panic
 reset_logs
 error = begin
   CommitTimingModel.transaction do
-    CommitTimingModel.new(name: "alpha-rb").save
-    CommitTimingOther.new(label: "beta-rb").save
+    CommitTimingModel.new(name: "alpha-rb").save.or_panic
+    CommitTimingOther.new(label: "beta-rb").save.or_panic
     ErrorBase.new("tx fail")
   end
 end
@@ -233,7 +233,7 @@ CommitTimingOther.clear.or_panic
 reset_logs
 CommitTimingModel.transaction do
   CommitTimingModel.transaction do
-    CommitTimingModel.new(name: "inner").save
+    CommitTimingModel.new(name: "inner").save.or_panic
     # Still inside outer — must not have fired
     assert CommitTimingModel.event_log.empty?
   end
@@ -248,10 +248,10 @@ CommitTimingModel.clear.or_panic
 CommitTimingOther.clear.or_panic
 reset_logs
 CommitTimingModel.transaction do
-  CommitTimingModel.new(name: "kept").save
+  CommitTimingModel.new(name: "kept").save.or_panic
 
   CommitTimingModel.transaction(requires_new: true) do
-    CommitTimingModel.new(name: "undone").save
+    CommitTimingModel.new(name: "undone").save.or_panic
     Rollback.new
   end
 end
@@ -269,7 +269,7 @@ reset_logs
 outer_fired_after_inner_commit = false
 
 CommitTimingModel.transaction do
-  CommitTimingModel.new(name: "outer-rec").save
+  CommitTimingModel.new(name: "outer-rec").save.or_panic
 
   CommitTimingModel.transaction(independent: true) do
     # no-op inner body: its COMMIT must not touch the outer's queue
@@ -288,7 +288,7 @@ CommitTimingOther.clear.or_panic
 reset_logs
 error = begin
   CommitTimingModel.transaction do
-    CommitTimingModel.new(name: "outer-doomed").save
+    CommitTimingModel.new(name: "outer-doomed").save.or_panic
 
     CommitTimingModel.transaction(independent: true) do
       # inner commits independently; outer's callbacks must survive it
@@ -313,7 +313,7 @@ CommitTimingOther.clear.or_panic
 reset_logs
 error = begin
   CommitTimingModel.transaction do
-    CommitTimingModel.new(name: "outer-doomed-inner-commit").save
+    CommitTimingModel.new(name: "outer-doomed-inner-commit").save.or_panic
 
     CommitTimingModel.transaction do
       # A released savepoint is not durable while the outer transaction

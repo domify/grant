@@ -35,7 +35,7 @@ CommitDedupSavepointModel.transaction do
   record = CommitDedupSavepointModel.create(name: "a")
   CommitDedupSavepointModel.transaction(requires_new: true) do
     record.name = "b"
-    record.save
+    record.save.or_panic
     Rollback.new
   end
 end.or_panic
@@ -52,7 +52,7 @@ CommitDedupSavepointModel.transaction do
   record = CommitDedupSavepointModel.create(name: "a")
   CommitDedupSavepointModel.transaction(requires_new: true) do
     record.name = "b"
-    record.save
+    record.save.or_panic
     Rollback.new
   end
   assert CommitDedupSavepointModel.event_log == ["rollback"]
@@ -66,7 +66,7 @@ CommitDedupSavepointModel.event_log.clear
 CommitDedupSavepointModel.transaction do
   record = CommitDedupSavepointModel.create(name: "a")
   record.name = "b"
-  record.save
+  record.save.or_panic
   Rollback.new
 end.or_panic
 
@@ -78,7 +78,7 @@ CommitDedupSavepointModel.event_log.clear
 record = CommitDedupSavepointModel.create(name: "a")
 CommitDedupSavepointModel.event_log.clear
 CommitDedupSavepointModel.transaction do
-  record.destroy
+  record.destroy.or_panic
   Rollback.new
 end.or_panic
 
@@ -89,7 +89,7 @@ CommitDedupSavepointModel.clear.or_panic
 CommitDedupSavepointModel.event_log.clear
 CommitDedupSavepointModel.transaction do
   record = CommitDedupSavepointModel.create(name: "a")
-  record.destroy
+  record.destroy.or_panic
 end.or_panic
 
 assert CommitDedupSavepointModel.event_log == ["commit"]
@@ -101,8 +101,8 @@ record = CommitDedupSavepointModel.create(name: "a")
 CommitDedupSavepointModel.event_log.clear
 CommitDedupSavepointModel.transaction do
   record.name = "b"
-  record.save
-  record.destroy
+  record.save.or_panic
+  record.destroy.or_panic
 end.or_panic
 
 assert CommitDedupSavepointModel.event_log == ["commit"]
@@ -114,8 +114,8 @@ record = CommitDedupSavepointModel.create(name: "a")
 CommitDedupSavepointModel.event_log.clear
 CommitDedupSavepointModel.transaction do
   record.name = "b"
-  record.save
-  record.destroy
+  record.save.or_panic
+  record.destroy.or_panic
   Rollback.new
 end.or_panic
 

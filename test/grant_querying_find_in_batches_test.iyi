@@ -11,7 +11,7 @@ Parent.migrator.drop_and_create.or_panic
 Parent.clear.or_panic
 model_ids = (0...100).map do |i|
   model = Parent.new(name: "model_#{i}")
-  model.save
+  model.save.or_panic
   model
 end.map(&.id)
 found_models = [] of Int64?
@@ -32,14 +32,14 @@ assert error.is_a?(ArgumentError)
 
 # it: returns a small batch when there arent enough results
 Parent.clear.or_panic
-(0...9).each { |i| Parent.new(name: "model_#{i}").save }
+(0...9).each { |i| Parent.new(name: "model_#{i}").save.or_panic }
 Parent.find_in_batches(batch_size: 11) { |batch| assert batch.size == 9 }.or_panic
 
 # it: can start from an offset other than 0
 Parent.clear.or_panic
 created_models = (0...10).map do |i|
   model = Parent.new(name: "model_#{i}")
-  model.save
+  model.save.or_panic
   model
 end.map(&.id)
 created_models.shift
@@ -54,7 +54,7 @@ assert found_models.compact.sorted == created_models.compact
 Parent.clear.or_panic
 created_models = (0...10).map do |i|
   model = Parent.new(name: "model_#{i}")
-  model.save
+  model.save.or_panic
   model
 end.map(&.id)
 looking_for_ids = (0...5).map { |index| created_models[index] }

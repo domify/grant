@@ -32,7 +32,7 @@ blank_test.last_name_not_blank = "      "
 blank_test.first_name_is_blank = "foo"
 blank_test.last_name_is_blank = "  bar  "
 
-blank_test.save
+blank_test.save.or_panic
 
 assert blank_test.errors.size == 4
 assert blank_test.errors[0].message == "first_name_not_blank must not be blank"

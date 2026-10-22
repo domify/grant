@@ -36,11 +36,11 @@ assert CommitOnModel.event_log == ["cu", "any"]
 
 CommitOnModel.event_log.clear
 record.name = "b"
-record.save
+record.save.or_panic
 assert CommitOnModel.event_log == ["cu", "any"]
 
 CommitOnModel.event_log.clear
-record.destroy
+record.destroy.or_panic
 assert CommitOnModel.event_log == ["d", "any"]
 
 # it: filters after_rollback by the rolled back operation
@@ -59,7 +59,7 @@ record = CommitOnModel.create(name: "a")
 CommitOnModel.event_log.clear
 CommitOnModel.transaction do
   record.name = "b"
-  record.save
+  record.save.or_panic
   Rollback.new
 end.or_panic
 assert CommitOnModel.event_log == ["rb_ud", "rb_any"]
@@ -70,9 +70,9 @@ CommitOnModel.event_log.clear
 CommitOnModel.transaction do
   record = CommitOnModel.create(name: "a")
   record.name = "b"
-  record.save
+  record.save.or_panic
   record.name = "c"
-  record.save
+  record.save.or_panic
   assert CommitOnModel.event_log.empty?
 end.or_panic
 assert CommitOnModel.event_log == ["cu", "any"]
@@ -83,7 +83,7 @@ CommitOnModel.event_log.clear
 CommitOnModel.transaction do
   record = CommitOnModel.create(name: "a")
   record.name = "b"
-  record.save
+  record.save.or_panic
 end.or_panic
 assert CommitOnModel.event_log.count { |event| event == "cu" } == 1
 
@@ -103,7 +103,7 @@ record = CommitOnModel.create(name: "a")
 CommitOnModel.event_log.clear
 CommitOnModel.transaction do
   record.name = "b"
-  record.save
+  record.save.or_panic
 end.or_panic
 assert CommitOnModel.event_log == ["cu", "any"]
 CommitOnModel.adapter.close.or_panic

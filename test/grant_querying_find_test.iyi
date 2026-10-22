@@ -13,7 +13,7 @@ Nation::County.migrator.drop_and_create.or_panic
 # it: finds an object by id
 model = Parent.new
 model.name = "Test Comment"
-model.save
+model.save.or_panic
 found = Parent.find(model.id).or_panic
 assert !found.nil?
 if found
@@ -25,7 +25,7 @@ assert found.id == model.id
 # it: updates states of new_record and persisted
 model = Parent.new
 model.name = "Test Comment"
-model.save
+model.save.or_panic
 model_id = model.id
 model = Parent.find_strict(model_id).or_panic
 assert !model.new_record?
@@ -34,7 +34,7 @@ assert model.persisted?
 # it: finds the object
 school = School.new
 school.name = "Test School"
-school.save
+school.save.or_panic
 primary_key = school.custom_id
 found_school = School.find(primary_key).or_panic
 assert !found_school.nil?
@@ -44,7 +44,7 @@ assert found_school.is_a?(School)
 # it: finds the object
 county = Nation::County.new
 county.name = "Test County"
-county.save
+county.save.or_panic
 primary_key = county.id
 found_county = Nation::County.find(primary_key).or_panic
 assert !found_county.nil?

@@ -73,16 +73,16 @@ assert found[0].id == review2.id
 end
 # it: should return true
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert Parent.where(id: model.id).exists?.or_panic
 # it: should return true
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert Parent.where(name: "Some Name", id: model.id).exists?.or_panic
 # it: should return false
 assert !Parent.where(id: 234567).exists?.or_panic
 # it: should return false
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert !Parent.where(name: "Some Other Name", id: model.id).exists?.or_panic
 Review.adapter.close.or_panic

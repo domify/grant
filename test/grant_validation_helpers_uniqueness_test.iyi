@@ -19,8 +19,8 @@ person_uniqueness1 = PersonUniqueness.new
 person_uniqueness2 = PersonUniqueness.new
 person_uniqueness1.name = "awesomeName"
 person_uniqueness2.name = "awesomeName"
-person_uniqueness1.save
-person_uniqueness2.save
+person_uniqueness1.save.or_panic
+person_uniqueness2.save.or_panic
 assert person_uniqueness1.errors.size == 0
 assert person_uniqueness2.errors.size == 1
 assert person_uniqueness2.errors[0].message == "name should be unique"
@@ -29,10 +29,10 @@ assert person_uniqueness2.errors[0].message == "name should be unique"
 PersonUniqueness.migrator.drop_and_create.or_panic
 person_uniqueness1 = PersonUniqueness.new
 person_uniqueness1.name = "awesomeName"
-person_uniqueness1.save
+person_uniqueness1.save.or_panic
 assert person_uniqueness1.errors.size == 0
 person_uniqueness1.name = "awesomeName"
-person_uniqueness1.save
+person_uniqueness1.save.or_panic
 assert person_uniqueness1.errors.size == 0
 
 PersonUniqueness.adapter.close.or_panic

@@ -1035,12 +1035,12 @@ pub abstract class Base
       end
     end
 
-    def update(**args) : Bool
+    def update(**args) : Bool | ::Grant::Errors::RecordDestroyedError
       assign_attributes(args)
       save
     end
 
-    def update(attributes : T, *, skip_timestamps : Bool = false) : Bool forall T
+    def update(attributes : T, *, skip_timestamps : Bool = false) : Bool | ::Grant::Errors::RecordDestroyedError forall T
       assign_attributes(attributes)
       save(skip_timestamps: skip_timestamps)
     end
@@ -1166,6 +1166,7 @@ pub abstract class Base
 
     def touch(*fields, time : ::Std::Time::Time = ::Grant::Timestamps.current_time) : Bool | ::Grant::Error::ErrorBase | ::Grant::Errors::DatabaseError | ::Grant::Callbacks::Abort
       \{% begin %}
+      guard_not_destroyed_strict("touch")!
       return true if no_touching?
       return ::Grant::Error::ErrorBase.new("Cannot touch on a new record object") unless persisted?
       __remember_transaction_state
@@ -1454,7 +1455,7 @@ pub abstract class Base
     \{% primary = columns.find { |v| v.annotation(::Grant::Base::Column)[:primary] } %}
       record = new
       record.assign_attributes(args)
-      record.save
+      record.save.or_panic
       record
       \{% end %}
     end
@@ -1474,7 +1475,7 @@ pub abstract class Base
     def self.create(attributes : T, *, skip_timestamps : Bool = false) : {{ @type }} forall T
       record = new
       record.assign_attributes(attributes)
-      record.save(skip_timestamps: skip_timestamps)
+      record.save(skip_timestamps: skip_timestamps).or_panic
       record
     end
 
@@ -2134,6 +2135,15 @@ pub abstract class Base
     @new_record
   end
 
+  def frozen? : Bool
+    destroyed?
+  end
+
+  protected def guard_not_destroyed_strict(action : String) : Nil | ::Grant::Errors::RecordDestroyedError
+    return ::Grant::Errors::RecordDestroyedError.new(self.class.to_s, action) if destroyed?
+    nil
+  end
+
   def destroyed? : Bool
     @destroyed
   end
@@ -2142,12 +2152,14 @@ pub abstract class Base
     !(@new_record || @destroyed)
   end
 
-  def save(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool
+  def save(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | ::Grant::Errors::RecordDestroyedError
+    guard_not_destroyed_strict("save")!
     !save_strict(validate: validate, skip_timestamps: skip_timestamps).is_a?(::Error)
   end
 
   # Crystal `save!`.
   def save_strict(*, validate : Bool = true, skip_timestamps : Bool = false) : Bool | RecordNotSaved | DatabaseError | TransactionIsolationError | ::Grant::Error::ErrorBase
+    guard_not_destroyed_strict("save")!
     __guard_context_writes!
     result = __run_save_transaction(validate: validate, skip_timestamps: skip_timestamps)
     return result.cause if result.is_a?(::Grant::Callbacks::Failure)
@@ -2265,7 +2277,8 @@ pub abstract class Base
     self
   end
 
-  def destroy : Bool
+  def destroy : Bool | ::Grant::Errors::RecordDestroyedError
+    guard_not_destroyed_strict("destroy")!
     result = __destroy_with_around
     if result.is_a?(::Error)
       errors << ::Grant::Error::Error.new(:base, result.message)
@@ -2285,8 +2298,8 @@ pub abstract class Base
   end
 
   # Crystal `destroy!`.
-  def destroy_strict : Bool | ::Grant::Errors::RecordNotDestroyed
-    return true if destroy
+  def destroy_strict : Bool | ::Grant::Errors::RecordNotDestroyed | ::Grant::Errors::RecordDestroyedError
+    return true if destroy!
     ::Grant::Errors::RecordNotDestroyed.new(self.class.to_s, self)
   end
 end

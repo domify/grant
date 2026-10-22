@@ -8,12 +8,12 @@ Parent.migrator.drop_and_create.or_panic
 
 # it: should have a message
 parent = Parent.new
-parent.save
+parent.save.or_panic
 assert RecordNotDestroyed.new("Parent", parent).message == "Could not destroy Parent: Name cannot be blank"
 
 # it: should have a model
 parent = Parent.new
-parent.save
+parent.save.or_panic
 assert RecordNotDestroyed.new("Parent", parent).model.as(Parent).object_id == parent.object_id
 
 Parent.adapter.close.or_panic

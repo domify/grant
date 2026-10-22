@@ -111,7 +111,7 @@ assert user.username.nil?
 user = NormalizedUser.new
 user.email = "  TEST@EXAMPLE.COM  "
 user.phone = "(123) 456-7890"
-user.save
+user.save.or_panic
 assert user.email == "test@example.com"
 assert user.phone == "1234567890"
 reloaded = NormalizedUser.find_strict(user.id).or_panic

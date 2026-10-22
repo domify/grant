@@ -19,7 +19,7 @@ LengthTest.migrator.drop_and_create.or_panic
 length_test = LengthTest.new
 length_test.title = "one"
 length_test.description = "abcdefghijklmnopqrstuvwxyz"
-length_test.save
+length_test.save.or_panic
 assert length_test.errors.size == 2
 assert length_test.errors[0].message == "title is too short. It must be at least 5"
 assert length_test.errors[1].message == "description is too long. It must be at most 25"

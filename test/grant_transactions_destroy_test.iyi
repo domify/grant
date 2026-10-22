@@ -13,9 +13,9 @@ CallbackWithAbort.migrator.drop_and_create.or_panic
 # it: destroys an object
 parent = Parent.new
 parent.name = "Test Parent"
-parent.save
+parent.save.or_panic
 id = parent.id
-parent.destroy
+parent.destroy.or_panic
 found = Parent.find(id)
 assert found.nil?
 
@@ -24,28 +24,28 @@ parent = Parent.new
 assert !parent.destroyed?
 assert !parent.persisted?
 parent.name = "Test Parent"
-parent.save
+parent.save.or_panic
 assert !parent.destroyed?
 assert parent.persisted?
-parent.destroy
+parent.destroy.or_panic
 assert parent.destroyed?
 assert !parent.persisted?
 
 # it: destroys an object
 school = School.new
 school.name = "Test School"
-school.save
+school.save.or_panic
 primary_key = school.custom_id
-school.destroy
+school.destroy.or_panic
 found_school = School.find(primary_key)
 assert found_school.nil?
 
 # it: destroys an object
 county = Nation::County.new
 county.name = "Test County"
-county.save
+county.save.or_panic
 primary_key = county.id
-county.destroy
+county.destroy.or_panic
 found_county = Nation::County.find(primary_key)
 assert found_county.nil?
 
@@ -54,7 +54,7 @@ parent = Parent.new
 parent.name = "Test Parent"
 parent.save_strict.or_panic
 id = parent.id
-parent.destroy
+parent.destroy.or_panic
 found = Parent.find(id)
 assert found.nil?
 

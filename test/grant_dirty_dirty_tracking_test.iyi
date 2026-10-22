@@ -7,7 +7,7 @@ Parent.migrator.drop_and_create.or_panic
 
 # it: tracks when an attribute changes
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 assert parent.name_changed?
@@ -16,21 +16,21 @@ assert parent.changed == ["name"]
 
 # it: returns false when attribute hasn't changed
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 assert !parent.name_changed?
 assert !parent.changed?
 
 # it: tracks the original value
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 assert parent.name_was == "Original"
 
 # it: tracks the change tuple
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 change = parent.name_change
@@ -40,7 +40,7 @@ assert change.as(Tuple(Parent::SavedValue, Parent::SavedValue))[1] == "Updated"
 
 # it: tracks multiple attribute changes
 parent = Parent.new(name: "John")
-parent.save
+parent.save.or_panic
 
 parent.name = "Jane"
 parent.created_at = Time.utc(2023, 1, 1)
@@ -55,7 +55,7 @@ assert changes["name"] == {"John", "Jane"}
 
 # it: can restore a single attribute
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 parent.restore_attributes(["name"])
@@ -65,7 +65,7 @@ assert !parent.name_changed?
 
 # it: can restore all changed attributes
 parent = Parent.new(name: "John")
-parent.save
+parent.save.or_panic
 
 original_created_at = parent.created_at
 parent.name = "Jane"
@@ -79,22 +79,22 @@ assert !parent.changed?
 
 # it: clears dirty state after successful save
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 assert parent.changed?
 
-parent.save
+parent.save.or_panic
 
 assert !parent.changed?
 assert !parent.name_changed?
 
 # it: tracks previous changes after save
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
-parent.save
+parent.save.or_panic
 
 assert parent.previous_changes["name"] == {"Original", "Updated"}
 assert parent.saved_changes["name"] == {"Original", "Updated"}
@@ -108,7 +108,7 @@ assert !parent.name_changed?
 
 # it: tracks changes after initial save
 parent = Parent.new(name: "New")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 assert parent.name_changed?
@@ -116,7 +116,7 @@ assert parent.name_was == "New"
 
 # it: doesn't mark as changed when setting same value
 parent = Parent.new(name: "Same")
-parent.save
+parent.save.or_panic
 
 parent.name = "Same"
 assert !parent.name_changed?
@@ -124,7 +124,7 @@ assert !parent.changed?
 
 # it: removes from changed when reverting to original value
 parent = Parent.new(name: "Original")
-parent.save
+parent.save.or_panic
 
 parent.name = "Updated"
 assert parent.name_changed?

@@ -28,7 +28,7 @@ choice_test.number_symbol = 4
 choice_test.type_array_symbol = "foo"
 choice_test.number_string = 2
 choice_test.type_array_string = "bar"
-choice_test.save
+choice_test.save.or_panic
 assert choice_test.errors.size == 4
 assert choice_test.errors[0].message == "number_symbol has an invalid choice. Valid choices are: 1,2,3"
 assert choice_test.errors[1].message == "type_array_symbol has an invalid choice. Valid choices are: internal,external,third_party"

@@ -36,7 +36,7 @@ BteAuthor.clear.or_panic
 house = BteAuthor.create_strict(name: "house").or_panic
 
 post = BtePost.new(title: "t")
-assert post.save
+assert post.save.or_panic
 
 assert post.bte_author_id == house.id
 assert BtePost.find_strict(post.id).or_panic.bte_author_id == house.id
@@ -58,7 +58,7 @@ other = BteAuthor.create_strict(name: "other").or_panic
 
 post = BtePost.new(title: "t")
 post.bte_author = other
-assert post.save
+assert post.save.or_panic
 
 assert post.bte_author_id == other.id
 
@@ -82,7 +82,7 @@ assert post.bte_author_id == house.id
 BtePost.where(id: post.id).update_all(bte_author_id: nil).or_panic
 reloaded = BtePost.find_strict(post.id).or_panic
 reloaded.title = "changed"
-assert reloaded.save(validate: false)
+assert reloaded.save(validate: false).or_panic
 
 assert BtePost.find_strict(post.id).or_panic.bte_author_id.nil?
 
@@ -129,7 +129,7 @@ BteAuthor.clear.or_panic
 note = BteNote.new
 note.bte_author = BteAuthor.new(name: "fresh")
 
-assert note.save
+assert note.save.or_panic
 
 assert BteAuthor.find_by(name: "fresh").or_panic.as(BteAuthor).id == note.bte_author_id
 

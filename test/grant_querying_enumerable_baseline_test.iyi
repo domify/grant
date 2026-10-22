@@ -6,11 +6,11 @@ import test/spec_helper::{register_spec_connections}
 
 pub def reset_parents : Nil
   Parent.clear.or_panic
-  Parent.new(name: "alice").save
-  Parent.new(name: "bob").save
-  Parent.new(name: "carol").save
-  Parent.new(name: "dave").save
-  Parent.new(name: "eve").save
+  Parent.new(name: "alice").save.or_panic
+  Parent.new(name: "bob").save.or_panic
+  Parent.new(name: "carol").save.or_panic
+  Parent.new(name: "dave").save.or_panic
+  Parent.new(name: "eve").save.or_panic
   nil
 end
 

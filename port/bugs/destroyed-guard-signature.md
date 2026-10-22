@@ -1,9 +1,8 @@
-# Destroyed-record guard needs returned errors
+# Destroyed-record guard returned errors
 
-`persistence/destroyed_guard_spec.cr` cannot pass while preserving the existing signatures:
-`Base#save`, model `update`, and `Base#destroy` return `Bool`. The eight upstream examples
-require those methods to return `RecordDestroyedError` for destroyed receivers. The reviewer
-instruction forbids changing those signatures. The spec remains todo; no assertions are removed.
+Resolved following reviewer feedback item 14. `save`, instance `update`, and `destroy`
+return `Bool | RecordDestroyedError`. Strict writes and direct persistence methods propagate
+the same error through their existing error unions. Callers unwrap or propagate returned errors.
 
-A translated draft and additive support patch are retained in this checkout under `build/tmp/`:
-`grant_persistence_destroyed_guard_test.iyi` and `destroyed-guard-support.patch`.
+`test/grant_persistence_destroyed_guard_test.iyi` preserves all eight upstream examples and
+their assertions, including frozen state, every guarded write, and allowed in-memory operations.

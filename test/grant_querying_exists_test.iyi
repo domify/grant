@@ -28,34 +28,34 @@ Kvs.migrator.drop_and_create.or_panic
 # it: should return true
 Parent.clear.or_panic
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert Parent.exists?(model.id).or_panic
 
 # String primary key.
 # it: should return true
 Parent.clear.or_panic
-assert Kvs.new(k: "EXISTS_ID").save
+assert Kvs.new(k: "EXISTS_ID").save.or_panic
 assert Kvs.exists?("EXISTS_ID").or_panic
 
 # Named tuple criteria.
 # it: should return true
 Parent.clear.or_panic
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert Parent.exists?(name: "Some Name", id: model.id).or_panic
 
 # Hash criteria with both symbol and string keys.
 # it: should return true
 Parent.clear.or_panic
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert Parent.exists?({:name => "Some Name", "id" => model.id}).or_panic
 
 # Nil column value.
 # it: should return true
 Parent.clear.or_panic
 model = Student.new
-assert model.save
+assert model.save.or_panic
 assert Student.exists?(name: nil, id: model.id).or_panic
 
 # Numeric primary key.
@@ -72,21 +72,21 @@ assert !Kvs.exists?("SOME_KEY").or_panic
 # it: should return false
 Parent.clear.or_panic
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert !Parent.exists?(name: "Some Other Name", id: model.id).or_panic
 
 # Hash criteria.
 # it: should return false
 Parent.clear.or_panic
 model = Parent.new(name: "Some Name")
-assert model.save
+assert model.save.or_panic
 assert !Parent.exists?({:name => "Some Other Name", "id" => model.id}).or_panic
 
 # Nil column value.
 # it: should return false
 Parent.clear.or_panic
 model = Student.new(name: "Jim")
-assert model.save
+assert model.save.or_panic
 assert !Student.exists?(name: nil, id: model.id).or_panic
 
 assert !Parent.exists?(nil).or_panic

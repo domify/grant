@@ -31,7 +31,7 @@ assert LargeCountProbe.count.or_panic == 2_147_483_648_i64
 
 # it: returns Int64 for model, relation, grouped, and relation size counts
 Parent.clear
-Parent.new(name: "count probe").save
+Parent.new(name: "count probe").save.or_panic
 assert Parent.count.or_panic.is_a?(Int64)
 relation = Parent.where(name: "count probe")
 assert relation.count.or_panic.is_a?(Int64)
@@ -49,7 +49,7 @@ assert count == 0
 # it: returns a number of the all records for the model
 count = Parent.count.or_panic
 2.times do |i|
-  Parent.new(name: "model_#{i}").save
+  Parent.new(name: "model_#{i}").save.or_panic
 end
 assert Parent.count.or_panic - count == 2
 Parent.adapter.close.or_panic

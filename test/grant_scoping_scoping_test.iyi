@@ -46,27 +46,27 @@ UnorderedModel.migrator.drop_and_create.or_panic
 
 # it: defines class methods for scopes
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 assert ScopedModel.responds_to?(:published)
 assert ScopedModel.responds_to?(:active)
 assert ScopedModel.responds_to?(:high_priority)
 
 # it: returns a query builder
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 query = ScopedModel.published
 assert query.is_a?(Builder(ScopedModel))
 
 # it: can chain scopes
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 relation = ScopedModel.published.active
 assert relation.is_a?(ScopedModel::BuildNamedScopeRelation)
 assert relation.where_fields.size == 2
 
 # it: applies scope conditions
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 published = ScopedModel.new(name: "Published", published: true, status: "active")
 published.save_strict.or_panic
 unpublished = ScopedModel.new(name: "Unpublished", published: false, status: "active")
@@ -77,7 +77,7 @@ assert !results.map(&.name).includes?("Unpublished")
 
 # it: can combine multiple scopes
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 high_active = ScopedModel.new(name: "High Active", status: "active", priority: 8, published: true)
 high_active.save_strict.or_panic
 low_active = ScopedModel.new(name: "Low Active", status: "active", priority: 2, published: true)
@@ -91,48 +91,48 @@ assert !results.map(&.name).includes?("High Inactive")
 
 # it: applies default scope to all queries
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 active1 = ScopedModel.new(name: "Active 1")
 active1.save_strict.or_panic
 active2 = ScopedModel.new(name: "Active 2")
 active2.save_strict.or_panic
 deleted = ScopedModel.new(name: "Deleted")
 deleted.save_strict.or_panic
-deleted.update(deleted_at: Time.utc)
+deleted.update(deleted_at: Time.utc).or_panic
 results = ScopedModel.all.select.or_panic
 assert results.size == 2
 assert !results.map(&.name).includes?("Deleted")
 
 # it: applies default scope to find methods
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 active = ScopedModel.new(name: "Active")
 active.save_strict.or_panic
 deleted = ScopedModel.new(name: "Deleted")
 deleted.save_strict.or_panic
-deleted.update(deleted_at: Time.utc)
+deleted.update(deleted_at: Time.utc).or_panic
 assert !ScopedModel.find(active.id).or_panic.nil?
 assert ScopedModel.find(deleted.id).or_panic.nil?
 
 # it: bypasses default scope
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 active = ScopedModel.new(name: "Active")
 active.save_strict.or_panic
 deleted = ScopedModel.new(name: "Deleted")
 deleted.save_strict.or_panic
-deleted.update(deleted_at: Time.utc)
+deleted.update(deleted_at: Time.utc).or_panic
 assert ScopedModel.all.select.or_panic.size == 1
 assert ScopedModel.unscoped.all.select.or_panic.size == 2
 
 # it: can be used with a block
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 active = ScopedModel.new(name: "Active")
 active.save_strict.or_panic
 deleted = ScopedModel.new(name: "Deleted")
 deleted.save_strict.or_panic
-deleted.update(deleted_at: Time.utc)
+deleted.update(deleted_at: Time.utc).or_panic
 results = [] of ScopedModel
 ScopedModel.unscoped do |query|
   results = query.all.select.or_panic
@@ -141,7 +141,7 @@ assert results.size == 2
 
 # it: merges query conditions
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 query2 = ScopedModel.where(published: true)
 merged = ScopedModel.merge(query2)
 assert merged.raw_sql.includes?("(#{ScopedModel.quote("deleted_at")} IS NULL)")
@@ -149,18 +149,18 @@ assert merged.raw_sql.includes?("(#{ScopedModel.quote("published")} = ")
 
 # it: uses most restrictive limit
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 query2 = ScopedModel.limit(5)
 merged = ScopedModel.merge(query2)
 assert merged.limit == 5
 
 # it: allows adding custom methods to queries
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 
 # it: works with order
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 ScopedModel.new(name: "B", published: true).save_strict.or_panic
 ScopedModel.new(name: "A", published: true).save_strict.or_panic
 ScopedModel.new(name: "C", published: false).save_strict.or_panic
@@ -169,7 +169,7 @@ assert results.map(&.name) == ["A", "B"]
 
 # it: works with limit and offset
 ScopedModel.unscoped.delete_all.or_panic
-UnorderedModel.all.select.or_panic.each(&.destroy)
+UnorderedModel.all.select.or_panic.each(&.destroy.or_panic)
 5.times do |record_index|
   model = ScopedModel.new(name: "Model #{record_index}", published: true)
   model.save_strict.or_panic

@@ -52,6 +52,7 @@ pub macro model_methods(model)
   end
 
   def update_columns(args : A) : Bool | ::Grant::Error::ErrorBase forall A
+    guard_not_destroyed_strict("update columns of")!
     return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class} is marked as read only") if readonly?
     return ::Grant::Error::ErrorBase.new("Cannot update columns on a new record object") unless persisted?
     return ::Grant::Error::ArgumentError.new("No columns given to update_columns") if args.empty?
@@ -99,6 +100,7 @@ pub macro model_methods(model)
   end
 
   def increment_strict(field : String | Symbol, by : Int32 | Int64 = 1, touch : Bool | Symbol | Array(Symbol) = false) : self | ::Grant::Error::ErrorBase
+    guard_not_destroyed_strict("increment")!
     return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class} is marked as read only") if readonly?
     if self.class.readonly_attributes.includes?(field.to_s)
       return ::Grant::Readonly::ReadOnlyRecordError.new("#{self.class}##{field} is read only")

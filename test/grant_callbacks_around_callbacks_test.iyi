@@ -138,7 +138,7 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = AroundCallbackModel.new
 record.name = "test"
-record.save
+record.save.or_panic
 
 assert record.log.includes?("around_save:before")
 assert record.log.includes?("around_save:after")
@@ -154,7 +154,7 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = AroundCallbackModel.new
 record.name = "persisted"
-result = record.save
+result = record.save.or_panic
 assert result
 assert AroundCallbackModel.where(name: "persisted").first.or_panic.is_a?(AroundCallbackModel)
 
@@ -165,7 +165,7 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = AroundCallbackModel.new
 record.name = "test_create"
-record.save
+record.save.or_panic
 
 assert record.log.includes?("around_create:before")
 assert record.log.includes?("around_create:after")
@@ -177,11 +177,11 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = AroundCallbackModel.new
 record.name = "update_test"
-record.save
+record.save.or_panic
 record.log.clear
 
 record.name = "update_test_modified"
-record.save
+record.save.or_panic
 
 assert !record.log.includes?("around_create:before")
 assert !record.log.includes?("around_create:after")
@@ -193,12 +193,12 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 created = AroundCallbackModel.new
 created.name = "to_update"
-created.save
+created.save.or_panic
 record = AroundCallbackModel.where(name: "to_update").first_strict.or_panic
 record.log.clear
 
 record.name = "to_update_v2"
-record.save
+record.save.or_panic
 
 assert record.log.includes?("around_update:before")
 assert record.log.includes?("around_update:after")
@@ -210,7 +210,7 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = AroundCallbackModel.new
 record.name = "create_only"
-record.save
+record.save.or_panic
 
 assert !record.log.includes?("around_update:before")
 assert !record.log.includes?("around_update:after")
@@ -222,11 +222,11 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 created = AroundCallbackModel.new
 created.name = "to_destroy"
-created.save
+created.save.or_panic
 record = AroundCallbackModel.where(name: "to_destroy").first_strict.or_panic
 record.log.clear
 
-record.destroy
+record.destroy.or_panic
 
 assert record.log.includes?("around_destroy:before")
 assert record.log.includes?("around_destroy:after")
@@ -238,9 +238,9 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 created = AroundCallbackModel.new
 created.name = "will_die"
-created.save
+created.save.or_panic
 record = AroundCallbackModel.where(name: "will_die").first_strict.or_panic
-result = record.destroy
+result = record.destroy.or_panic
 assert result
 assert AroundCallbackModel.where(name: "will_die").first.or_panic.nil?
 
@@ -252,7 +252,7 @@ MethodAroundModel.clear.or_panic
 record = HaltingAroundModel.new
 record.name = "halt_save"
 record.halt_around_save = true
-result = record.save
+result = record.save.or_panic
 assert !result
 assert HaltingAroundModel.where(name: "halt_save").first.or_panic.nil?
 
@@ -264,7 +264,7 @@ MethodAroundModel.clear.or_panic
 record = HaltingAroundModel.new
 record.name = "halt_create"
 record.halt_around_create = true
-result = record.save
+result = record.save.or_panic
 assert !result
 assert HaltingAroundModel.where(name: "halt_create").first.or_panic.nil?
 
@@ -275,10 +275,10 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 created = HaltingAroundModel.new
 created.name = "no_destroy"
-created.save
+created.save.or_panic
 record = HaltingAroundModel.where(name: "no_destroy").first_strict.or_panic
 record.halt_around_destroy = true
-result = record.destroy
+result = record.destroy.or_panic
 assert !result
 # Record should still exist
 assert HaltingAroundModel.where(name: "no_destroy").first.or_panic.is_a?(HaltingAroundModel)
@@ -291,7 +291,7 @@ MethodAroundModel.clear.or_panic
 record = HaltingAroundModel.new
 record.name = "halt_no_after"
 record.halt_around_save = true
-record.save
+record.save.or_panic
 
 assert record.log.includes?("around_save:halted")
 assert !record.log.includes?("after_save")
@@ -303,7 +303,7 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = MultiAroundModel.new
 record.name = "multi"
-record.save
+record.save.or_panic
 
 # First registered wraps second registered wraps operation
 assert record.log.includes?("outer:before")
@@ -328,7 +328,7 @@ MultiAroundModel.clear.or_panic
 MethodAroundModel.clear.or_panic
 record = MethodAroundModel.new
 record.name = "method_cb"
-record.save
+record.save.or_panic
 
 assert record.log.includes?("method_around:before")
 assert record.log.includes?("method_around:after")

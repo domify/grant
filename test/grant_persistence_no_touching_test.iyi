@@ -143,7 +143,7 @@ statements = WriteSqlCapture.statements(QuietNote.adapter) do
   QuietNote.suppress do
     record = QuietNote.create_strict(name: "ghost").or_panic
     assert record.new_record?
-    assert record.save
+    assert record.save.or_panic
     assert QuietNote.suppressed?
   end
 end

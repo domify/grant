@@ -75,7 +75,7 @@ assert W6PerfPerson.find_strict(second.id).or_panic.name == "two"
 # it: runs one INSERT for a build-then-save as well
 reset
 person = W6PerfPerson.new(name: "built")
-statements = w6_perf_statements { assert person.save }
+statements = w6_perf_statements { assert person.save.or_panic }
 assert statements.map { |sql| sql.split(' ').first } == [W6_PERF_BEGIN.split(' ').first, "INSERT", "COMMIT"]
 
 # it: runs one SELECT

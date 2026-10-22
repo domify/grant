@@ -27,7 +27,7 @@ model.name = "Test User"
 assert model.auth_token.nil?
 assert model.api_key.nil?
 
-model.save
+model.save.or_panic
 
 assert !model.auth_token.nil?
 assert (model.auth_token || raise "Expected token").size == 24
@@ -49,8 +49,8 @@ model = SecureTokenTestModel.create(name: "Test")
 original_token = model.auth_token
 original_api_key = model.api_key
 
-model.regenerate_auth_token
-model.regenerate_api_key
+model.regenerate_auth_token.or_panic
+model.regenerate_api_key.or_panic
 
 assert model.auth_token != original_token
 assert model.api_key != original_api_key
@@ -59,7 +59,7 @@ assert model.api_key != original_api_key
 model = SecureTokenTestModel.create(name: "Test")
 original = model.auth_token
 
-assert model.regenerate_auth_token
+assert model.regenerate_auth_token.or_panic
 
 assert model.auth_token != original
 assert SecureTokenTestModel.find_strict(model.id).or_panic.auth_token == model.auth_token
@@ -91,7 +91,7 @@ code = model.invite_code
 assert !code.nil?
 assert (code || raise "Expected token").size == 10
 
-model.save
+model.save.or_panic
 assert model.invite_code == code
 assert SecureTokenTestModel.find_strict(model.id).or_panic.invite_code == code
 
@@ -107,6 +107,6 @@ model = SecureTokenTestModel.new
 model.name = "Test"
 model.auth_token = "existing_token"
 
-model.save
+model.save.or_panic
 
 assert model.auth_token == "existing_token"

@@ -14,6 +14,18 @@ import grant/error_taxonomy::{StatementInvalid}
 # Compatibility name used by the initial SQLite binding.
 pub alias DatabaseError = StatementInvalid
 
+pub class RecordDestroyedError < ErrorBase
+  def initialize(model_name : String, action : String)
+    super("Cannot #{action} a destroyed #{model_name}")
+  end
+end
+
+impl ::Error for RecordDestroyedError
+  def message : String
+    @message
+  end
+end
+
 pub class RecordNotFound < ErrorBase
   getter model : String
   getter id : String

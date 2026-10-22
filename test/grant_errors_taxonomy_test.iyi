@@ -133,7 +133,7 @@ assert message == "Could not process Parent: the save was halted before the reco
 # it: keeps the existing message when an error was recorded
 Parent.clear.or_panic
 parent = Parent.new
-parent.save
+parent.save.or_panic
 assert ::Grant::Errors::RecordNotSaved.new("Parent", parent).message == "Could not process Parent: Name cannot be blank"
 
 stale = ::Grant::Locking::Optimistic::StaleObjectError.new(parent)

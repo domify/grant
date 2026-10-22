@@ -19,7 +19,7 @@ T6PersistenceRecord.migrator.drop_and_create.or_panic
 # it: converts mass-assigned values and tracks valid updates
 T6PersistenceRecord.clear.or_panic
 record = T6PersistenceRecord.create_strict(name: "before", counter: 1).or_panic
-assert record.update(name: "after")
+assert record.update(name: "after").or_panic
 assert record.previous_changes["name"] == {"before", "after"}
 assert record.saved_change_to_attribute?(:name)
 assert T6PersistenceRecord.find_strict(record.id).or_panic.name == "after"

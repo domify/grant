@@ -56,7 +56,7 @@ W6PerfAuditedPerson.migrator.drop_and_create.or_panic
 reset
 loaded = W6PerfPerson.find_strict(W6PerfPerson.create_strict(name: "Before").or_panic.id).or_panic
 loaded.name = "After"
-statements = w6_perf_statements { assert loaded.save }
+statements = w6_perf_statements { assert loaded.save.or_panic }
 assert statements.size == 3
 assert statements[0].starts_with?(W6_PERF_BEGIN)
 assert statements[1].starts_with?("UPDATE")
@@ -68,7 +68,7 @@ reset
 audited = W6PerfAuditedPerson.create_strict(name: "audited").or_panic
 W6PerfPerson.clear.or_panic
 loaded_audited = W6PerfAuditedPerson.find_strict(audited.id).or_panic
-statements = w6_perf_statements { assert loaded_audited.save }
+statements = w6_perf_statements { assert loaded_audited.save.or_panic }
 assert statements.first.starts_with?(W6_PERF_BEGIN)
 assert statements.last == "COMMIT"
 assert statements.count { |sql| sql.starts_with?("INSERT INTO") } == 1
@@ -80,7 +80,7 @@ audited = W6PerfAuditedPerson.create_strict(name: "audited").or_panic
 W6PerfPerson.clear.or_panic
 loaded_audited = W6PerfAuditedPerson.find_strict(audited.id).or_panic
 W6PerfAuditedPerson.transaction do
-  assert loaded_audited.save
+  assert loaded_audited.save.or_panic
   Rollback.new
 end.or_panic
 assert W6PerfPerson.count.or_panic == 0

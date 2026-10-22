@@ -40,11 +40,11 @@ Courier.migrator.drop_and_create.or_panic
 Character.migrator.drop_and_create.or_panic
 profile = Profile.new
 profile.name = "Test Profile"
-profile.save
+profile.save.or_panic
 
 user = User.new
 user.email = "test@domain.com"
-user.save
+user.save.or_panic
 
 user.profile = profile
 assert profile.user_id == user.id
@@ -56,15 +56,15 @@ Courier.migrator.drop_and_create.or_panic
 Character.migrator.drop_and_create.or_panic
 profile = Profile.new
 profile.name = "Test Profile"
-profile.save
+profile.save.or_panic
 
 user = User.new
 user.email = "test@domain.com"
-user.save
+user.save.or_panic
 
 # profile's foriegn_key is now set, so calling save again
 user.profile = profile
-profile.save
+profile.save.or_panic
 
 retrieved_profile = user.profile_strict.or_panic
 assert retrieved_profile.id == profile.id
@@ -93,10 +93,10 @@ courier.issuer_id = 999
 character = Character.new
 character.character_id = 999
 character.name = "Mr Jones"
-character.save
+character.save.or_panic
 
 courier.issuer = character
-courier.save
+courier.save.or_panic
 
 assert courier.issuer_strict.or_panic.character_id == 999
 
