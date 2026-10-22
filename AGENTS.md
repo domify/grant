@@ -4,7 +4,8 @@ Do not pollute commit messages with co authored by Agents.
 
 Wrap documentation lines at 100 characters maximum.
 
-Read `port/HINTS.md` first, then `port/TASK.md`, `doc/NAMING.md`, and `doc/PORTING.md`.
+Read `port/HINTS.md` first, then `doc/NAMING.md`. `port/TASK.md` is the historical Phase 0/1 brief;
+read `doc/PORTING.md` only by searching it for the area at hand.
 
 Completion means a full `bin/port-check` exits 0. `--fast FILE...` validates only those tests and
 never establishes completion. Never end a port worker response with a list of remaining work. Never
@@ -38,8 +39,9 @@ Split hard files into child entries under the source manifest entry: each child 
 Children must partition all original in-scope examples exactly once. The parent is done only when
 every child is done. Preserve assertions and exact description markers in each child target.
 
-Commit after each spec file, with a descriptive message and no attribution trailers. Workers own
-only their assigned areas; Stage A may change shared modules. Stage B must avoid concurrent core
-changes and use their own worktree branches. Always use `/home/priit/contribute/iyi/bin/iyi` unless
-`IYI` explicitly overrides it, and set `IYI_CACHE_DIR=$PWD/.iyi-cache`. Do not compile the Crystal
-suite.
+Commit after each spec file, with a descriptive message and no attribution trailers. One Codex
+worker ports in the main checkout; the loop runs `bin/port-check --integrate` itself between rounds
+and hands regressions back as the first task. Shared-core signature changes are allowed when a
+spec needs them, provided every affected test is updated in the same commit. Always use
+`/home/priit/contribute/iyi/bin/iyi` unless `IYI` explicitly overrides it, and set
+`IYI_CACHE_DIR=$PWD/.iyi-cache`. Do not compile the Crystal suite.

@@ -2,8 +2,8 @@
 
 State at 26c362f (2026-10-21): 273/476 specs and 2447/4735 upstream examples are done.
 `bin/port-check --integrate` passes everywhere except one known PostgreSQL failure below.
-The Codex worker loop (`port/run-port-resume.sh`) is stopped. Reviewer guidance for workers
-is in `port/feedback/all.md` (gitignored).
+One Codex worker loop (`port/run-port-resume.sh`) ports and runs `--integrate` between rounds.
+Reviewer guidance for the worker is in `port/feedback/all.md` (gitignored).
 
 ## Open decisions
 
@@ -13,11 +13,10 @@ is in `port/feedback/all.md` (gitignored).
    (`reaper.sweep == 3` with a 250 ms max age) and keeps CI red. Proposed fix in `priit/pg`:
    precompute the HMAC pad state once and cache SaltedPassword per (password, salt,
    iterations), then bump `iyi.mod`. Details: `port/bugs/gate-pool-reaper-max-age.md`.
-2. CI (`.github/workflows/port.yml`) runs about 80 minutes serially. Run sqlite and pg as
-   parallel jobs and add parallel workers to `bin/port-check` to bring it to 10-15 minutes.
-3. `persistence/destroyed_guard_spec.cr` needs `save`, `update` and `destroy` to return
-   `Bool | RecordDestroyedError` (raises become error unions), a cross-cutting signature change.
-   A draft is in `port/bugs/destroyed-guard-signature.md`.
+2. Done 2026-10-22: `bin/port-check` runs tests in `PORT_JOBS` parallel slots (own SQLite file,
+   PostgreSQL database and TMPDIR each) and CI runs sqlite and pg as separate parallel jobs.
+3. Decided 2026-10-22: `persistence/destroyed_guard_spec.cr` goes next; `save`, `update` and
+   `destroy` return `Bool | RecordDestroyedError`. Draft: `port/bugs/destroyed-guard-signature.md`.
 
 ## iyi compiler bugs
 

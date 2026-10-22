@@ -1,8 +1,8 @@
 name: port
 
-# Runs every ported test under SQLite and PostgreSQL with `bin/port-check --integrate`.
-# Integrate mode fails on a broken or missing test, not on specs still to port; only a
-# local full `bin/port-check` establishes completion.
+# Runs every ported test under SQLite and PostgreSQL, one parallel job per adapter, with
+# `bin/port-check --integrate`. Integrate mode fails on a broken or missing test, not on specs
+# still to port; only a local full `bin/port-check` establishes completion.
 
 on: [push, pull_request]
 
@@ -20,7 +20,11 @@ env:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [sqlite, pg]
     container:
       image: crystallang/crystal:1.21.0-build
     services:
@@ -66,10 +70,11 @@ jobs:
           git -C iyi checkout -q FETCH_HEAD
           make -C iyi iyi
 
-      - name: Ported tests under SQLite and PostgreSQL
+      - name: Ported tests under ${{ matrix.adapter }}
         shell: bash
         run: |
           mkdir -p build/tmp
           # The iyi pg driver cannot resolve service hostnames; hand it the address.
           export PG_SERVER_URL="postgres://grant:password@$(getent hosts postgres | cut -d' ' -f1):5432"
-          IYI=$PWD/iyi/bin/iyi TMPDIR=$PWD/build/tmp bin/port-check --integrate
+          PORT_ADAPTERS=${{ matrix.adapter }} PORT_JOBS=$(nproc) IYI=$PWD/iyi/bin/iyi \
+            TMPDIR=$PWD/build/tmp bin/port-check --integrate

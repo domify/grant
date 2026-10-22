@@ -3,6 +3,8 @@ require "open3"
 require "pathname"
 require "digest"
 require "set"
+require "etc"
+require "fileutils"
 require_relative "../port/manifest"
 
 Dir.chdir(CoverageGen::ROOT)
@@ -110,32 +112,64 @@ if adapters.include?("pg") && !ENV.key?("PG_DATABASE_URL")
   Open3.capture2e("psql", "#{pg_server}/postgres", "-qc", "CREATE DATABASE #{pg_database}") if status.success? && exists.strip != "1"
 end
 errors << "no tests selected" if tests.empty?
-tests.each do |file|
-  unless File.file?(file) && file.end_with?("_test.iyi")
-    errors << "missing or invalid test: #{file}"
-    next
+# Tests run in PORT_JOBS parallel slots. Each slot has its own SQLite file, PostgreSQL database
+# and TMPDIR, so concurrent tests never share rows.
+jobs = ENV.fetch("PORT_JOBS", [Etc.nprocessors / 2, 1].max.to_s).to_i.clamp(1, 64)
+slot_env = (0...jobs).map do |slot|
+  db = slot.zero? ? pg_database : "#{pg_database}_j#{slot}"
+  tmp = File.join(Dir.pwd, "build", "jobs", slot.to_s)
+  FileUtils.mkdir_p(tmp)
+  if slot.positive? && adapters.include?("pg") && !ENV.key?("PG_DATABASE_URL")
+    exists, _ = Open3.capture2e("psql", "#{pg_server}/postgres", "-qtAc", "SELECT 1 FROM pg_database WHERE datname = '#{db}'")
+    Open3.capture2e("psql", "#{pg_server}/postgres", "-qc", "CREATE DATABASE #{db}") if exists.strip != "1"
   end
-  # Example descriptions are provenance; reject disabling markers in all other lines.
-  contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) || upstream_comments[file].include?(line.strip) }.join
-  # A trailing comment after code (upstream `x.should be_true # skipped`) disables nothing; only
-  # whole-line comment markers do.
-  # Disabling constructs, not words: upstream names such as `skipped` and SQL
-  # such as SKIP LOCKED are ordinary code.
-  errors << "skip/pending/TODO marker: #{file}" if contents.gsub(/^\s*(?:pub\s+)?enum\s+\w+[^\n]*\n(?:[ \t]+[A-Z]\w*(?:[ \t]*=[^\n]*)?[ \t]*\n)+[ \t]*end\b/, "").match?(/^\s*(skip|pending|xit)\b|\bpending!|\b(TODO|FIXME)\b|^\s*#\s*(skip|skipped|pending)\b/i)
-  adapters.each do |adapter|
-    env = ENV.to_h.merge("CURRENT_ADAPTER" => adapter, "PG_DATABASE_URL" => pg_url)
-    output, status = Open3.capture2e(env, iyi, "test", "--json", file)
-    puts "[#{adapter}] #{output}"
-    begin
-      result = JSON.parse(output)
-      passed = status.success? && result["failed"] == 0 && result["skipped"] == 0 && result["passed"].to_i > 0 &&
-        result.fetch("tests").all? { |t| t["status"] == "pass" }
-      errors << "test failed on #{adapter}: #{file}" unless passed
-    rescue JSON::ParserError, KeyError
-      errors << "invalid test JSON on #{adapter}: #{file}"
+  {
+    "PG_DATABASE_URL" => ENV.fetch("PG_DATABASE_URL", "#{pg_server}/#{db}"),
+    "SQLITE_DATABASE_URL" => ENV.fetch("SQLITE_DATABASE_URL", slot.zero? ? "sqlite3:./grant_green.db" : "sqlite3:#{tmp}/grant_green.db"),
+    "TMPDIR" => slot.zero? ? ENV.fetch("TMPDIR", tmp) : tmp,
+  }
+end
+queue = Queue.new
+tests.each { |file| queue << file }
+lock = Mutex.new
+started = Time.now
+workers = slot_env.map do |slot|
+  Thread.new do
+    while (file = (queue.pop(true) rescue nil))
+      unless File.file?(file) && file.end_with?("_test.iyi")
+        lock.synchronize { errors << "missing or invalid test: #{file}" }
+        next
+      end
+      # Example descriptions are provenance; reject disabling markers in all other lines.
+      contents = File.readlines(file).reject { |line| line.match?(/^\s*# it:/) || upstream_comments[file].include?(line.strip) }.join
+      # A trailing comment after code (upstream `x.should be_true # skipped`) disables nothing; only
+      # whole-line comment markers do.
+      # Disabling constructs, not words: upstream names such as `skipped` and SQL
+      # such as SKIP LOCKED are ordinary code.
+      if contents.gsub(/^\s*(?:pub\s+)?enum\s+\w+[^\n]*\n(?:[ \t]+[A-Z]\w*(?:[ \t]*=[^\n]*)?[ \t]*\n)+[ \t]*end\b/, "").match?(/^\s*(skip|pending|xit)\b|\bpending!|\b(TODO|FIXME)\b|^\s*#\s*(skip|skipped|pending)\b/i)
+        lock.synchronize { errors << "skip/pending/TODO marker: #{file}" }
+      end
+      adapters.each do |adapter|
+        env = ENV.to_h.merge(slot).merge("CURRENT_ADAPTER" => adapter)
+        output, status = Open3.capture2e(env, iyi, "test", "--json", file)
+        begin
+          result = JSON.parse(output)
+          passed = status.success? && result["failed"] == 0 && result["skipped"] == 0 && result["passed"].to_i > 0 &&
+            result.fetch("tests").all? { |t| t["status"] == "pass" }
+          error = "test failed on #{adapter}: #{file}" unless passed
+        rescue JSON::ParserError, KeyError
+          error = "invalid test JSON on #{adapter}: #{file}"
+        end
+        lock.synchronize do
+          puts "[#{adapter}] #{output}"
+          errors << error if error
+        end
+      end
     end
   end
 end
+workers.each(&:join)
+puts "RAN #{tests.size} tests x #{adapters.size} adapters in #{(Time.now - started).round}s with #{jobs} jobs"
 errors.each { |error| warn error }
 area = active.find { |entry| entry["status"] != "done" }&.fetch("area") || "complete"
 puts "PORT #{done}/#{active.size} EXAMPLES #{ported}/#{active.sum { |e| e['examples'] }} AREA #{area} #{errors.empty? ? 'OK' : 'FAIL'}"

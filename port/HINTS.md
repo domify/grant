@@ -2,7 +2,12 @@
 
 Scope is SQLite and PostgreSQL (2026-10-14). Only MySQL-only examples are excluded. `bin/port-check` runs every `*_test.iyi` with `CURRENT_ADAPTER=sqlite` and `CURRENT_ADAPTER=pg`; `PORT_ADAPTERS=sqlite` limits a local run. PostgreSQL runs in docker: `docker start grant-pg` (postgres:17, user grant/password, 127.0.0.1:5433); each checkout gets its own database `grant_<hash>`.
 
-Tests live in `test/`; each starts with `module test/<name>` and declares its models `pub`. Run one test by hand from the repository root: `CURRENT_ADAPTER=pg PG_DATABASE_URL=postgres://grant:password@127.0.0.1:5433/<db> IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi test test/file_test.iyi` (create `<db>` with psql first; use your checkout's own name, never a shared one). Use `bin/port-check --fast FILE...` for your targets, `bin/port-check --integrate` before handing a branch back; only full `bin/port-check` establishes completion.
+Tests live in `test/`; each starts with `module test/<name>` and declares its models `pub`. Run one test by hand from the repository root: `CURRENT_ADAPTER=pg PG_DATABASE_URL=postgres://grant:password@127.0.0.1:5433/<db> IYI_CACHE_DIR=$PWD/.iyi-cache /home/priit/contribute/iyi/bin/iyi test test/file_test.iyi` (create `<db>` with psql first; use your checkout's own name, never a shared one). Development loop per spec: iterate with `PORT_ADAPTERS=sqlite bin/port-check --fast FILE...`, then
+run `bin/port-check --fast FILE...` (both adapters) once before committing. After touching a shared
+module, add the tests that use it (`rg -l` the API in `test/`) to that last --fast run. The gate
+runs tests in `PORT_JOBS` parallel slots (default nproc/2), each with its own SQLite file,
+PostgreSQL database and TMPDIR. The loop runs `--integrate`; only full `bin/port-check` establishes
+completion.
 
 ## Faithfulness rules that have been broken before
 
