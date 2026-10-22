@@ -1262,7 +1262,7 @@
   target: test/grant_query_query_parity_test.iyi
   area: query
   examples: 24
-  status: todo
+  status: done
   children:
   - target: test/grant_query_query_parity_test.iyi
     status: done
@@ -1290,7 +1290,7 @@
     - T-e2f426b374
     - T-350633a882
   - target: test/grant_query_query_parity_explain_test.iyi
-    status: todo
+    status: done
     examples:
     - T-a6c22e682d
     - T-c2c4c4bfc9
