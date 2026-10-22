@@ -329,7 +329,7 @@ pub abstract class Base
       @@own_default_database_name = @@connection_name
     {% end %}
     {% if database && !database.is_a?(NamedTupleLiteral) %}
-      @@connection_name = {{ database }}
+      @@connection_name = {{ database }}.to_s
       @@own_default_database_name = @@connection_name
     {% end %}
     {% if config %}
@@ -1245,7 +1245,7 @@ pub abstract class Base
           else \{{ database.values.first }}
           end
         \{% else %}
-          name = \{{ database }}
+          name = \{{ database }}.to_s
         \{% end %}
       \{% else %}
         name = @@connection_name

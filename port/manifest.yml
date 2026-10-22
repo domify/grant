@@ -707,6 +707,22 @@
   area: query
   examples: 9
   status: todo
+  children:
+  - target: test/grant_connection_context_scoping_test.iyi
+    status: todo
+    examples:
+    - T-d6d77166aa
+    - T-8f254b8532
+    - T-56939d8be5
+    - T-4e3abc900d
+  - target: test/grant_connection_context_scoping_sharding_writes_test.iyi
+    status: todo
+    examples:
+    - T-7aec3fef76
+    - T-01bb0ad6cb
+    - T-480f2cc31a
+    - T-8cbcc10d96
+    - T-3cfa29b1ec
 - source: crystal-upstream/spec/grant/connection/health_recovery_spec.cr
   target: test/grant_connection_health_recovery_test.iyi
   area: query
