@@ -709,7 +709,7 @@
   status: todo
   children:
   - target: test/grant_connection_context_scoping_test.iyi
-    status: todo
+    status: done
     examples:
     - T-d6d77166aa
     - T-8f254b8532
