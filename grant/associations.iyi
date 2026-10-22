@@ -1,5 +1,6 @@
 module grant/associations
 
+pub import grant/associations/composite_foreign_key
 pub import grant/association_collection
 import grant/dependent
 import grant/association_options
@@ -9,6 +10,9 @@ pub annotation Relationship
 end
 
 pub macro has_many(model, scope = nil, **options)
+  {% if options[:foreign_key].is_a?(TupleLiteral) || options[:query_constraints].is_a?(TupleLiteral) %}
+    ::Grant::Associations::CompositeForeignKey.composite_has_many({{ model }}, {{ scope }}, {% for key, value in options %}{{ key.id }}: {{ value }}, {% end %})
+  {% else %}
   {% method_name = model.id %}
   {% class_name = options[:class_name] %}
   {% foreign_key = options[:foreign_key] %}
@@ -44,6 +48,16 @@ pub macro has_many(model, scope = nil, **options)
   end
   {% if options[:dependent] == :delete_all %}
     ::Grant::Dependent.setup_dependent_delete_all({{ method_name }}, :has_many, {{ class_name }}, {{ foreign_key.id.stringify }}, {{ primary_key.id.stringify }})
+  {% end %}
+
+  def reset_{{ method_name }} : Nil
+    reset_association({{ method_name.stringify }})
+  end
+
+  def reload_{{ method_name }} : ::Grant::AssociationCollection::AssociationCollection(self, {{ class_name }}) | ::Grant::Error::ErrorBase
+    reload_association({{ method_name.stringify }})!
+    {{ method_name }}
+  end
   {% end %}
 
 end
@@ -216,6 +230,16 @@ pub macro model_methods(model)
 
   def get_loaded_association(name : String) : Array(::Grant::Base::Base)?
     @__loaded_associations[name]?
+  end
+
+  def reset_association(name : String | Symbol) : Nil
+    @__loaded_associations.delete(name.to_s)
+    nil
+  end
+
+  def reload_association(name : String | Symbol) : Nil | ::Grant::Error::ErrorBase
+    reset_association(name)
+    self.class.preload_associations([self], [name.to_s])
   end
 
   def association_loaded?(name : String | Symbol) : Bool
