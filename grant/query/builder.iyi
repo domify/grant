@@ -35,7 +35,7 @@ import grant/query/existence_enumerable::{ExistenceEnumerable}
 import grant/columns::{Type}
 import grant/eager_loading::{QueryMethods}
 import grant/querying::{NotFound, NotUnique}
-import grant/query/where_chain::{WhereChainMethods}
+import grant/query/where_chain_methods::{WhereChainMethods}
 import grant/query/where_composition::{WhereComposition}
 
 # Native counterpart of Grant::Query::Builder(Model)

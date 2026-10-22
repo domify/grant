@@ -385,6 +385,17 @@
   area: transactions
   examples: 4
   status: todo
+  children:
+  - target: test/grant_public_api_return_types_test.iyi
+    status: done
+    examples:
+    - T-04ced72ba1
+    - T-99992a6da5
+    - T-2cbd5c4610
+  - target: test/grant_public_api_return_types_associations_test.iyi
+    status: todo
+    examples:
+    - T-d4727368c6
 - source: crystal-upstream/spec/grant/scale/schema_tenant_spec.cr
   target: test/grant_scale_schema_tenant_test.iyi
   area: transactions

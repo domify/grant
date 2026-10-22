@@ -1,4 +1,7 @@
 module grant/base
+
+pub import grant/collection
+pub import grant/query/where_chain
 pub import grant/replica_load_balancer
 
 import db/db/value
@@ -1554,6 +1557,10 @@ pub abstract class Base
       ::Grant::Query::Builder::Builder({{ @type }}).new(::Grant::Query::Builder::Builder({{ @type }}).db_type_for(adapter))
     end
 
+    def self.where : ::Grant::Query::WhereChain::WhereChain({{ @type }})
+      ::Grant::Query::WhereChain::WhereChain({{ @type }}).new(current_scope)
+    end
+
     def self.where(stmt : String) : ::Grant::Query::Builder::Builder({{ @type }})
       current_scope.where(stmt)
     end
@@ -1689,9 +1696,14 @@ pub abstract class Base
       current_scope
     end
 
-    def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase forall V
+    def self.all(clause : String, values : Array(V)) : Array({{ @type }}) | ::Grant::Collection::Collection({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase forall V
       params = values.map { |value| ::Grant::Base.sqlite_value(value) }
-      raw_all(clause, params)
+      clean_clause = clause.strip
+      if clean_clause.includes?("JOIN ") || params.size > 1 || clean_clause.upcase.starts_with?("ORDER BY ")
+        ::Grant::Collection::Collection({{ @type }}).new(-> { raw_all(clause, params).or_panic })
+      else
+        raw_all(clause, params)
+      end
     end
 
     def self.first(clause : String, values : Array(V)) : {{ @type }} | Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase forall V
@@ -1700,6 +1712,10 @@ pub abstract class Base
 
     def self.find_by_sql(sql : String, binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : Array({{ @type }}) | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase
       __connection.query(sql, binds)!.map { |row| from_row(row)! }
+    end
+
+    def self.import_records(collection : ::Grant::Collection::Collection({{ @type }}), batch_size : Int32 = collection.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Error::ErrorBase
+      import_records(collection.to_a, batch_size, update_on_duplicate, columns, ignore_on_duplicate)
     end
 
     def self.import_records(model_array : Array({{ @type }}), batch_size : Int32 = model_array.size, update_on_duplicate : Bool = false, columns : Array(String) = [] of String, ignore_on_duplicate : Bool = false) : Nil | ::Grant::Errors::DatabaseError | ::Grant::Error::ErrorBase

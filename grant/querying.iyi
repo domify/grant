@@ -181,25 +181,35 @@ pub macro model_methods(model)
     current_scope.where(criteria).exists?
   end
 
-  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : {{ model }} -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
-    batch_scope(clause, params, offset)!.find_each(batch_size) { |record| yield record }
+  # Upstream batching discards successful block values and returns Nil.
+  # Infer the returned error union so custom block errors also propagate.
+  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : {{ model }} -> T) forall T
+    result = batch_scope(clause, params, offset)!.find_each(batch_size) { |record| yield record }
+    return result if result.is_a?(::Error)
+    nil
   end
 
-  def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : Array({{ model }}) -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
+  def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, &block : Array({{ model }}) -> T) forall T
     return ::Grant::Error::ArgumentError.new("batch_size must be positive") if batch_size < 1
-    batch_scope(clause, params, offset)!.find_in_batches(batch_size) { |batch| yield batch }
+    result = batch_scope(clause, params, offset)!.find_in_batches(batch_size) { |batch| yield batch }
+    return result if result.is_a?(::Error)
+    nil
   end
 
-  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options, &block : {{ model }} -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
-    batch_scope(clause, params, offset)!.find_each(batch_size, **options) { |item| yield item }
+  def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options, &block : {{ model }} -> T) forall T
+    result = batch_scope(clause, params, offset)!.find_each(batch_size, **options) { |item| yield item }
+    return result if result.is_a?(::Error)
+    nil
   end
 
   def self.find_each(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options) : ::Grant::Query::Batches::RecordIterator({{ model }}, ::Grant::Query::Builder::Builder({{ model }})) | ::Grant::Error::ErrorBase
     batch_scope(clause, params, offset)!.find_each(batch_size, **options)
   end
 
-  def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options, &block : Array({{ model }}) -> T) : Nil | T | ::Grant::Error::ErrorBase forall T
-    batch_scope(clause, params, offset)!.find_in_batches(batch_size, **options) { |item| yield item }
+  def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options, &block : Array({{ model }}) -> T) forall T
+    result = batch_scope(clause, params, offset)!.find_in_batches(batch_size, **options) { |item| yield item }
+    return result if result.is_a?(::Error)
+    nil
   end
 
   def self.find_in_batches(clause : String = "", params : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value, *, batch_size : Int32 = 1000, offset : Int32 = 0, **options) : ::Grant::Query::Batches::RecordBatchIterator({{ model }}, ::Grant::Query::Builder::Builder({{ model }})) | ::Grant::Error::ErrorBase
@@ -244,7 +254,7 @@ pub macro model_methods(model)
     self
   end
 
-  def self.all(clause : String) : Array({{ model }}) | ::Grant::Error::ErrorBase
+  def self.all(clause : String) : Array({{ model }}) | ::Grant::Collection::Collection({{ model }}) | ::Grant::Error::ErrorBase
     all(clause, [] of ::Grant::Adapter::Driver::Value)
   end
 
@@ -296,6 +306,11 @@ pub macro model_methods(model)
 
   def self.scalar(clause : String = "", binds : Array(::Grant::Adapter::Driver::Value) = [] of ::Grant::Adapter::Driver::Value) : ::Grant::Adapter::Driver::Value | ::Grant::Error::ErrorBase | Cancelled
     connection.select_value(clause, binds)
+  end
+
+  def self.scalar(clause : String, binds : Array(V), &block : ::Grant::Adapter::Driver::Value -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T, V
+    params = binds.map { |value| ::Grant::Base.sqlite_value(value) }
+    yield scalar(clause, params)!
   end
 
   def self.scalar(clause : String, &block : ::Grant::Adapter::Driver::Value -> T) : T | ::Grant::Error::ErrorBase | Cancelled forall T
