@@ -742,6 +742,24 @@
   area: query
   examples: 11
   status: todo
+  children:
+  - target: test/grant_connection_w6_connects_to_registry_test.iyi
+    status: done
+    examples:
+    - T-d936feee67
+    - T-21c6433fde
+    - T-7412917efe
+    - T-98f47b5e5b
+    - T-d73806a51b
+  - target: test/grant_connection_w6_connects_to_registry_shards_test.iyi
+    status: todo
+    examples:
+    - T-06482e608c
+    - T-8f01907e56
+    - T-700f55b26e
+    - T-c040107a43
+    - T-8afa283f72
+    - T-a19648cd76
 - source: crystal-upstream/spec/grant/connection/w6_database_tasks_flag_spec.cr
   target: test/grant_connection_w6_database_tasks_flag_test.iyi
   area: query

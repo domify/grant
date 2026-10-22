@@ -25,6 +25,7 @@ pub class ConnectionHandling
 
   def self.declare(model_name : String, names : Proc(ConnectionNames)) : Nil
     @@declared[model_name] = names
+    ConnectionRegistry.register_declared_connection_verifier { verify_all_strict }
     nil
   end
 

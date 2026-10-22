@@ -266,6 +266,24 @@ pub class ConnectionRegistry
     nil
   end
 
+  # ConnectionHandling installs the boot verifier when a model declares connections.
+  # A callback preserves the facade without a cyclic module import in iyi.
+  @@declared_connection_verifier : Proc(Nil | ErrorBase)? = nil
+
+  def self.register_declared_connection_verifier(&block : -> Nil | ErrorBase) : Nil
+    @@declared_connection_verifier = block
+    nil
+  end
+
+  def self.verify_all_strict : Nil | ErrorBase
+    verifier = @@declared_connection_verifier
+    verifier.nil? ? nil : verifier.call
+  end
+
+  def self.verify_strict(model : T.class) : Nil | ErrorBase forall T
+    model.verify_connections_strict
+  end
+
   def self.verify_strict(database : String, role : Symbol = :primary) : Nil | ConnectionFailed
     monitor = HealthMonitorRegistry.get(key_for(database, normalize_role(role)))
     return ConnectionFailed.new("No connection #{database}:#{role}", ErrorBase.new("Connection not established")) unless monitor
